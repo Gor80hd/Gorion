@@ -1,0 +1,62 @@
+{
+  "version": "1.13.5",
+  "generatedAt": "2026-04-03T15:10:37.3094540Z",
+  "note": "iOS runtime assets are intentionally not vendored in this phase.",
+  "targets": [
+    {
+      "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-windows-amd64.zip",
+      "output": "windows/x64",
+      "binary": "sing-box.exe"
+    },
+    {
+      "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-windows-arm64.zip",
+      "output": "windows/arm64",
+      "binary": "sing-box.exe"
+    },
+    {
+      "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-windows-386.zip",
+      "output": "windows/x86",
+      "binary": "sing-box.exe"
+    },
+    {
+      "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-linux-amd64.tar.gz",
+      "output": "linux/x64",
+      "binary": "sing-box"
+    },
+    {
+      "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-linux-arm64.tar.gz",
+      "output": "linux/arm64",
+      "binary": "sing-box"
+    },
+    {
+      "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-darwin-amd64.tar.gz",
+      "output": "macos/x64",
+      "binary": "sing-box"
+    },
+    {
+      "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-darwin-arm64.tar.gz",
+      "output": "macos/arm64",
+      "binary": "sing-box"
+    },
+    {
+      "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-android-arm.tar.gz",
+      "output": "android/armeabi-v7a",
+      "binary": "sing-box"
+    },
+    {
+      "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-android-arm64.tar.gz",
+      "output": "android/arm64-v8a",
+      "binary": "sing-box"
+    },
+    {
+      "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-android-386.tar.gz",
+      "output": "android/x86",
+      "binary": "sing-box"
+    },
+    {
+      "url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-android-amd64.tar.gz",
+      "output": "android/x86_64",
+      "binary": "sing-box"
+    }
+  ]
+}
