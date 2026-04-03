@@ -114,5 +114,48 @@ void main() {
         'fdfe:dcba:9876::1/126',
       ]);
     });
+
+    test('can limit managed selector groups to a single probe candidate', () {
+      final template = jsonEncode({
+        'outbounds': [
+          {
+            'type': 'vless',
+            'tag': 'server-a',
+            'server': 'a.example.com',
+            'server_port': 443,
+          },
+          {
+            'type': 'trojan',
+            'tag': 'server-b',
+            'server': 'b.example.com',
+            'server_port': 8443,
+          },
+        ],
+      });
+
+      final built = SingboxConfigBuilder.build(
+        templateConfig: template,
+        mode: RuntimeMode.mixed,
+        mixedPort: 2080,
+        controllerPort: 9090,
+        controllerSecret: 'secret-value',
+        urlTestUrl: 'https://www.gstatic.com/generate_204',
+        selectedServerTag: 'server-b',
+        selectableTagsOverride: const ['server-b'],
+      );
+
+      final config = jsonDecode(built.configJson) as Map<String, dynamic>;
+      final outbounds = (config['outbounds'] as List).cast<Map>();
+      final selector = outbounds.firstWhere(
+        (item) => item['tag'] == managedManualSelectorTag,
+      );
+      final urltest = outbounds.firstWhere(
+        (item) => item['tag'] == managedAutoUrlTestTag,
+      );
+
+      expect(selector['outbounds'], ['server-b']);
+      expect(selector['default'], 'server-b');
+      expect(urltest['outbounds'], ['server-b']);
+    });
   });
 }

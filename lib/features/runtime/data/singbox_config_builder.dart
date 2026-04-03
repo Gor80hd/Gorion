@@ -30,6 +30,7 @@ class SingboxConfigBuilder {
     required String controllerSecret,
     required String urlTestUrl,
     String? selectedServerTag,
+    List<String>? selectableTagsOverride,
   }) {
     final config = _decodeMap(templateConfig);
     if (config == null) {
@@ -45,7 +46,20 @@ class SingboxConfigBuilder {
       );
     }
 
-    final selectableTags = [for (final candidate in candidates) candidate.tag];
+    final extractedSelectableTags = [
+      for (final candidate in candidates) candidate.tag,
+    ];
+    final selectableTags = selectableTagsOverride == null
+        ? extractedSelectableTags
+        : [
+            for (final tag in selectableTagsOverride)
+              if (extractedSelectableTags.contains(tag)) tag,
+          ];
+    if (selectableTags.isEmpty) {
+      throw const FormatException(
+        'The selected profile does not expose any selectable outbounds.',
+      );
+    }
     final selectedTag =
         selectedServerTag != null && selectableTags.contains(selectedServerTag)
         ? selectedServerTag

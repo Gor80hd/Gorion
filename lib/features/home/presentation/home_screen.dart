@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
@@ -69,6 +70,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ),
                       const SizedBox(height: 16),
                     ],
+                    if (state.autoSelectActivity.hasTrace) ...[
+                      _AutoSelectProgressCard(
+                        activity: state.autoSelectActivity,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     if (state.bootstrapping)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 64),
@@ -125,6 +132,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   onAutoSelect: notifier.runAutoSelect,
                                 ),
                                 const SizedBox(height: 20),
+                                _AutoSelectSettingsCard(
+                                  state: state,
+                                  onSetEnabled: notifier.setAutoSelectEnabled,
+                                  onSetIpCheck: notifier.setAutoSelectIpCheck,
+                                  onSetExcluded:
+                                      notifier.setAutoSelectServerExcluded,
+                                ),
+                                const SizedBox(height: 20),
                                 _AutoSelectCard(state: state),
                                 const SizedBox(height: 20),
                                 _ServersCard(
@@ -166,6 +181,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             onDisconnect: notifier.disconnect,
                             onRefreshDelays: notifier.refreshDelays,
                             onAutoSelect: notifier.runAutoSelect,
+                          ),
+                          const SizedBox(height: 20),
+                          _AutoSelectSettingsCard(
+                            state: state,
+                            onSetEnabled: notifier.setAutoSelectEnabled,
+                            onSetIpCheck: notifier.setAutoSelectIpCheck,
+                            onSetExcluded: notifier.setAutoSelectServerExcluded,
                           ),
                           const SizedBox(height: 20),
                           _ProfilesCard(
@@ -299,7 +321,7 @@ class _HeroCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'Add a subscription URL, inspect parsed servers, start the vendored sing-box runtime locally and switch selectors through Clash API. This foundation is built to host the migrated auto-selector next.',
+              'Add a subscription URL, inspect parsed servers, start the vendored sing-box runtime locally and switch selectors through Clash API. The parsed server list also includes the Auto-select best entry, which chooses and maintains a real server for you while connected.',
               style: theme.textTheme.bodyLarge?.copyWith(
                 color: Colors.white.withValues(alpha: 0.88),
                 height: 1.5,
@@ -337,6 +359,109 @@ class _MessageCard extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(child: Text(text)),
         ],
+      ),
+    );
+  }
+}
+
+class _AutoSelectProgressCard extends StatelessWidget {
+  const _AutoSelectProgressCard({required this.activity});
+
+  final AutoSelectActivityState activity;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final visibleLines = activity.logLines.length <= 8
+        ? activity.logLines.reversed.toList()
+        : activity.logLines
+              .sublist(activity.logLines.length - 8)
+              .reversed
+              .toList();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    activity.label ?? 'Auto-select activity',
+                    style: theme.textTheme.titleLarge,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: activity.active
+                        ? const Color(0xFFF1ECE2)
+                        : const Color(0xFFEDF7F2),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(activity.active ? 'Running' : 'Last pass'),
+                ),
+              ],
+            ),
+            if (activity.message != null) ...[
+              const SizedBox(height: 8),
+              Text(activity.message!, style: theme.textTheme.bodyMedium),
+            ],
+            if (activity.active || activity.progressValue != null) ...[
+              const SizedBox(height: 16),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  minHeight: 10,
+                  value: activity.progressValue,
+                  backgroundColor: const Color(0xFFE8E1D7),
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                    Color(0xFF0E6C66),
+                  ),
+                ),
+              ),
+            ],
+            if (activity.progressLabel != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Progress ${activity.progressLabel}',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+            if (visibleLines.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF17211F),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final line in visibleLines)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          line,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFFE8EEE6),
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -570,9 +695,14 @@ class _ConnectionCard extends StatelessWidget {
                   ),
                 ),
                 OutlinedButton.icon(
-                  onPressed: state.busy || !connected ? null : onAutoSelect,
+                  onPressed:
+                      state.busy ||
+                          !connected ||
+                          !isAutoSelectServerTag(state.selectedServerTag)
+                      ? null
+                      : onAutoSelect,
                   icon: const Icon(Icons.auto_awesome),
-                  label: const Text('Auto-select best'),
+                  label: const Text('Re-run auto'),
                 ),
               ],
             ),
@@ -602,13 +732,17 @@ class _AutoSelectCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'The first migrated slice evaluates candidate servers using URLTest and real proxy probes. Domain and IP results are shown separately because partial connectivity is normal in censored networks.',
+              'The auto-selector is exposed as a dedicated server entry. Select Auto-select best in the server list to let the app choose and maintain the active server while sing-box stays connected.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
             if (state.autoSelectResults.isEmpty)
-              const Text(
-                'Run Auto-select best after connecting to inspect the ranked candidates.',
+              Text(
+                state.autoSelectActivity.hasTrace
+                    ? state.autoSelectActivity.active
+                          ? 'The current auto-select pass is running. Live progress is shown above.'
+                          : 'The latest auto-select pass finished. Ranked probe results will appear here after a pass publishes them.'
+                    : 'Select Auto-select best in the server list, then connect to start automatic server selection and maintenance.',
               )
             else
               Column(
@@ -679,6 +813,170 @@ class _AutoSelectCard extends StatelessWidget {
                     ),
                 ],
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AutoSelectSettingsCard extends StatelessWidget {
+  const _AutoSelectSettingsCard({
+    required this.state,
+    required this.onSetEnabled,
+    required this.onSetIpCheck,
+    required this.onSetExcluded,
+  });
+
+  final DashboardState state;
+  final Future<void> Function(bool enabled) onSetEnabled;
+  final Future<void> Function(bool enabled) onSetIpCheck;
+  final Future<void> Function(String serverTag, bool excluded) onSetExcluded;
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = state.activeProfile;
+    final settings = state.autoSelectSettings;
+    final excludedCount = profile == null
+        ? 0
+        : profile.servers
+              .where((server) => settings.isExcluded(profile.id, server.tag))
+              .length;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Auto-select settings',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Control whether automatic selection is active, whether it requires an IP-only probe, and which real servers stay out of the automatic pool. Excluded servers remain available for manual use.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: settings.enabled,
+              onChanged: state.busy ? null : onSetEnabled,
+              title: const Text('Enable automatic server selection'),
+              subtitle: const Text(
+                'Pre-connect probing and ongoing maintenance only run while this is enabled.',
+              ),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: settings.checkIp,
+              onChanged: state.busy || !settings.enabled ? null : onSetIpCheck,
+              title: const Text('Require IP-only probe'),
+              subtitle: const Text(
+                'Keep this enabled to reject servers that only pass domain traffic partially.',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F3EA),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFE2DDD4)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Probe endpoints',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Domain probe: ${settings.domainProbeUrl}',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'IP probe: ${settings.ipProbeUrl}',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Excluded servers',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                if (profile != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1ECE2),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text('$excludedCount / ${profile.servers.length}'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (profile == null)
+              const Text(
+                'Select a profile to manage which servers are excluded from automatic selection.',
+              )
+            else if (profile.servers.isEmpty)
+              const Text('The active profile does not have any parsed servers.')
+            else
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final server in profile.servers)
+                    FilterChip(
+                      label: Text(server.displayName),
+                      selected: settings.isExcluded(profile.id, server.tag),
+                      onSelected: state.busy
+                          ? null
+                          : (selected) async {
+                              await onSetExcluded(server.tag, selected);
+                            },
+                      avatar: Icon(
+                        state.activeServerTag == server.tag
+                            ? Icons.bolt
+                            : Icons.dns_outlined,
+                        size: 18,
+                      ),
+                      selectedColor: const Color(0xFFF7DFDF),
+                      checkmarkColor: const Color(0xFF8B1E1E),
+                      side: BorderSide(
+                        color: settings.isExcluded(profile.id, server.tag)
+                            ? const Color(0xFFCC9090)
+                            : const Color(0xFFE2DDD4),
+                      ),
+                    ),
+                ],
+              ),
+            if (profile != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Tap a chip to exclude or restore a server. Manual connection remains available even when a server is excluded from auto-select.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ],
         ),
       ),
@@ -797,7 +1095,9 @@ class _ServersCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final profile = state.activeProfile;
-    final servers = profile?.servers ?? const <ServerEntry>[];
+    final servers = buildSelectableServerEntries(
+      profile?.servers ?? const <ServerEntry>[],
+    );
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -821,8 +1121,14 @@ class _ServersCard extends StatelessWidget {
                 separatorBuilder: (context, index) => const Divider(height: 18),
                 itemBuilder: (context, index) {
                   final server = servers[index];
+                  final autoEntry = isAutoSelectServerTag(server.tag);
                   final selected = state.selectedServerTag == server.tag;
-                  final delay = state.delayByTag[server.tag];
+                  final delayTag = autoEntry
+                      ? state.activeServerTag
+                      : server.tag;
+                  final delay = delayTag == null
+                      ? null
+                      : state.delayByTag[delayTag];
                   return InkWell(
                     onTap: state.busy ? null : () => onSelectServer(server.tag),
                     borderRadius: BorderRadius.circular(22),
@@ -863,13 +1169,16 @@ class _ServersCard extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  [
-                                    server.type.toUpperCase(),
-                                    if (server.host != null &&
-                                        server.host!.isNotEmpty)
-                                      server.host!,
-                                    if (server.port != null) '${server.port}',
-                                  ].join(' • '),
+                                  autoEntry
+                                      ? _autoServerDescription(profile)
+                                      : [
+                                          server.type.toUpperCase(),
+                                          if (server.host != null &&
+                                              server.host!.isNotEmpty)
+                                            server.host!,
+                                          if (server.port != null)
+                                            '${server.port}',
+                                        ].join(' • '),
                                   style: Theme.of(context).textTheme.bodyMedium,
                                 ),
                               ],
@@ -897,6 +1206,21 @@ class _ServersCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _autoServerDescription(ProxyProfile? profile) {
+    final activeTag = state.activeServerTag;
+    if (profile == null || activeTag == null) {
+      return 'Automatically chooses and maintains the best server.';
+    }
+
+    for (final server in profile.servers) {
+      if (server.tag == activeTag) {
+        return 'Automatically chooses and maintains the best server • current ${server.displayName}';
+      }
+    }
+
+    return 'Automatically chooses and maintains the best server.';
   }
 }
 

@@ -1,5 +1,22 @@
 import 'dart:convert';
 
+const autoSelectServerTag = 'gorion-auto-selector';
+const autoSelectServerEntry = ServerEntry(
+  tag: autoSelectServerTag,
+  displayName: 'Auto-select best',
+  type: 'auto',
+);
+
+bool isAutoSelectServerTag(String? tag) => tag == autoSelectServerTag;
+
+List<ServerEntry> buildSelectableServerEntries(List<ServerEntry> servers) {
+  if (servers.isEmpty) {
+    return const <ServerEntry>[];
+  }
+
+  return [autoSelectServerEntry, ...servers];
+}
+
 class SubscriptionInfo {
   const SubscriptionInfo({
     required this.upload,
@@ -36,7 +53,9 @@ class SubscriptionInfo {
       upload: (json['upload'] as num?)?.toInt() ?? 0,
       download: (json['download'] as num?)?.toInt() ?? 0,
       total: (json['total'] as num?)?.toInt() ?? 0,
-      expireAt: json['expireAt'] == null ? null : DateTime.tryParse(json['expireAt'].toString()),
+      expireAt: json['expireAt'] == null
+          ? null
+          : DateTime.tryParse(json['expireAt'].toString()),
       webPageUrl: json['webPageUrl']?.toString(),
       supportUrl: json['supportUrl']?.toString(),
     );
@@ -90,6 +109,7 @@ class ProxyProfile {
     required this.servers,
     this.subscriptionInfo,
     this.lastSelectedServerTag,
+    this.lastAutoSelectedServerTag,
   });
 
   final String id;
@@ -101,15 +121,53 @@ class ProxyProfile {
   final List<ServerEntry> servers;
   final SubscriptionInfo? subscriptionInfo;
   final String? lastSelectedServerTag;
+  final String? lastAutoSelectedServerTag;
 
   String? get selectedServerTag {
-    if (lastSelectedServerTag != null && lastSelectedServerTag!.isNotEmpty) {
+    if (isAutoSelectServerTag(lastSelectedServerTag)) {
+      return autoSelectServerTag;
+    }
+    if (_containsServerTag(lastSelectedServerTag)) {
       return lastSelectedServerTag;
     }
     if (servers.isEmpty) {
       return null;
     }
     return servers.first.tag;
+  }
+
+  bool get prefersAutoSelection => isAutoSelectServerTag(selectedServerTag);
+
+  String? get resolvedAutoSelectedServerTag {
+    if (_containsServerTag(lastAutoSelectedServerTag)) {
+      return lastAutoSelectedServerTag;
+    }
+    return null;
+  }
+
+  String? get startupServerTag {
+    if (servers.isEmpty) {
+      return null;
+    }
+
+    if (prefersAutoSelection) {
+      return resolvedAutoSelectedServerTag ?? servers.first.tag;
+    }
+
+    return selectedServerTag;
+  }
+
+  bool _containsServerTag(String? serverTag) {
+    if (serverTag == null || serverTag.isEmpty) {
+      return false;
+    }
+
+    for (final server in servers) {
+      if (server.tag == serverTag) {
+        return true;
+      }
+    }
+    return false;
   }
 
   ProxyProfile copyWith({
@@ -124,6 +182,8 @@ class ProxyProfile {
     bool clearSubscriptionInfo = false,
     String? lastSelectedServerTag,
     bool clearLastSelectedServerTag = false,
+    String? lastAutoSelectedServerTag,
+    bool clearLastAutoSelectedServerTag = false,
   }) {
     return ProxyProfile(
       id: id ?? this.id,
@@ -133,10 +193,15 @@ class ProxyProfile {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       servers: servers ?? this.servers,
-      subscriptionInfo: clearSubscriptionInfo ? null : subscriptionInfo ?? this.subscriptionInfo,
+      subscriptionInfo: clearSubscriptionInfo
+          ? null
+          : subscriptionInfo ?? this.subscriptionInfo,
       lastSelectedServerTag: clearLastSelectedServerTag
           ? null
           : lastSelectedServerTag ?? this.lastSelectedServerTag,
+      lastAutoSelectedServerTag: clearLastAutoSelectedServerTag
+          ? null
+          : lastAutoSelectedServerTag ?? this.lastAutoSelectedServerTag,
     );
   }
 
@@ -151,13 +216,18 @@ class ProxyProfile {
       'servers': servers.map((server) => server.toJson()).toList(),
       'subscriptionInfo': subscriptionInfo?.toJson(),
       'lastSelectedServerTag': lastSelectedServerTag,
+      'lastAutoSelectedServerTag': lastAutoSelectedServerTag,
     };
   }
 
   factory ProxyProfile.fromJson(Map<String, dynamic> json) {
     final servers = (json['servers'] as List? ?? const [])
         .whereType<Map>()
-        .map((item) => ServerEntry.fromJson(Map<String, dynamic>.from(item.cast<String, dynamic>())))
+        .map(
+          (item) => ServerEntry.fromJson(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
         .toList(growable: false);
 
     return ProxyProfile(
@@ -165,13 +235,22 @@ class ProxyProfile {
       name: json['name']?.toString() ?? '',
       subscriptionUrl: json['subscriptionUrl']?.toString() ?? '',
       templateFileName: json['templateFileName']?.toString() ?? '',
-      createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(json['updatedAt']?.toString() ?? '') ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
+          DateTime.now(),
+      updatedAt:
+          DateTime.tryParse(json['updatedAt']?.toString() ?? '') ??
+          DateTime.now(),
       servers: servers,
       subscriptionInfo: json['subscriptionInfo'] is Map
-          ? SubscriptionInfo.fromJson(Map<String, dynamic>.from((json['subscriptionInfo'] as Map).cast<String, dynamic>()))
+          ? SubscriptionInfo.fromJson(
+              Map<String, dynamic>.from(
+                (json['subscriptionInfo'] as Map).cast<String, dynamic>(),
+              ),
+            )
           : null,
       lastSelectedServerTag: json['lastSelectedServerTag']?.toString(),
+      lastAutoSelectedServerTag: json['lastAutoSelectedServerTag']?.toString(),
     );
   }
 }
@@ -191,10 +270,7 @@ class ParsedSubscription {
 }
 
 class StoredProfilesState {
-  const StoredProfilesState({
-    this.activeProfileId,
-    this.profiles = const [],
-  });
+  const StoredProfilesState({this.activeProfileId, this.profiles = const []});
 
   final String? activeProfileId;
   final List<ProxyProfile> profiles;
@@ -218,7 +294,9 @@ class StoredProfilesState {
     List<ProxyProfile>? profiles,
   }) {
     return StoredProfilesState(
-      activeProfileId: clearActiveProfileId ? null : activeProfileId ?? this.activeProfileId,
+      activeProfileId: clearActiveProfileId
+          ? null
+          : activeProfileId ?? this.activeProfileId,
       profiles: profiles ?? this.profiles,
     );
   }
@@ -233,7 +311,11 @@ class StoredProfilesState {
   factory StoredProfilesState.fromJson(Map<String, dynamic> json) {
     final profiles = (json['profiles'] as List? ?? const [])
         .whereType<Map>()
-        .map((item) => ProxyProfile.fromJson(Map<String, dynamic>.from(item.cast<String, dynamic>())))
+        .map(
+          (item) => ProxyProfile.fromJson(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
         .toList(growable: false);
 
     return StoredProfilesState(

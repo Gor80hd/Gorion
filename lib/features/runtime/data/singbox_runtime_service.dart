@@ -2,15 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/services.dart';
 import 'package:gorion_clean/core/constants/singbox_assets.dart';
+import 'package:gorion_clean/core/logging/gorion_console_log.dart';
 import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_config_builder.dart';
+import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
 import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 const _runtimeProcessMarkerFileName = 'runtime-process.json';
@@ -241,42 +241,15 @@ class SingboxRuntimeService {
   }
 
   Future<File> _prepareBinary(Directory runtimeDir) async {
-    final descriptor = resolveSingboxAsset();
-    final binaryFile = File(p.join(runtimeDir.path, descriptor.fileName));
-    final versionMarker = File(p.join(runtimeDir.path, 'sing-box.version'));
-    final expectedMarker = '$singboxVersion:${descriptor.assetPath}';
-
-    if (await binaryFile.exists() && await versionMarker.exists()) {
-      final marker = await versionMarker.readAsString();
-      if (marker.trim() == expectedMarker) {
-        return binaryFile;
-      }
-    }
-
-    final assetData = await rootBundle.load(descriptor.assetPath);
-    await binaryFile.writeAsBytes(assetData.buffer.asUint8List(), flush: true);
-    await versionMarker.writeAsString(expectedMarker, flush: true);
-
-    if (!Platform.isWindows) {
-      await Process.run('chmod', ['755', binaryFile.path]);
-    }
-    return binaryFile;
+    return prepareSingboxBinary(runtimeDir);
   }
 
   Future<Directory> _runtimeDirectory() async {
-    final supportDir = await getApplicationSupportDirectory();
-    final runtimeDir = Directory(p.join(supportDir.path, 'gorion', 'runtime'));
-    if (!await runtimeDir.exists()) {
-      await runtimeDir.create(recursive: true);
-    }
-    return runtimeDir;
+    return ensureGorionRuntimeDirectory();
   }
 
   Future<int> _findFreePort() async {
-    final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final port = socket.port;
-    await socket.close();
-    return port;
+    return findFreePort();
   }
 
   Future<void> _cleanupOrphanedProcess(Directory runtimeDir) async {
@@ -380,8 +353,7 @@ class SingboxRuntimeService {
     final timestamp = DateTime.now().toIso8601String();
     final entry = '[$timestamp] $line';
     _logs.add(entry);
-    final sink = isError ? stderr : stdout;
-    sink.writeln('[gorion.runtime] $entry');
+    GorionConsoleLog.connect(line, isError: isError);
     if (_logs.length > 200) {
       _logs.removeRange(0, _logs.length - 200);
     }

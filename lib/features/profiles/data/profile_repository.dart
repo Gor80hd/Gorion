@@ -8,7 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 class ProfileRepository {
-  ProfileRepository({ProfileParser? parser}) : _parser = parser ?? ProfileParser();
+  ProfileRepository({ProfileParser? parser})
+    : _parser = parser ?? ProfileParser();
 
   final ProfileParser _parser;
   final Uuid _uuid = const Uuid();
@@ -29,7 +30,9 @@ class ProfileRepository {
       return StoredProfilesState.fromJson(decoded);
     }
     if (decoded is Map) {
-      return StoredProfilesState.fromJson(Map<String, dynamic>.from(decoded.cast<String, dynamic>()));
+      return StoredProfilesState.fromJson(
+        Map<String, dynamic>.from(decoded.cast<String, dynamic>()),
+      );
     }
     return const StoredProfilesState();
   }
@@ -50,6 +53,7 @@ class ProfileRepository {
       servers: parsed.servers,
       subscriptionInfo: parsed.subscriptionInfo,
       lastSelectedServerTag: parsed.servers.first.tag,
+      lastAutoSelectedServerTag: parsed.servers.first.tag,
     );
 
     await _writeTemplateFile(templateFileName, parsed.normalizedConfigJson);
@@ -61,7 +65,9 @@ class ProfileRepository {
     return next;
   }
 
-  Future<StoredProfilesState> refreshRemoteSubscription(String profileId) async {
+  Future<StoredProfilesState> refreshRemoteSubscription(
+    String profileId,
+  ) async {
     final state = await loadState();
     ProxyProfile? profile;
     for (final item in state.profiles) {
@@ -75,12 +81,25 @@ class ProfileRepository {
     }
     final currentProfile = profile;
     if (currentProfile.subscriptionUrl.trim().isEmpty) {
-      throw const FormatException('Only remote subscription profiles can be refreshed.');
+      throw const FormatException(
+        'Only remote subscription profiles can be refreshed.',
+      );
     }
 
     final parsed = await _parser.fetchAndParse(currentProfile.subscriptionUrl);
-    final preservedSelection = parsed.servers.any((server) => server.tag == currentProfile.selectedServerTag)
+    final preservedSelection = currentProfile.prefersAutoSelection
+        ? autoSelectServerTag
+        : parsed.servers.any(
+            (server) => server.tag == currentProfile.selectedServerTag,
+          )
         ? currentProfile.selectedServerTag
+        : parsed.servers.first.tag;
+    final preservedAutoSelection =
+        parsed.servers.any(
+          (server) =>
+              server.tag == currentProfile.resolvedAutoSelectedServerTag,
+        )
+        ? currentProfile.resolvedAutoSelectedServerTag
         : parsed.servers.first.tag;
     final updatedProfile = currentProfile.copyWith(
       name: parsed.name,
@@ -88,11 +107,16 @@ class ProfileRepository {
       servers: parsed.servers,
       subscriptionInfo: parsed.subscriptionInfo,
       lastSelectedServerTag: preservedSelection,
+      lastAutoSelectedServerTag: preservedAutoSelection,
     );
 
-    await _writeTemplateFile(currentProfile.templateFileName, parsed.normalizedConfigJson);
+    await _writeTemplateFile(
+      currentProfile.templateFileName,
+      parsed.normalizedConfigJson,
+    );
     final profiles = [
-      for (final item in state.profiles) if (item.id == profileId) updatedProfile else item,
+      for (final item in state.profiles)
+        if (item.id == profileId) updatedProfile else item,
     ];
     final next = state.copyWith(profiles: profiles);
     await _writeState(next);
@@ -111,11 +135,34 @@ class ProfileRepository {
     return next;
   }
 
-  Future<StoredProfilesState> updateSelectedServer(String profileId, String serverTag) async {
+  Future<StoredProfilesState> updateSelectedServer(
+    String profileId,
+    String serverTag,
+  ) async {
     final state = await loadState();
     final profiles = [
       for (final profile in state.profiles)
-        if (profile.id == profileId) profile.copyWith(lastSelectedServerTag: serverTag) else profile,
+        if (profile.id == profileId)
+          profile.copyWith(lastSelectedServerTag: serverTag)
+        else
+          profile,
+    ];
+    final next = state.copyWith(profiles: profiles);
+    await _writeState(next);
+    return next;
+  }
+
+  Future<StoredProfilesState> updateAutoSelectedServer(
+    String profileId,
+    String serverTag,
+  ) async {
+    final state = await loadState();
+    final profiles = [
+      for (final profile in state.profiles)
+        if (profile.id == profileId)
+          profile.copyWith(lastAutoSelectedServerTag: serverTag)
+        else
+          profile,
     ];
     final next = state.copyWith(profiles: profiles);
     await _writeState(next);
@@ -193,6 +240,8 @@ class ProfileRepository {
 
   Future<void> _writeState(StoredProfilesState state) async {
     final indexFile = await _indexFile();
-    await indexFile.writeAsString(const JsonEncoder.withIndent('  ').convert(state.toJson()));
+    await indexFile.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(state.toJson()),
+    );
   }
 }

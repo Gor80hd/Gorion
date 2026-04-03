@@ -16,7 +16,7 @@ Flutter client under active migration from the older Gorion project onto upstrea
 - Subscriptions are stored locally as profile template configs.
 - Parsed server inventory is derived from selectable sing-box outbounds.
 - Manual server switching is performed through the local Clash API selector.
-- The first migrated auto-selector slice is implemented as a one-shot `Auto-select best` action using:
+- The migrated auto-selector is exposed as a dedicated `Auto-select best` server entry. When that server is selected, the app starts the runtime, chooses the best real server, and keeps monitoring it using:
 	- `URLTest`
 	- domain-based proxy probing
 	- IP-based proxy probing

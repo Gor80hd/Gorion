@@ -56,6 +56,35 @@ List<AutoSelectConfigCandidate> extractAutoSelectConfigCandidates(String generat
   return candidates;
 }
 
+/// Builds a minimal sing-box config that forwards all traffic through
+/// [outbound] on a local mixed proxy bound to [mixedPort].
+///
+/// The resulting JSON has no DNS section, no complex routing rules, no Clash
+/// API and no URL-test group — just what is needed to proxy a single TCP
+/// connection through the target server so a basic HTTP probe can verify it.
+/// This starts much faster and fails faster than a full profile config.
+String buildMinimalProbeConfig({
+  required Map<String, dynamic> outbound,
+  required int mixedPort,
+}) {
+  return jsonEncode({
+    'log': {'level': 'warn'},
+    'inbounds': [
+      {
+        'type': 'mixed',
+        'listen': '127.0.0.1',
+        'listen_port': mixedPort,
+        'tag': 'probe$mixedPort',
+      },
+    ],
+    'outbounds': [
+      outbound,
+      {'type': 'direct', 'tag': 'direct'},
+    ],
+    'route': {'final': outbound['tag']},
+  });
+}
+
 Map<String, dynamic>? extractAutoSelectConfigOutbound(String generatedConfig, String serverTag) {
   final config = _decodeConfig(generatedConfig);
   if (config == null) return null;
