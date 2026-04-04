@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -9,12 +10,15 @@ import 'package:gap/gap.dart';
 import 'package:gorion_clean/core/widget/emoji_flag_text.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
+import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
+import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/runtime/model/connection_status.dart';
 import 'package:gorion_clean/features/runtime/notifier/connection_notifier.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
 import 'package:gorion_clean/features/home/notifier/home_status_card_provider.dart';
 import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
 import 'package:gorion_clean/features/intro/utils/region_detector.dart';
+import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
 import 'package:gorion_clean/features/proxy/notifier/ip_info_notifier.dart';
 import 'package:gorion_clean/features/proxy/utils/ip_info_display.dart';
@@ -717,7 +721,7 @@ String _formatSpeed(int bytesPerSec) {
   return '${(bytesPerSec / 1024).toStringAsFixed(0)} KB/S';
 }
 
-class _ServerInfoPopup extends ConsumerWidget {
+class _ServerInfoPopup extends HookConsumerWidget {
   const _ServerInfoPopup({
     required this.model,
     required this.isConnected,
@@ -742,12 +746,28 @@ class _ServerInfoPopup extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final dashboardState = ref.watch(dashboardControllerProvider);
     final isBenchmarking = ref.watch(benchmarkActiveProvider);
     final autoSelectionProgress = ref.watch(
       autoServerSelectionProgressProvider,
     );
+    final connectedAt = dashboardState.connectedAt;
+    final lastBestServerCheckAt = dashboardState.lastBestServerCheckAt;
+    final bestServerCheckRunning = _isBestServerCheckActivity(
+      dashboardState.autoSelectActivity,
+    );
     final proxyInfo = model.displayProxy;
     final type = proxyInfo?.type.toUpperCase() ?? '';
+    final showSessionTimerTag = isConnected && connectedAt != null;
+    final showBestServerCheck =
+        isConnected &&
+        (lastBestServerCheckAt != null || bestServerCheckRunning);
+    final showMetaTags =
+        type.isNotEmpty ||
+        model.isAutoMode ||
+        showSessionTimerTag ||
+        showBestServerCheck;
+    final timerNow = useState(DateTime.now());
     final ping = proxyInfo?.urlTestDelay ?? 0;
     final currentIpInfo = isConnected ? model.currentIp : null;
     final shouldAnimateProgressStroke =
@@ -763,6 +783,27 @@ class _ServerInfoPopup extends ConsumerWidget {
     final throughputSummary = isConnected
         ? '↓ ${_formatSpeed(downlink)} · ↑ ${_formatSpeed(uplink)}'
         : null;
+
+    useEffect(
+      () {
+        if (!showSessionTimerTag && !showBestServerCheck) {
+          return null;
+        }
+
+        timerNow.value = DateTime.now();
+        final timer = Timer.periodic(const Duration(seconds: 1), (_) {
+          timerNow.value = DateTime.now();
+        });
+        return timer.cancel;
+      },
+      [
+        showSessionTimerTag,
+        showBestServerCheck,
+        connectedAt,
+        lastBestServerCheckAt,
+        bestServerCheckRunning,
+      ],
+    );
 
     if (isBenchmarking) {
       return _ProgressStrokeFrame(
@@ -918,8 +959,7 @@ class _ServerInfoPopup extends ConsumerWidget {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                                    if (type.isNotEmpty ||
-                                        model.isAutoMode) ...[
+                                    if (showMetaTags) ...[
                                       const Gap(8),
                                       Wrap(
                                         spacing: 6,
@@ -934,6 +974,33 @@ class _ServerInfoPopup extends ConsumerWidget {
                                             const _GlassBadge(
                                               label: 'AUTO',
                                               color: Color(0xFF1EFFAC),
+                                            ),
+                                          if (showSessionTimerTag)
+                                            _ConnectionTimerPill(
+                                              title: 'Сессия',
+                                              value: _formatElapsed(
+                                                _elapsedSince(
+                                                  connectedAt!,
+                                                  timerNow.value,
+                                                ),
+                                              ),
+                                              color: const Color(0xFF1EFFAC),
+                                            ),
+                                          if (showBestServerCheck)
+                                            _ConnectionTimerPill(
+                                              title: 'Best server',
+                                              value:
+                                                  lastBestServerCheckAt != null
+                                                  ? _formatElapsed(
+                                                      _elapsedSince(
+                                                        lastBestServerCheckAt,
+                                                        timerNow.value,
+                                                      ),
+                                                    )
+                                                  : 'идёт',
+                                              color: bestServerCheckRunning
+                                                  ? const Color(0xFFFFB457)
+                                                  : const Color(0xFF60A5FA),
                                             ),
                                         ],
                                       ),
@@ -1304,6 +1371,56 @@ class _ModeTextButton extends StatelessWidget {
   }
 }
 
+class _ConnectionTimerPill extends StatelessWidget {
+  const _ConnectionTimerPill({
+    required this.title,
+    required this.value,
+    required this.color,
+  });
+
+  final String title;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPanel(
+      backgroundColor: Colors.white,
+      opacity: 0.04,
+      borderRadius: 15,
+      strokeColor: color,
+      strokeOpacity: 0.3,
+      strokeWidth: 0.9,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.58),
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const Gap(6),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 10.9,
+              fontWeight: FontWeight.w800,
+              height: 1,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PowerButton extends StatelessWidget {
   const _PowerButton({
     required this.isConnected,
@@ -1390,4 +1507,30 @@ class _GlassBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _isBestServerCheckActivity(AutoSelectActivityState activity) {
+  if (!activity.active) {
+    return false;
+  }
+
+  return activity.label == 'Pre-connect auto-select' ||
+      activity.label == 'Manual auto-select' ||
+      activity.label == 'Automatic maintenance';
+}
+
+Duration _elapsedSince(DateTime start, DateTime now) {
+  final elapsed = now.difference(start);
+  return elapsed.isNegative ? Duration.zero : elapsed;
+}
+
+String _formatElapsed(Duration value) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  final hours = value.inHours;
+  final minutes = value.inMinutes.remainder(60);
+  final seconds = value.inSeconds.remainder(60);
+  if (hours > 0) {
+    return '${two(hours)}:${two(minutes)}:${two(seconds)}';
+  }
+  return '${two(minutes)}:${two(seconds)}';
 }

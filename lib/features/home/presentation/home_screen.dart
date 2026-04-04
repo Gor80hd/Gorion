@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
@@ -390,12 +392,7 @@ class _AutoSelectProgressCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Expanded(
-                  child: Text(
-                    title,
-                    style: theme.textTheme.titleLarge,
-                  ),
-                ),
+                Expanded(child: Text(title, style: theme.textTheme.titleLarge)),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -616,6 +613,14 @@ class _ConnectionCard extends StatelessWidget {
     final profile = state.activeProfile;
     final connected = state.connectionStage == ConnectionStage.connected;
     final activeMode = state.runtimeSession?.mode ?? state.runtimeMode;
+    final bestServerCheckRunning = _isBestServerCheckActivity(
+      state.autoSelectActivity,
+    );
+    final showBestServerCheck =
+        (state.autoSelectSettings.enabled &&
+            isAutoSelectServerTag(state.selectedServerTag)) ||
+        state.lastBestServerCheckAt != null ||
+        bestServerCheckRunning;
     final title = profile == null
         ? 'Select a profile'
         : 'Active profile: ${profile.name}';
@@ -642,6 +647,15 @@ class _ConnectionCard extends StatelessWidget {
               connectionSummary,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
+            if (state.connectedAt != null || showBestServerCheck) ...[
+              const SizedBox(height: 20),
+              _ConnectionTimersPanel(
+                connectedAt: state.connectedAt,
+                lastBestServerCheckAt: state.lastBestServerCheckAt,
+                showBestServerCheck: showBestServerCheck,
+                bestServerCheckRunning: bestServerCheckRunning,
+              ),
+            ],
             const SizedBox(height: 20),
             Text('Traffic mode', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 12),
@@ -711,6 +725,154 @@ class _ConnectionCard extends StatelessWidget {
                 ),
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConnectionTimersPanel extends StatefulWidget {
+  const _ConnectionTimersPanel({
+    required this.connectedAt,
+    required this.lastBestServerCheckAt,
+    required this.showBestServerCheck,
+    required this.bestServerCheckRunning,
+  });
+
+  final DateTime? connectedAt;
+  final DateTime? lastBestServerCheckAt;
+  final bool showBestServerCheck;
+  final bool bestServerCheckRunning;
+
+  @override
+  State<_ConnectionTimersPanel> createState() => _ConnectionTimersPanelState();
+}
+
+class _ConnectionTimersPanelState extends State<_ConnectionTimersPanel> {
+  Timer? _ticker;
+  DateTime _now = DateTime.now();
+
+  bool get _needsTicker =>
+      widget.connectedAt != null ||
+      widget.lastBestServerCheckAt != null ||
+      widget.bestServerCheckRunning;
+
+  @override
+  void initState() {
+    super.initState();
+    _restartTicker();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ConnectionTimersPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.connectedAt != widget.connectedAt ||
+        oldWidget.lastBestServerCheckAt != widget.lastBestServerCheckAt ||
+        oldWidget.showBestServerCheck != widget.showBestServerCheck ||
+        oldWidget.bestServerCheckRunning != widget.bestServerCheckRunning) {
+      _now = DateTime.now();
+      _restartTicker();
+    }
+  }
+
+  void _restartTicker() {
+    _ticker?.cancel();
+    _ticker = null;
+    if (!_needsTicker) {
+      return;
+    }
+
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _now = DateTime.now();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final timerTiles = <Widget>[
+      if (widget.connectedAt != null)
+        _ConnectionTimerTile(
+          title: 'Connection uptime',
+          value: _formatElapsed(_elapsedSince(widget.connectedAt!, _now)),
+          caption: 'Started at ${_formatTimeOfDay(widget.connectedAt!)}',
+        ),
+      if (widget.showBestServerCheck)
+        _ConnectionTimerTile(
+          title: 'Best server check',
+          value: widget.lastBestServerCheckAt != null
+              ? _formatElapsed(
+                  _elapsedSince(widget.lastBestServerCheckAt!, _now),
+                )
+              : widget.bestServerCheckRunning
+              ? 'Running now'
+              : 'Not yet',
+          caption: widget.lastBestServerCheckAt != null
+              ? widget.bestServerCheckRunning
+                    ? 'Last completed at ${_formatTimeOfDay(widget.lastBestServerCheckAt!)}. A new check is running now.'
+                    : 'Last completed at ${_formatTimeOfDay(widget.lastBestServerCheckAt!)}'
+              : widget.bestServerCheckRunning
+              ? 'The first best-server check is running.'
+              : 'No best-server pass has completed in this session.',
+        ),
+    ];
+
+    if (timerTiles.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Wrap(spacing: 12, runSpacing: 12, children: timerTiles);
+  }
+}
+
+class _ConnectionTimerTile extends StatelessWidget {
+  const _ConnectionTimerTile({
+    required this.title,
+    required this.value,
+    required this.caption,
+  });
+
+  final String title;
+  final String value;
+  final String caption;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: 260,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8F3EA),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE2DDD4)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: theme.textTheme.labelLarge),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: const Color(0xFF173A37),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(caption, style: theme.textTheme.bodySmall),
           ],
         ),
       ),
@@ -1089,6 +1251,40 @@ String _buildSubscriptionLabel(SubscriptionInfo info) {
       ? 'no expiry'
       : 'expires ${_formatDate(info.expireAt!)}';
   return '$traffic • $expiry';
+}
+
+bool _isBestServerCheckActivity(AutoSelectActivityState activity) {
+  if (!activity.active) {
+    return false;
+  }
+
+  return activity.label == 'Pre-connect auto-select' ||
+      activity.label == 'Manual auto-select' ||
+      activity.label == 'Automatic maintenance';
+}
+
+Duration _elapsedSince(DateTime start, DateTime now) {
+  final elapsed = now.difference(start);
+  return elapsed.isNegative ? Duration.zero : elapsed;
+}
+
+String _formatElapsed(Duration value) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  final hours = value.inHours;
+  final minutes = value.inMinutes.remainder(60);
+  final seconds = value.inSeconds.remainder(60);
+  if (hours > 0) {
+    return '${two(hours)}:${two(minutes)}:${two(seconds)}';
+  }
+  return '${two(minutes)}:${two(seconds)}';
+}
+
+String _formatTimeOfDay(DateTime value) {
+  final local = value.toLocal();
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  final second = local.second.toString().padLeft(2, '0');
+  return '$hour:$minute:$second';
 }
 
 class _ServersCard extends StatelessWidget {

@@ -77,12 +77,14 @@ class DashboardState {
     this.storage = const StoredProfilesState(),
     this.connectionStage = ConnectionStage.disconnected,
     this.runtimeSession,
+    this.connectedAt,
     this.delayByTag = const {},
     this.selectedServerTag,
     this.activeServerTag,
     this.recentSuccessfulAutoConnect,
     this.autoSelectResults = const [],
     this.autoSelectActivity = const AutoSelectActivityState(),
+    this.lastBestServerCheckAt,
     this.statusMessage,
     this.errorMessage,
     this.logs = const [],
@@ -96,12 +98,14 @@ class DashboardState {
   final StoredProfilesState storage;
   final ConnectionStage connectionStage;
   final RuntimeSession? runtimeSession;
+  final DateTime? connectedAt;
   final Map<String, int> delayByTag;
   final String? selectedServerTag;
   final String? activeServerTag;
   final RecentSuccessfulAutoConnect? recentSuccessfulAutoConnect;
   final List<AutoSelectProbeResult> autoSelectResults;
   final AutoSelectActivityState autoSelectActivity;
+  final DateTime? lastBestServerCheckAt;
   final String? statusMessage;
   final String? errorMessage;
   final List<String> logs;
@@ -127,6 +131,8 @@ class DashboardState {
     ConnectionStage? connectionStage,
     RuntimeSession? runtimeSession,
     bool clearRuntimeSession = false,
+    DateTime? connectedAt,
+    bool clearConnectedAt = false,
     Map<String, int>? delayByTag,
     String? selectedServerTag,
     bool clearSelectedServerTag = false,
@@ -137,6 +143,8 @@ class DashboardState {
     List<AutoSelectProbeResult>? autoSelectResults,
     AutoSelectActivityState? autoSelectActivity,
     bool clearAutoSelectActivity = false,
+    DateTime? lastBestServerCheckAt,
+    bool clearLastBestServerCheckAt = false,
     String? statusMessage,
     bool clearStatusMessage = false,
     String? errorMessage,
@@ -154,6 +162,7 @@ class DashboardState {
       runtimeSession: clearRuntimeSession
           ? null
           : runtimeSession ?? this.runtimeSession,
+      connectedAt: clearConnectedAt ? null : connectedAt ?? this.connectedAt,
       delayByTag: delayByTag ?? this.delayByTag,
       selectedServerTag: clearSelectedServerTag
           ? null
@@ -168,6 +177,9 @@ class DashboardState {
       autoSelectActivity: clearAutoSelectActivity
           ? const AutoSelectActivityState()
           : autoSelectActivity ?? this.autoSelectActivity,
+      lastBestServerCheckAt: clearLastBestServerCheckAt
+          ? null
+          : lastBestServerCheckAt ?? this.lastBestServerCheckAt,
       statusMessage: clearStatusMessage
           ? null
           : statusMessage ?? this.statusMessage,
@@ -181,6 +193,11 @@ class DashboardState {
 
 class DashboardController extends StateNotifier<DashboardState> {
   static const _maxAutoSelectTraceLines = 20;
+  static const _bestServerCheckLabels = <String>{
+    'Pre-connect auto-select',
+    'Manual auto-select',
+    'Automatic maintenance',
+  };
 
   DashboardController({
     required ProfileRepository repository,
@@ -328,6 +345,10 @@ class DashboardController extends StateNotifier<DashboardState> {
       return;
     }
 
+    final completedAt = _bestServerCheckLabels.contains(label)
+        ? DateTime.now()
+        : null;
+
     if (message != null && message.isNotEmpty) {
       _appendAutoSelectActivity(
         label,
@@ -337,11 +358,15 @@ class DashboardController extends StateNotifier<DashboardState> {
         totalSteps: totalSteps,
         isError: isError,
       );
+      if (completedAt != null) {
+        state = state.copyWith(lastBestServerCheckAt: completedAt);
+      }
       return;
     }
 
     state = state.copyWith(
       autoSelectActivity: state.autoSelectActivity.copyWith(active: false),
+      lastBestServerCheckAt: completedAt,
     );
   }
 
@@ -359,6 +384,8 @@ class DashboardController extends StateNotifier<DashboardState> {
       clearErrorMessage: true,
       clearStatusMessage: true,
       clearAutoSelectActivity: true,
+      clearConnectedAt: true,
+      clearLastBestServerCheckAt: true,
     );
     try {
       final storageFuture = _repository.loadState();
@@ -376,6 +403,8 @@ class DashboardController extends StateNotifier<DashboardState> {
             autoSelectState.recentSuccessfulAutoConnect,
         autoSelectResults: const [],
         clearAutoSelectActivity: true,
+        clearConnectedAt: true,
+        clearLastBestServerCheckAt: true,
       );
     } on Object catch (error) {
       state = state.copyWith(
@@ -444,6 +473,8 @@ class DashboardController extends StateNotifier<DashboardState> {
         delayByTag: const {},
         autoSelectResults: const [],
         clearAutoSelectActivity: true,
+        clearConnectedAt: true,
+        clearLastBestServerCheckAt: true,
       );
     } on Object catch (error) {
       state = state.copyWith(busy: false, errorMessage: error.toString());
@@ -477,6 +508,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         busy: false,
         autoSelectSettings: stored.settings,
         recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
+        clearLastBestServerCheckAt: !enabled,
         statusMessage: enabled
             ? 'Automatic server selection is enabled.'
             : 'Automatic server selection is disabled.',
@@ -627,6 +659,8 @@ class DashboardController extends StateNotifier<DashboardState> {
       clearErrorMessage: true,
       clearStatusMessage: true,
       clearAutoSelectActivity: true,
+      clearConnectedAt: true,
+      clearLastBestServerCheckAt: true,
     );
 
     try {
@@ -726,6 +760,7 @@ class DashboardController extends StateNotifier<DashboardState> {
           storage: persistedStorage,
           connectionStage: ConnectionStage.disconnected,
           clearRuntimeSession: true,
+          clearConnectedAt: true,
           delayByTag: effectiveDelayByTag,
           selectedServerTag:
               persistedStorage.activeProfile?.selectedServerTag ??
@@ -733,6 +768,7 @@ class DashboardController extends StateNotifier<DashboardState> {
           activeServerTag:
               effectiveActiveServerTag ?? connectedTag ?? startupServerTag,
           autoSelectResults: effectiveProbes,
+          clearLastBestServerCheckAt: true,
           clearStatusMessage: true,
           errorMessage: failureMessage,
           logs: _runtimeService.logs,
@@ -743,18 +779,12 @@ class DashboardController extends StateNotifier<DashboardState> {
       if (profile.prefersAutoSelection &&
           autoSelectSettings.enabled &&
           effectiveActiveServerTag != null) {
-        await _autoSelectSettingsRepository.setRecentAutoSelectedServer(
+        final recentSuccessfulAutoConnect = await _updateRecentAutoSelectCaches(
           profileId: profile.id,
           serverTag: effectiveActiveServerTag,
         );
-        final autoSelectState = await _autoSelectSettingsRepository
-            .setRecentSuccessfulAutoConnect(
-              profileId: profile.id,
-              serverTag: effectiveActiveServerTag,
-            );
         state = state.copyWith(
-          recentSuccessfulAutoConnect:
-              autoSelectState.recentSuccessfulAutoConnect,
+          recentSuccessfulAutoConnect: recentSuccessfulAutoConnect,
         );
       }
 
@@ -769,6 +799,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         storage: persistedStorage,
         connectionStage: ConnectionStage.connected,
         runtimeSession: session,
+        connectedAt: DateTime.now(),
         delayByTag: effectiveDelayByTag,
         selectedServerTag:
             persistedStorage.activeProfile?.selectedServerTag ??
@@ -794,6 +825,8 @@ class DashboardController extends StateNotifier<DashboardState> {
         busy: false,
         connectionStage: ConnectionStage.failed,
         clearRuntimeSession: true,
+        clearConnectedAt: true,
+        clearLastBestServerCheckAt: true,
         errorMessage: _connectionError(error, state.runtimeMode),
         logs: _runtimeService.logs,
       );
@@ -818,10 +851,12 @@ class DashboardController extends StateNotifier<DashboardState> {
         busy: false,
         connectionStage: ConnectionStage.disconnected,
         clearRuntimeSession: true,
+        clearConnectedAt: true,
         delayByTag: const {},
         activeServerTag: previousProfile?.startupServerTag,
         autoSelectResults: const [],
         clearAutoSelectActivity: true,
+        clearLastBestServerCheckAt: true,
         statusMessage: _disconnectedStatus(previousSession),
         logs: _runtimeService.logs,
       );
@@ -866,10 +901,11 @@ class DashboardController extends StateNotifier<DashboardState> {
               : updatedProfile?.startupServerTag,
           autoSelectResults: const [],
           clearAutoSelectActivity: true,
+          clearLastBestServerCheckAt: true,
           statusMessage: !state.autoSelectSettings.enabled
               ? 'Auto server saved, but automatic selection is disabled in settings.'
               : state.connectionStage == ConnectionStage.connected
-              ? 'Auto server selected. Running an immediate auto-selection pass.'
+              ? 'Auto server selected. The next automatic pass will choose and maintain a server.'
               : 'Auto server saved. It will choose and maintain a server on the next connection.',
           logs: _runtimeService.logs,
         );
@@ -877,10 +913,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         if (state.connectionStage == ConnectionStage.connected &&
             state.runtimeSession != null &&
             state.autoSelectSettings.enabled) {
-          _runAutomaticAutoSelectNow(
-            allowSwitchDuringCooldown: true,
-            surfaceFailures: true,
-          );
+          _startAutoSelectionMonitoring();
         }
         return;
       }
@@ -917,6 +950,7 @@ class DashboardController extends StateNotifier<DashboardState> {
           delayByTag: delays,
           autoSelectResults: const [],
           clearAutoSelectActivity: true,
+          clearLastBestServerCheckAt: true,
           statusMessage: 'Server selection updated.',
           logs: _runtimeService.logs,
         );
@@ -931,6 +965,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         activeServerTag: storage.activeProfile?.startupServerTag,
         autoSelectResults: const [],
         clearAutoSelectActivity: true,
+        clearLastBestServerCheckAt: true,
         statusMessage: 'Server saved. It will be used on the next connection.',
       );
     } on Object catch (error) {
@@ -1049,6 +1084,12 @@ class DashboardController extends StateNotifier<DashboardState> {
         profile.id,
         outcome.selectedServerTag,
       );
+      final recentSuccessfulAutoConnect = outcome.hasReachableCandidate
+          ? await _updateRecentAutoSelectCaches(
+              profileId: profile.id,
+              serverTag: outcome.selectedServerTag,
+            )
+          : state.recentSuccessfulAutoConnect;
       state = state.copyWith(
         busy: false,
         storage: updatedStorage,
@@ -1057,6 +1098,7 @@ class DashboardController extends StateNotifier<DashboardState> {
             profile.selectedServerTag,
         activeServerTag: outcome.selectedServerTag,
         delayByTag: {...state.delayByTag, ...outcome.delayByTag},
+        recentSuccessfulAutoConnect: recentSuccessfulAutoConnect,
         autoSelectResults: outcome.probes,
         statusMessage: outcome.summary,
         logs: _runtimeService.logs,
@@ -1195,9 +1237,11 @@ class DashboardController extends StateNotifier<DashboardState> {
         activeServerTag: isActiveProfile
             ? activeProfile?.startupServerTag
             : state.activeServerTag,
+        clearConnectedAt: isActiveProfile,
         delayByTag: isActiveProfile ? const {} : state.delayByTag,
         autoSelectResults: isActiveProfile ? const [] : state.autoSelectResults,
         clearAutoSelectActivity: isActiveProfile,
+        clearLastBestServerCheckAt: isActiveProfile,
         statusMessage: shouldReconnect
             ? 'Profile updated. Reconnecting with the refreshed config.'
             : isActiveProfile
@@ -1269,9 +1313,11 @@ class DashboardController extends StateNotifier<DashboardState> {
             : state.activeServerTag,
         clearActiveServerTag:
             isActiveProfile && activeProfile?.startupServerTag == null,
+        clearConnectedAt: isActiveProfile,
         delayByTag: isActiveProfile ? const {} : state.delayByTag,
         autoSelectResults: isActiveProfile ? const [] : state.autoSelectResults,
         clearAutoSelectActivity: isActiveProfile,
+        clearLastBestServerCheckAt: isActiveProfile,
         statusMessage: isActiveProfile
             ? 'Profile removed from local storage.'
             : 'Subscription removed from local storage.',
@@ -1308,6 +1354,22 @@ class DashboardController extends StateNotifier<DashboardState> {
       await _autoSelectSettingsRepository.clearRecentSuccessfulAutoConnect();
       state = state.copyWith(clearRecentSuccessfulAutoConnect: true);
     } on Object {}
+  }
+
+  Future<RecentSuccessfulAutoConnect?> _updateRecentAutoSelectCaches({
+    required String profileId,
+    required String serverTag,
+  }) async {
+    await _autoSelectSettingsRepository.setRecentAutoSelectedServer(
+      profileId: profileId,
+      serverTag: serverTag,
+    );
+    final autoSelectState = await _autoSelectSettingsRepository
+        .setRecentSuccessfulAutoConnect(
+          profileId: profileId,
+          serverTag: serverTag,
+        );
+    return autoSelectState.recentSuccessfulAutoConnect;
   }
 
   void _startAutoSelectionMonitoring() {
@@ -1438,6 +1500,16 @@ class DashboardController extends StateNotifier<DashboardState> {
         }
       }
 
+      final recentSuccessfulAutoConnect = outcome.hasReachableCandidate
+          ? await _updateRecentAutoSelectCaches(
+              profileId: profile.id,
+              serverTag: outcome.selectedServerTag,
+            )
+          : state.recentSuccessfulAutoConnect;
+      if (!_isCurrentConnectedSession(session, profile.id)) {
+        return;
+      }
+
       final baseState = state.copyWith(
         storage: storage,
         selectedServerTag:
@@ -1445,6 +1517,7 @@ class DashboardController extends StateNotifier<DashboardState> {
             profile.selectedServerTag,
         activeServerTag: outcome.selectedServerTag,
         delayByTag: {...state.delayByTag, ...outcome.delayByTag},
+        recentSuccessfulAutoConnect: recentSuccessfulAutoConnect,
         autoSelectResults: outcome.probes,
         logs: _runtimeService.logs,
       );
