@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
 import 'package:gorion_clean/utils/functional.dart';
 
@@ -19,7 +18,9 @@ class _ProxyRepository {
   /// once the dashboard has registered the new selection.
   TaskEither<dynamic, void> selectProxy(String groupTag, String serverTag) {
     return TaskEither.fromFuture(
-      () => _ref.read(dashboardControllerProvider.notifier).selectServer(serverTag),
+      () => _ref
+          .read(dashboardControllerProvider.notifier)
+          .selectServer(serverTag),
       (e) => e,
     );
   }
@@ -32,9 +33,7 @@ OutboundGroup _buildGroupFromState(DashboardState state) {
   for (final profile in profiles) {
     for (final server in profile.servers) {
       final delay = state.delayByTag[server.tag] ?? 0;
-      allServers.add(
-        OutboundInfo.fromServerEntry(server, delay: delay),
-      );
+      allServers.add(OutboundInfo.fromServerEntry(server, delay: delay));
     }
   }
 
@@ -48,17 +47,14 @@ OutboundGroup _buildGroupFromState(DashboardState state) {
 }
 
 final proxyRepositoryProvider = Provider<_ProxyRepository>((ref) {
-  final controller = StreamController<Either<dynamic, OutboundGroup>>.broadcast();
+  final controller =
+      StreamController<Either<dynamic, OutboundGroup>>.broadcast();
 
-  ref.listen(
-    dashboardControllerProvider,
-    (_, state) {
-      if (!controller.isClosed) {
-        controller.add(Right(_buildGroupFromState(state)));
-      }
-    },
-    fireImmediately: true,
-  );
+  ref.listen(dashboardControllerProvider, (_, state) {
+    if (!controller.isClosed) {
+      controller.add(Right(_buildGroupFromState(state)));
+    }
+  }, fireImmediately: true);
 
   ref.onDispose(controller.close);
   return _ProxyRepository(controller.stream, ref);

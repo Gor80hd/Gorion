@@ -35,7 +35,7 @@ class DioHttpClient {
           final client = HttpClient();
           final port = _proxyPort;
           client.findProxy = (_) => 'PROXY 127.0.0.1:$port';
-          client.badCertificateCallback = (_, __, ___) => true;
+          client.badCertificateCallback = (certificate, host, port) => true;
           return client;
         },
       );
@@ -81,17 +81,19 @@ class DioHttpClient {
     try {
       var received = 0;
       final start = DateTime.now();
-      await dio.get<ResponseBody>(
-        url,
-        options: Options(responseType: ResponseType.stream),
-      ).then((response) async {
-        await for (final chunk in response.data!.stream) {
-          received += chunk.length;
-          onProgress?.call(received);
-          final elapsed = DateTime.now().difference(start);
-          if (received >= maxBytes || elapsed >= maxDuration) break;
-        }
-      });
+      await dio
+          .get<ResponseBody>(
+            url,
+            options: Options(responseType: ResponseType.stream),
+          )
+          .then((response) async {
+            await for (final chunk in response.data!.stream) {
+              received += chunk.length;
+              onProgress?.call(received);
+              final elapsed = DateTime.now().difference(start);
+              if (received >= maxBytes || elapsed >= maxDuration) break;
+            }
+          });
       final elapsed = DateTime.now().difference(start);
       if (elapsed.inMilliseconds <= 0) return 0;
       return (received / elapsed.inMilliseconds * 1000).round();

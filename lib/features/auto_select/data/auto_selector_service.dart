@@ -479,14 +479,11 @@ class AutoSelectorService {
     // unavailable the order falls back to profile list order, which is still
     // better than an unbounded pool of potentially thousands of dead servers
     // (1000 servers / batch-5 = 200 cycles × 60s = 3 hours per rotation).
-    final contenderPool =
-        candidates
-            .where((s) => s.tag != currentServer.tag)
-            .where(
-              (s) => !_isFailedProbeCoolingDown(session.profileId, s.tag),
-            )
-            .take(maxContenderPool)
-            .toList(growable: false);
+    final contenderPool = candidates
+        .where((s) => s.tag != currentServer.tag)
+        .where((s) => !_isFailedProbeCoolingDown(session.profileId, s.tag))
+        .take(maxContenderPool)
+        .toList(growable: false);
     final batchSize = maxInspectedCandidates - 1;
     final startIdx = _getAndAdvanceContenderIndex(
       session.profileId,
@@ -574,6 +571,28 @@ class AutoSelectorService {
       summary: summary,
       didSwitch: didSwitch,
       hasReachableCandidate: true,
+    );
+  }
+
+  Future<AutoSelectProbeResult> verifyCurrentServer({
+    required RuntimeSession session,
+    required ServerEntry server,
+    required String domainProbeUrl,
+    String ipProbeUrl = 'http://1.1.1.1',
+    int? urlTestDelay,
+    bool ensureSelected = false,
+  }) {
+    final delayByTag = <String, int>{};
+    if (urlTestDelay != null) {
+      delayByTag[server.tag] = urlTestDelay;
+    }
+    return _probeServer(
+      session: session,
+      server: server,
+      delayByTag: delayByTag,
+      domainProbeUrl: domainProbeUrl,
+      ipProbeUrl: ipProbeUrl,
+      ensureSelected: ensureSelected,
     );
   }
 

@@ -13,6 +13,7 @@ import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion_clean/utils/server_display_text.dart';
 
 const automaticAutoSelectInterval = Duration(seconds: 60);
 
@@ -41,6 +42,8 @@ final autoSelectPreconnectServiceProvider =
 final autoSelectorServiceProvider = Provider<AutoSelectorService>(
   (ref) => AutoSelectorService(),
 );
+
+typedef ClashApiClientFactory = ClashApiClient Function(RuntimeSession session);
 
 RuntimeMode _defaultRuntimeMode() {
   if (Platform.isWindows) {
@@ -169,6 +172,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     required AutoSelectSettingsRepository autoSelectSettingsRepository,
     required AutoSelectPreconnectService autoSelectPreconnectService,
     required AutoSelectorService autoSelectorService,
+    ClashApiClientFactory? clashApiClientFactory,
     Duration autoSelectionInterval = automaticAutoSelectInterval,
     Timer Function(Duration duration, void Function() callback)? createTimer,
     DashboardState? initialState,
@@ -178,6 +182,8 @@ class DashboardController extends StateNotifier<DashboardState> {
        _autoSelectSettingsRepository = autoSelectSettingsRepository,
        _autoSelectPreconnectService = autoSelectPreconnectService,
        _autoSelectorService = autoSelectorService,
+       _createClashApiClient =
+           clashApiClientFactory ?? ClashApiClient.fromSession,
        _autoSelectionInterval = autoSelectionInterval,
        _createTimer = createTimer ?? _defaultCreateTimer,
        super(
@@ -202,6 +208,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   final AutoSelectSettingsRepository _autoSelectSettingsRepository;
   final AutoSelectPreconnectService _autoSelectPreconnectService;
   final AutoSelectorService _autoSelectorService;
+  final ClashApiClientFactory _createClashApiClient;
   final Duration _autoSelectionInterval;
   final Timer Function(Duration duration, void Function() callback)
   _createTimer;
@@ -631,13 +638,13 @@ class DashboardController extends StateNotifier<DashboardState> {
         mode: selectedMode,
         selectedServerTag: startupServerTag,
       );
-      final client = ClashApiClient.fromSession(session);
+      final client = _createClashApiClient(session);
       final snapshot = await client.fetchSnapshot(
         selectorTag: session.manualSelectorTag,
       );
       final delays = await _safeLoadDelays(client, session);
       final connectedTag = snapshot.selectedTag ?? startupServerTag;
-      final persistedStorage = snapshot.selectedTag == null
+      var persistedStorage = snapshot.selectedTag == null
           ? state.storage
           : profile.prefersAutoSelection
           ? await _repository.updateAutoSelectedServer(
@@ -648,51 +655,83 @@ class DashboardController extends StateNotifier<DashboardState> {
               profile.id,
               snapshot.selectedTag!,
             );
+      var effectiveDelayByTag = {
+        ...preparedAutoSelection?.delayByTag ?? const <String, int>{},
+        ...delays,
+      };
+      var effectiveActiveServerTag = connectedTag;
+      var effectiveProbes =
+          preparedAutoSelection?.probes ?? const <AutoSelectProbeResult>[];
+
+      final verification = await _verifyPostConnectInternetAccess(
+        profile: profile,
+        session: session,
+        storage: persistedStorage,
+        activeServerTag: effectiveActiveServerTag,
+        delayByTag: effectiveDelayByTag,
+      );
+      persistedStorage = verification.storage;
+      effectiveDelayByTag = verification.delayByTag;
+      effectiveActiveServerTag = verification.activeServerTag;
+      effectiveProbes = verification.probes;
+
+      if (verification.failureMessage case final failureMessage?) {
+        await _runtimeService.stop();
+        _autoSelectorService.resetProfileState(session.profileId);
+        state = state.copyWith(
+          busy: false,
+          storage: persistedStorage,
+          connectionStage: ConnectionStage.disconnected,
+          clearRuntimeSession: true,
+          delayByTag: effectiveDelayByTag,
+          selectedServerTag:
+              persistedStorage.activeProfile?.selectedServerTag ??
+              profile.selectedServerTag,
+          activeServerTag:
+              effectiveActiveServerTag ?? connectedTag ?? startupServerTag,
+          autoSelectResults: effectiveProbes,
+          clearStatusMessage: true,
+          errorMessage: failureMessage,
+          logs: _runtimeService.logs,
+        );
+        return;
+      }
 
       if (profile.prefersAutoSelection &&
           autoSelectSettings.enabled &&
-          connectedTag != null) {
+          effectiveActiveServerTag != null) {
         await _autoSelectSettingsRepository.setRecentAutoSelectedServer(
           profileId: profile.id,
-          serverTag: connectedTag,
+          serverTag: effectiveActiveServerTag,
         );
         await _autoSelectSettingsRepository.setRecentSuccessfulAutoConnect(
           profileId: profile.id,
-          serverTag: connectedTag,
+          serverTag: effectiveActiveServerTag,
         );
       }
 
       final statusMessage = preparedAutoSelection == null
           ? _connectedStatus(session)
           : '${preparedAutoSelection.summary} ${_connectedStatus(session)}';
+      final effectiveStatusMessage =
+          verification.statusMessage ?? statusMessage;
 
       state = state.copyWith(
         busy: false,
         storage: persistedStorage,
         connectionStage: ConnectionStage.connected,
         runtimeSession: session,
-        delayByTag: {
-          ...preparedAutoSelection?.delayByTag ?? const <String, int>{},
-          ...delays,
-        },
+        delayByTag: effectiveDelayByTag,
         selectedServerTag:
             persistedStorage.activeProfile?.selectedServerTag ??
             profile.selectedServerTag,
-        activeServerTag: snapshot.selectedTag ?? startupServerTag,
-        autoSelectResults: preparedAutoSelection?.probes ?? const [],
-        statusMessage: statusMessage,
+        activeServerTag: effectiveActiveServerTag,
+        autoSelectResults: effectiveProbes,
+        statusMessage: effectiveStatusMessage,
         logs: _runtimeService.logs,
       );
       if (profile.prefersAutoSelection && autoSelectSettings.enabled) {
-        if (preparedAutoSelection == null ||
-            preparedAutoSelection.requiresImmediatePostConnectCheck) {
-          _runAutomaticAutoSelectNow(
-            allowSwitchDuringCooldown: true,
-            surfaceFailures: true,
-          );
-        } else {
-          _startAutoSelectionMonitoring();
-        }
+        _startAutoSelectionMonitoring();
       }
     } on Object catch (error) {
       if (state.autoSelectActivity.active &&
@@ -1380,6 +1419,159 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
+  Future<
+    ({
+      StoredProfilesState storage,
+      String? activeServerTag,
+      Map<String, int> delayByTag,
+      List<AutoSelectProbeResult> probes,
+      String? statusMessage,
+      String? failureMessage,
+    })
+  >
+  _verifyPostConnectInternetAccess({
+    required ProxyProfile profile,
+    required RuntimeSession session,
+    required StoredProfilesState storage,
+    required String? activeServerTag,
+    required Map<String, int> delayByTag,
+  }) async {
+    final eligibleServers = _eligibleAutoSelectServers(profile);
+    final shouldUseAutoVerification =
+        profile.prefersAutoSelection &&
+        state.autoSelectSettings.enabled &&
+        eligibleServers.isNotEmpty;
+
+    if (shouldUseAutoVerification) {
+      _startAutoSelectActivity('Automatic maintenance');
+      try {
+        final outcome = await _autoSelectorService.maintainBestServer(
+          session: session,
+          servers: eligibleServers,
+          domainProbeUrl: state.autoSelectSettings.domainProbeUrl,
+          ipProbeUrl: state.autoSelectSettings.ipProbeUrl,
+          allowSwitchDuringCooldown: true,
+          onProgress: (event) {
+            _reportAutoSelectProgress('Automatic maintenance', event);
+          },
+        );
+        final selectedProbe = _probeByServerTag(
+          outcome.probes,
+          outcome.selectedServerTag,
+        );
+        final nextDelayByTag = {...delayByTag, ...outcome.delayByTag};
+        if (selectedProbe == null || !selectedProbe.fullyHealthy) {
+          final failureMessage = selectedProbe == null
+              ? _internetAccessVerificationErrorMessage()
+              : _fullInternetAccessFailureMessage(
+                  serverName: _serverNameForTag(
+                    profile.servers,
+                    outcome.selectedServerTag,
+                  ),
+                );
+          _finishAutoSelectActivity(
+            'Automatic maintenance',
+            message: failureMessage,
+            isError: true,
+          );
+          return (
+            storage: storage,
+            activeServerTag: outcome.selectedServerTag,
+            delayByTag: nextDelayByTag,
+            probes: outcome.probes,
+            statusMessage: null,
+            failureMessage: failureMessage,
+          );
+        }
+
+        var nextStorage = storage;
+        if (profile.resolvedAutoSelectedServerTag !=
+            outcome.selectedServerTag) {
+          nextStorage = await _repository.updateAutoSelectedServer(
+            profile.id,
+            outcome.selectedServerTag,
+          );
+        }
+        _finishAutoSelectActivity('Automatic maintenance');
+        return (
+          storage: nextStorage,
+          activeServerTag: outcome.selectedServerTag,
+          delayByTag: nextDelayByTag,
+          probes: outcome.probes,
+          statusMessage: outcome.didSwitch
+              ? '${outcome.summary} ${_connectedStatus(session)}'
+              : null,
+          failureMessage: null,
+        );
+      } on Object {
+        final failureMessage = _internetAccessVerificationErrorMessage();
+        _finishAutoSelectActivity(
+          'Automatic maintenance',
+          message: failureMessage,
+          isError: true,
+        );
+        return (
+          storage: storage,
+          activeServerTag: activeServerTag,
+          delayByTag: delayByTag,
+          probes: const <AutoSelectProbeResult>[],
+          statusMessage: null,
+          failureMessage: failureMessage,
+        );
+      }
+    }
+
+    final currentServer = _findServerByTag(profile.servers, activeServerTag);
+    if (currentServer == null) {
+      return (
+        storage: storage,
+        activeServerTag: activeServerTag,
+        delayByTag: delayByTag,
+        probes: const <AutoSelectProbeResult>[],
+        statusMessage: null,
+        failureMessage: _internetAccessVerificationErrorMessage(),
+      );
+    }
+
+    try {
+      final probe = await _autoSelectorService.verifyCurrentServer(
+        session: session,
+        server: currentServer,
+        domainProbeUrl: state.autoSelectSettings.domainProbeUrl,
+        ipProbeUrl: state.autoSelectSettings.ipProbeUrl,
+        urlTestDelay: delayByTag[currentServer.tag],
+      );
+      return (
+        storage: storage,
+        activeServerTag: currentServer.tag,
+        delayByTag: {
+          ...delayByTag,
+          if (probe.urlTestDelay != null)
+            currentServer.tag: probe.urlTestDelay!,
+        },
+        probes: const <AutoSelectProbeResult>[],
+        statusMessage: null,
+        failureMessage: probe.fullyHealthy
+            ? null
+            : _fullInternetAccessFailureMessage(
+                serverName: _serverNameForTag(
+                  profile.servers,
+                  currentServer.tag,
+                ),
+              ),
+      );
+    } on Object catch (_) {
+      return (
+        storage: storage,
+        activeServerTag: currentServer.tag,
+        delayByTag: delayByTag,
+        probes: const <AutoSelectProbeResult>[],
+        statusMessage: null,
+        failureMessage: _internetAccessVerificationErrorMessage(),
+      );
+    }
+  }
+
   List<ServerEntry> _eligibleAutoSelectServers(
     ProxyProfile profile, {
     AutoSelectSettings? settings,
@@ -1389,6 +1581,53 @@ class DashboardController extends StateNotifier<DashboardState> {
       for (final server in profile.servers)
         if (!effectiveSettings.isExcluded(profile.id, server.tag)) server,
     ];
+  }
+
+  ServerEntry? _findServerByTag(List<ServerEntry> servers, String? serverTag) {
+    if (serverTag == null || serverTag.isEmpty) {
+      return null;
+    }
+
+    for (final server in servers) {
+      if (server.tag == serverTag) {
+        return server;
+      }
+    }
+    return null;
+  }
+
+  String _serverNameForTag(List<ServerEntry> servers, String serverTag) {
+    final server = _findServerByTag(servers, serverTag);
+    final raw = server?.displayName ?? serverTag;
+    return normalizeServerDisplayText(raw);
+  }
+
+  AutoSelectProbeResult? _probeByServerTag(
+    List<AutoSelectProbeResult> probes,
+    String? serverTag,
+  ) {
+    if (serverTag == null || serverTag.isEmpty) {
+      return null;
+    }
+
+    for (final probe in probes) {
+      if (probe.serverTag == serverTag) {
+        return probe;
+      }
+    }
+    return null;
+  }
+
+  String _fullInternetAccessFailureMessage({required String serverName}) {
+    final normalizedName = serverName.trim();
+    if (normalizedName.isEmpty) {
+      return 'Подключение не удалось: сервер недоступен.';
+    }
+    return 'Подключение не удалось: $normalizedName недоступен.';
+  }
+
+  String _internetAccessVerificationErrorMessage() {
+    return 'Подключение не удалось: сервер недоступен.';
   }
 
   String _connectedStatus(RuntimeSession session) {

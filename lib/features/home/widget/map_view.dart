@@ -6,7 +6,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gap/gap.dart';
-import 'package:gorion_clean/app/theme.dart';
+import 'package:gorion_clean/core/widget/emoji_flag_text.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/runtime/model/connection_status.dart';
@@ -17,6 +17,7 @@ import 'package:gorion_clean/features/home/widget/selected_server_preview_provid
 import 'package:gorion_clean/features/intro/utils/region_detector.dart';
 import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
 import 'package:gorion_clean/features/proxy/notifier/ip_info_notifier.dart';
+import 'package:gorion_clean/features/proxy/utils/ip_info_display.dart';
 import 'package:gorion_clean/core/preferences/general_preferences.dart';
 import 'package:gorion_clean/features/stats/notifier/stats_notifier.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
@@ -316,9 +317,9 @@ class MapView extends HookConsumerWidget {
       duration: const Duration(milliseconds: 3200),
     );
 
-    final sourceInfo = directIpInfo.asData?.value;
-    final routedInfo = routedIpInfo.asData?.value;
-    final activeProxyInfo = activeProxy.asData?.value;
+    final sourceInfo = directIpInfo.valueOrNull;
+    final routedInfo = routedIpInfo.valueOrNull;
+    final activeProxyInfo = activeProxy.valueOrNull;
     final selectedProxy =
         statusCard.displayProxy ??
         (activeProxyInfo?.tag.isNotEmpty == true ? activeProxyInfo : null);
@@ -364,8 +365,8 @@ class MapView extends HookConsumerWidget {
     final mapProgress = useAnimation(mapTransition);
     final packetProgress = useAnimation(packetTravel);
 
-    final uplink = statsAsync.asData?.value.uplink ?? 0;
-    final downlink = statsAsync.asData?.value.downlink ?? 0;
+    final uplink = statsAsync.valueOrNull?.uplink ?? 0;
+    final downlink = statsAsync.valueOrNull?.downlink ?? 0;
 
     final srcLatLon = shouldUseLocalSource
         ? _resolveLocalFallbackLatLon()
@@ -458,7 +459,8 @@ class MapView extends HookConsumerWidget {
             fit: StackFit.expand,
             children: [
               Transform(
-                transform: Matrix4.translationValues(tx, ty, 0)..scale(scale),
+                transform: Matrix4.translationValues(tx, ty, 0)
+                  ..scaleByDouble(scale, scale, 1.0, 1.0),
                 child: SvgPicture.asset(
                   'assets/images/world_map_dots.svg',
                   width: _svgW,
@@ -715,12 +717,6 @@ String _formatSpeed(int bytesPerSec) {
   return '${(bytesPerSec / 1024).toStringAsFixed(0)} KB/S';
 }
 
-String _describeIpInfo(IpInfo? ipInfo, {required String fallback}) {
-  if (ipInfo == null) return fallback;
-  final city = ipInfo.city?.trim();
-  return city == null || city.isEmpty ? fallback : city;
-}
-
 class _ServerInfoPopup extends ConsumerWidget {
   const _ServerInfoPopup({
     required this.model,
@@ -849,7 +845,7 @@ class _ServerInfoPopup extends ConsumerWidget {
                   final sourceBlock = _InfoBlock(
                     label: 'Исходный IP',
                     value: model.sourceIp?.ip ?? '—',
-                    detail: _describeIpInfo(
+                    detail: describeIpInfo(
                       model.sourceIp,
                       fallback: 'Определяем внешний адрес…',
                     ),
@@ -858,7 +854,7 @@ class _ServerInfoPopup extends ConsumerWidget {
                   final currentBlock = _InfoBlock(
                     label: 'Текущий IP',
                     value: currentIpInfo?.ip ?? '—',
-                    detail: _describeIpInfo(
+                    detail: describeIpInfo(
                       currentIpInfo,
                       fallback: isConnected
                           ? 'Получаем маршрут…'
@@ -912,7 +908,7 @@ class _ServerInfoPopup extends ConsumerWidget {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
+                                    EmojiFlagText(
                                       model.title,
                                       style: const TextStyle(
                                         color: Colors.white,
@@ -944,7 +940,7 @@ class _ServerInfoPopup extends ConsumerWidget {
                                     ],
                                     if (headerSummary.isNotEmpty) ...[
                                       const Gap(6),
-                                      Text(
+                                      EmojiFlagText(
                                         headerSummary,
                                         style: TextStyle(
                                           color: Colors.white.withValues(
@@ -959,7 +955,7 @@ class _ServerInfoPopup extends ConsumerWidget {
                                     if (model.statusText
                                         case final statusText?) ...[
                                       const Gap(4),
-                                      Text(
+                                      EmojiFlagText(
                                         statusText,
                                         style: TextStyle(
                                           color: Colors.white.withValues(
@@ -983,6 +979,32 @@ class _ServerInfoPopup extends ConsumerWidget {
                               ),
                             ],
                           ),
+                          if (model.alertText case final alertText?) ...[
+                            const Gap(14),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0x33FF8A80),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: const Color(0x66FF8A80),
+                                ),
+                              ),
+                              child: EmojiFlagText(
+                                alertText,
+                                style: const TextStyle(
+                                  color: Color(0xFFFFD8D4),
+                                  fontSize: 12.8,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ],
                           const Gap(14),
                           Align(
                             alignment: Alignment.center,

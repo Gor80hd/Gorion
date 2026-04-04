@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dio/dio.dart';
-import 'package:dio/io.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/core/http_client/http_client_provider.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
@@ -15,7 +13,9 @@ final ipInfoNotifierProvider = FutureProvider<IpInfo>((ref) async {
       (state) => (state.connectionStage, state.runtimeSession?.mixedPort),
     ),
   );
-  if (stage != ConnectionStage.connected || proxyPort == null || proxyPort <= 0) {
+  if (stage != ConnectionStage.connected ||
+      proxyPort == null ||
+      proxyPort <= 0) {
     throw StateError('Proxy IP info not available');
   }
 
@@ -53,9 +53,12 @@ class _IpInfoEndpoint {
   final _IpInfoParser parser;
 }
 
+const _ipLookupTimeout = Duration(seconds: 4);
+
 const _ipInfoEndpoints = <_IpInfoEndpoint>[
   _IpInfoEndpoint(url: 'https://api.ip.sb/geoip', parser: _parseIpSbInfo),
   _IpInfoEndpoint(url: 'https://ipwho.is/', parser: _parseIpWhoIsInfo),
+  _IpInfoEndpoint(url: 'https://ipapi.co/json/', parser: _parseIpApiCoInfo),
 ];
 
 Future<IpInfo> _lookupIpInfo({
@@ -63,23 +66,17 @@ Future<IpInfo> _lookupIpInfo({
   required _IpLookupMode mode,
   int? proxyPort,
 }) async {
-  final dio = _buildDio(
-    userAgent: userAgent,
-    mode: mode,
-    proxyPort: proxyPort,
-  );
+  final client = _buildHttpClient(mode: mode, proxyPort: proxyPort);
 
   try {
     for (final endpoint in _ipInfoEndpoints) {
       try {
-        final response = await dio.get<Object>(
-          endpoint.url,
-          options: Options(
-            responseType: ResponseType.json,
-            validateStatus: (status) => status != null && status >= 200 && status < 500,
-          ),
+        final payload = await _fetchEndpointPayload(
+          client: client,
+          url: Uri.parse(endpoint.url),
+          userAgent: userAgent,
         );
-        final parsed = endpoint.parser(response.data);
+        final parsed = endpoint.parser(payload);
         if (parsed != null) {
           return parsed;
         }
@@ -88,42 +85,58 @@ Future<IpInfo> _lookupIpInfo({
       }
     }
   } finally {
-    dio.close(force: true);
+    client.close(force: true);
   }
 
   throw StateError('IP info not available');
 }
 
-Dio _buildDio({
-  required String userAgent,
-  required _IpLookupMode mode,
-  int? proxyPort,
-}) {
-  final dio = Dio(
-    BaseOptions(
-      connectTimeout: const Duration(seconds: 4),
-      sendTimeout: const Duration(seconds: 4),
-      receiveTimeout: const Duration(seconds: 4),
-      headers: {'User-Agent': userAgent},
-    ),
-  );
-
-  dio.httpClientAdapter = IOHttpClientAdapter(
-    createHttpClient: () {
-      final client = HttpClient();
-      client.findProxy = (_) {
-        return switch (mode) {
-          _IpLookupMode.direct => 'DIRECT',
-          _IpLookupMode.proxy when proxyPort != null && proxyPort > 0 =>
-            'PROXY 127.0.0.1:$proxyPort',
-          _IpLookupMode.proxy => 'DIRECT',
-        };
+HttpClient _buildHttpClient({required _IpLookupMode mode, int? proxyPort}) {
+  final client = HttpClient()
+    ..connectionTimeout = _ipLookupTimeout
+    ..idleTimeout = _ipLookupTimeout
+    ..findProxy = (_) {
+      return switch (mode) {
+        _IpLookupMode.direct => 'DIRECT',
+        _IpLookupMode.proxy when proxyPort != null && proxyPort > 0 =>
+          'PROXY 127.0.0.1:$proxyPort',
+        _IpLookupMode.proxy => 'DIRECT',
       };
-      return client;
-    },
+    };
+
+  if (mode == _IpLookupMode.proxy) {
+    client.badCertificateCallback = (certificate, host, port) => true;
+  }
+
+  return client;
+}
+
+Future<Object?> _fetchEndpointPayload({
+  required HttpClient client,
+  required Uri url,
+  required String userAgent,
+}) async {
+  final request = await client.getUrl(url).timeout(_ipLookupTimeout);
+  request.headers.set(HttpHeaders.userAgentHeader, userAgent);
+  request.headers.set(
+    HttpHeaders.acceptHeader,
+    'application/json, text/plain;q=0.9, */*;q=0.1',
   );
 
-  return dio;
+  final response = await request.close().timeout(_ipLookupTimeout);
+  if (response.statusCode < HttpStatus.ok ||
+      response.statusCode >= HttpStatus.internalServerError) {
+    return null;
+  }
+
+  final body = await response
+      .transform(utf8.decoder)
+      .join()
+      .timeout(_ipLookupTimeout);
+  if (body.trim().isEmpty) {
+    return null;
+  }
+  return body;
 }
 
 IpInfo? _parseIpSbInfo(Object? data) {
@@ -135,6 +148,7 @@ IpInfo? _parseIpSbInfo(Object? data) {
   return _buildIpInfo(
     ip: _readString(map, const ['ip', 'query']),
     countryCode: _readString(map, const ['country_code', 'countryCode']),
+    country: _readString(map, const ['country']),
     region: _readString(map, const ['region', 'region_name', 'regionName']),
     city: _readString(map, const ['city']),
     timezone: _readTimezone(map['timezone']),
@@ -160,18 +174,43 @@ IpInfo? _parseIpWhoIsInfo(Object? data) {
   return _buildIpInfo(
     ip: _readString(map, const ['ip']),
     countryCode: _readString(map, const ['country_code', 'countryCode']),
+    country: _readString(map, const ['country']),
     region: _readString(map, const ['region']),
     city: _readString(map, const ['city']),
-    timezone: _readString(timezone, const ['id']) ?? _readString(map, const ['timezone']),
-    asn: _readString(connection, const ['asn']) ?? _readString(map, const ['asn']),
-    org: _readString(connection, const ['org', 'isp']) ??
+    timezone:
+        _readString(timezone, const ['id']) ??
+        _readString(map, const ['timezone']),
+    asn:
+        _readString(connection, const ['asn']) ??
+        _readString(map, const ['asn']),
+    org:
+        _readString(connection, const ['org', 'isp']) ??
         _readString(map, const ['connection', 'organization']),
+  );
+}
+
+IpInfo? _parseIpApiCoInfo(Object? data) {
+  final map = _asJsonMap(data);
+  if (map == null || map['error'] == true) {
+    return null;
+  }
+
+  return _buildIpInfo(
+    ip: _readString(map, const ['ip']),
+    countryCode: _readString(map, const ['country_code', 'countryCode']),
+    country: _readString(map, const ['country_name', 'country']),
+    region: _readString(map, const ['region', 'region_name', 'regionName']),
+    city: _readString(map, const ['city']),
+    timezone: _readString(map, const ['timezone']),
+    asn: _readString(map, const ['asn']),
+    org: _readString(map, const ['org', 'organization']),
   );
 }
 
 IpInfo? _buildIpInfo({
   required String? ip,
   required String? countryCode,
+  String? country,
   String? region,
   String? city,
   String? timezone,
@@ -185,6 +224,7 @@ IpInfo? _buildIpInfo({
   return IpInfo(
     ip: ip,
     countryCode: countryCode,
+    country: country,
     region: region,
     city: city,
     timezone: timezone,

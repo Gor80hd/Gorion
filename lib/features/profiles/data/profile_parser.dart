@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion_clean/utils/server_display_text.dart';
 
 const _trueBooleanValues = {'1', 'true', 'yes', 'on'};
 const _falseBooleanValues = {'0', 'false', 'no', 'off'};
@@ -17,10 +18,7 @@ class ProfileParser {
               responseType: ResponseType.bytes,
               receiveTimeout: const Duration(seconds: 20),
               sendTimeout: const Duration(seconds: 20),
-              headers: const {
-                'user-agent': 'Gorion/1.0',
-                'accept': '*/*',
-              },
+              headers: const {'user-agent': 'Gorion/1.0', 'accept': '*/*'},
             ),
           );
 
@@ -643,11 +641,14 @@ class ProfileParser {
         'shortid',
         'short-id',
       ]);
-      tls['reality'] = {
+      final reality = <String, dynamic>{
         'enabled': true,
         'public_key': publicKey,
-        if (shortId != null) 'short_id': shortId,
       };
+      if (shortId != null) {
+        reality['short_id'] = shortId;
+      }
+      tls['reality'] = reality;
     }
 
     return tls;
@@ -994,6 +995,6 @@ class ProfileParser {
   }
 
   static String _beautifyServerName(String tag) {
-    return tag.replaceAll('§hide§', '').replaceAll('_', ' ').trim();
+    return normalizeServerDisplayText(tag, replaceUnderscores: true);
   }
 }

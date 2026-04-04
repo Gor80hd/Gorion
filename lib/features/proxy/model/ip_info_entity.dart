@@ -2,6 +2,7 @@ class IpInfo {
   const IpInfo({
     required this.ip,
     required this.countryCode,
+    this.country,
     this.region,
     this.city,
     this.timezone,
@@ -11,6 +12,7 @@ class IpInfo {
 
   final String ip;
   final String countryCode;
+  final String? country;
   final String? region;
   final String? city;
   final String? timezone;

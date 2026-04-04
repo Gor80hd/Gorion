@@ -345,7 +345,7 @@ class _ProfilesOverviewDialogState
                         child: ListView.separated(
                           padding: const EdgeInsets.fromLTRB(22, 16, 22, 18),
                           itemCount: profiles.length,
-                          separatorBuilder: (_, __) =>
+                          separatorBuilder: (_, _) =>
                               const SizedBox(height: 12),
                           itemBuilder: (context, index) {
                             final profile = profiles[index];

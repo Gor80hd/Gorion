@@ -199,7 +199,6 @@ class AutoSelectPreconnectService {
 
       for (var index = 0; index < batchResults.length; index += 1) {
         final probeResult = batchResults[index];
-        final probeIndex = batchStart + index;
         allProbeResults.add(probeResult);
         final delay = probeResult.urlTestDelay;
         if (delay != null && delay > 0) {
@@ -275,8 +274,8 @@ class AutoSelectPreconnectService {
     final throughputKbps = (winner.throughputBytesPerSecond / 1024)
         .toStringAsFixed(0);
     final summary = winnerDelay == null
-        ? 'Auto-selector chose ${winner.serverTag} before connect after confirming end-to-end proxy traffic.'
-        : 'Auto-selector chose ${winner.serverTag} before connect (${winnerDelay}ms, ${throughputKbps} KB/s).';
+        ? 'Auto-selector chose $winner.serverTag before connect after confirming end-to-end proxy traffic.'
+        : 'Auto-selector chose $winner.serverTag before connect ($winnerDelay ms, $throughputKbps KB/s).';
 
     onProgress?.call(
       AutoSelectProgressEvent(
@@ -409,7 +408,7 @@ class AutoSelectPreconnectService {
   bool _hasAnyConnectivitySignal(AutoSelectPreconnectProbeResult probeResult) {
     return probeResult.domainProbeOk ||
         probeResult.ipProbeOk ||
-      probeResult.throughputBytesPerSecond > 0;
+        probeResult.throughputBytesPerSecond > 0;
   }
 
   List<AutoSelectConfigCandidate> _prioritizeCandidates(
@@ -496,7 +495,7 @@ class AutoSelectPreconnectService {
     final ipLabel = settings.checkIp
         ? (probeResult.ipProbeOk ? 'IP OK' : 'IP failed')
         : (probeResult.ipProbeOk ? 'IP OK' : 'IP skipped');
-    return 'Probe result for ${probeResult.serverTag}: URLTest $delayLabel, ${probeResult.domainProbeOk ? 'domain OK' : 'domain failed'}, $ipLabel, ${throughputKbps} KB/s.';
+    return 'Probe result for ${probeResult.serverTag}: URLTest $delayLabel, ${probeResult.domainProbeOk ? 'domain OK' : 'domain failed'}, $ipLabel, $throughputKbps KB/s.';
   }
 
   List<AutoSelectConfigCandidate> _buildPreconnectProbePlan(

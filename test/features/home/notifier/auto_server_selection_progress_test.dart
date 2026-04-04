@@ -21,7 +21,7 @@ void main() {
 
       expect(
         describeAutoSelectActivityStatus(activity),
-        'Оставляем текущий сервер: [DE] Frankfurt',
+        'Оставляем текущий сервер: 🇩🇪 Frankfurt',
       );
     });
 
@@ -34,7 +34,7 @@ void main() {
 
       expect(
         describeAutoSelectActivityStatus(activity),
-        'Переключаемся на [NL] Amsterdam',
+        'Переключаемся на 🇳🇱 Amsterdam',
       );
     });
 
@@ -46,7 +46,7 @@ void main() {
 
       expect(
         describeAutoSelectActivityStatus(activity),
-        'Проверяем [NL] Amsterdam (2/5)',
+        'Проверяем 🇳🇱 Amsterdam (2/5)',
       );
     });
 
@@ -63,7 +63,7 @@ void main() {
           connectionStage: ConnectionStage.connected,
           activeServerTag: '[NL] Amsterdam',
         ),
-        'Подключено [NL] Amsterdam',
+        'Подключено 🇳🇱 Amsterdam',
       );
     });
 
@@ -72,7 +72,7 @@ void main() {
         describeAutoSelectTraceLine(
           '12:34:56 [Automatic maintenance] Auto-selector recovered from [DE] Frankfurt to [NL] Amsterdam after the current server failed the end-to-end proxy probe.',
         ),
-        '12:34:56 [Проверка текущего подключения] Текущий сервер не прошёл проверку, переключаемся на [NL] Amsterdam',
+        '12:34:56 [Проверка текущего подключения] Текущий сервер не прошёл проверку, переключаемся на 🇳🇱 Amsterdam',
       );
     });
   });

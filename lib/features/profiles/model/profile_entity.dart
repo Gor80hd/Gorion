@@ -14,7 +14,7 @@ class ProfileEntity {
   bool get isRemote => true;
 
   /// No per-profile show/hide override in gorion_clean; always visible.
-  _UserOverride? get userOverride => null;
+  UserOverride? get userOverride => null;
 
   @override
   bool operator ==(Object other) => other is ProfileEntity && other.id == id;
@@ -23,8 +23,8 @@ class ProfileEntity {
   int get hashCode => id.hashCode;
 }
 
-class _UserOverride {
-  const _UserOverride({required this.showOnHome});
+class UserOverride {
+  const UserOverride({required this.showOnHome});
   final bool showOnHome;
 }
 
@@ -34,4 +34,5 @@ class RemoteProfileEntity extends ProfileEntity {
 }
 
 /// Converts a [ProxyProfile] to [ProfileEntity].
-ProfileEntity profileToEntity(ProxyProfile profile) => RemoteProfileEntity(profile);
+ProfileEntity profileToEntity(ProxyProfile profile) =>
+    RemoteProfileEntity(profile);

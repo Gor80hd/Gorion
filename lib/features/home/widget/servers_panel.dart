@@ -13,6 +13,7 @@ import 'package:gorion_clean/core/http_client/http_client_provider.dart';
 import 'package:gorion_clean/core/preferences/general_preferences.dart';
 import 'package:gorion_clean/core/router/bottom_sheets/bottom_sheets_notifier.dart';
 import 'package:gorion_clean/core/router/dialog/dialog_notifier.dart';
+import 'package:gorion_clean/core/widget/emoji_flag_text.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
@@ -31,6 +32,7 @@ import 'package:gorion_clean/features/proxy/data/proxy_data_providers.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
 import 'package:gorion_clean/features/runtime/notifier/core_restart_signal.dart';
 import 'package:gorion_clean/utils/link_parsers.dart';
+import 'package:gorion_clean/utils/server_display_text.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:path/path.dart' as p;
 
@@ -140,16 +142,61 @@ String _flagEmoji(String code) {
   return String.fromCharCodes(upper.codeUnits.map((c) => base + c));
 }
 
-// Extract country code from tag like "[DE] Germany, Frankfurt"
+// Extract country code from tag like "[DE] Germany", "[de] City", or "🇩🇪 Germany"
 String? _extractCountryCode(String tag) {
-  final match = RegExp(r'^\[([A-Z]{2})\]').firstMatch(tag);
-  return match?.group(1);
+  // Try bracket format first: [DE] or [de]
+  final bracketMatch = RegExp(r'^\[([A-Za-z]{2})\]').firstMatch(tag);
+  if (bracketMatch != null) {
+    return bracketMatch.group(1)!.toUpperCase();
+  }
+
+  // Try flag emoji format: 🇩🇪 (regional indicator symbol pairs U+1F1E6..U+1F1FF)
+  final runes = tag.runes.toList(growable: false);
+  for (var i = 0; i < runes.length - 1; i++) {
+    final first = runes[i];
+    final second = runes[i + 1];
+    if (first >= 0x1F1E6 &&
+        first <= 0x1F1FF &&
+        second >= 0x1F1E6 &&
+        second <= 0x1F1FF) {
+      return String.fromCharCodes([
+        0x41 + first - 0x1F1E6,
+        0x41 + second - 0x1F1E6,
+      ]);
+    }
+  }
+
+  return null;
+}
+
+// Strip country prefix (bracket or flag emoji) from a display name
+String _stripCountryPrefix(String name) {
+  // Strip [XX] or [xx] bracket prefix
+  final stripped = name.replaceFirst(RegExp(r'^\[[A-Za-z]{2}\]\s*'), '');
+  if (stripped != name) return stripped;
+
+  // Strip leading flag emoji pair
+  final runes = name.runes.toList(growable: false);
+  if (runes.length >= 2 &&
+      runes[0] >= 0x1F1E6 &&
+      runes[0] <= 0x1F1FF &&
+      runes[1] >= 0x1F1E6 &&
+      runes[1] <= 0x1F1FF) {
+    // Skip the two regional indicator code points and any trailing space
+    var skip = 2;
+    while (skip < runes.length && runes[skip] == 0x20) {
+      skip++;
+    }
+    return String.fromCharCodes(runes.skip(skip));
+  }
+
+  return name;
 }
 
 // Sanitize tag display: strip §markers
 String _displayName(OutboundInfo info) {
   final raw = info.tagDisplay.isNotEmpty ? info.tagDisplay : info.tag;
-  return raw.replaceAll(RegExp('§[^§]*'), '').trimRight();
+  return normalizeServerDisplayText(raw);
 }
 
 Color _typeColor(String type) {
@@ -729,8 +776,9 @@ class ServersPanelWidget extends HookConsumerWidget {
     }
 
     Future<void> runSingleBenchmark() async {
-      if (isTesting.value || visibleProfiles.isEmpty || profileRepo == null)
+      if (isTesting.value || visibleProfiles.isEmpty || profileRepo == null) {
         return;
+      }
 
       try {
         isTesting.value = true;
@@ -782,8 +830,9 @@ class ServersPanelWidget extends HookConsumerWidget {
     }
 
     Future<void> runBatchBenchmark() async {
-      if (isTesting.value || visibleProfiles.isEmpty || profileRepo == null)
+      if (isTesting.value || visibleProfiles.isEmpty || profileRepo == null) {
         return;
+      }
 
       try {
         isTesting.value = true;
@@ -1373,8 +1422,9 @@ _ParsedOfflineGroup? _parseLinkOfflineGroup(
   final items = <OutboundInfo>[];
   for (final line in lines) {
     final uri = Uri.tryParse(line);
-    if (uri == null || !_proxySchemes.contains(uri.scheme.toLowerCase()))
+    if (uri == null || !_proxySchemes.contains(uri.scheme.toLowerCase())) {
       continue;
+    }
 
     final name = uri.hasFragment
         ? Uri.decodeComponent(uri.fragment.split(' -> ').first).trim()
@@ -2133,8 +2183,9 @@ String? _formatUpdateSummary(
   })?
   updateState,
 ) {
-  if (updateState == null)
+  if (updateState == null) {
     return 'Автообновление проверяет подписки каждые 15 минут.';
+  }
   if (updateState.message?.isNotEmpty == true && updateState.running == false) {
     return '${updateState.message}${updateState.lastRun != null ? ' · ${_formatLastRun(updateState.lastRun!)}' : ''}';
   }
@@ -2241,9 +2292,7 @@ class _ServerCard extends HookConsumerWidget {
     final name = _displayName(server);
     final cc = _extractCountryCode(name);
     final flag = cc != null ? _flagEmoji(cc) : '';
-    final displayedName = cc != null
-        ? name.replaceFirst(RegExp(r'^\[?[A-Z]{2}\]?\s*'), '')
-        : name;
+    final displayedName = cc != null ? _stripCountryPrefix(name) : name;
     final type = server.type.isNotEmpty ? server.type.toUpperCase() : 'PROXY';
     final ping = pingOverride ?? server.urlTestDelay;
     final typeColor = _typeColor(server.type);
@@ -2786,7 +2835,7 @@ class _ServerSettingsDialog extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
+                EmojiFlagText(
                   _displayName(server),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     color: Colors.white,

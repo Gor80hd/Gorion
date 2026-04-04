@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion_clean/utils/server_display_text.dart';
 
 final autoServerSelectionStatusProvider = Provider<String?>((ref) {
   final snapshot = ref.watch(
@@ -321,7 +322,7 @@ String describeAutoSelectTraceLine(String line) {
 }
 
 String _serverName(String value) {
-  return value.replaceAll(RegExp(r'§[^§]*'), '').trim();
+  return normalizeServerDisplayText(value);
 }
 
 class AutoServerSelectionProgress {

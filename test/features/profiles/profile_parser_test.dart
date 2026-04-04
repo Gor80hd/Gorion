@@ -191,5 +191,26 @@ void main() {
         'cdn.vmess.example.com',
       );
     });
+
+    test('parseContent normalizes country-prefixed server display names', () {
+      final parser = ProfileParser();
+      final config = jsonEncode({
+        'outbounds': [
+          {
+            'type': 'vless',
+            'tag': '[NO] Норвегия, Осло',
+            'server': 'oslo.example.com',
+            'server_port': 443,
+          },
+        ],
+      });
+
+      final parsed = parser.parseContent(
+        rawContent: config,
+        source: Uri.parse('https://example.com/subscription.json'),
+      );
+
+      expect(parsed.servers.single.displayName, '🇳🇴 Норвегия, Осло');
+    });
   });
 }
