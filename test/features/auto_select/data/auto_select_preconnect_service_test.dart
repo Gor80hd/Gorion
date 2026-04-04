@@ -166,53 +166,7 @@ void main() {
     },
   );
 
-  test(
-    'prefers higher throughput across a moderate delay gap',
-    () async {
-      final service = AutoSelectPreconnectService(
-        settingsRepository: settingsRepository,
-        probeCandidate:
-            ({
-              required profileId,
-              required templateConfig,
-              required candidate,
-              required settings,
-            }) async {
-              return switch (candidate.tag) {
-                'server-a' => const AutoSelectPreconnectProbeResult(
-                  serverTag: 'server-a',
-                  urlTestDelay: 25,
-                  domainProbeOk: true,
-                  ipProbeOk: true,
-                  throughputBytesPerSecond: 40 * 1024,
-                ),
-                _ => const AutoSelectPreconnectProbeResult(
-                  serverTag: 'server-b',
-                  urlTestDelay: 95,
-                  domainProbeOk: true,
-                  ipProbeOk: true,
-                  throughputBytesPerSecond: 120 * 1024,
-                ),
-              };
-            },
-      );
-
-      final outcome = await service.prepare(
-        profile: _buildProfile(serverTags: ['server-a', 'server-b']),
-        templateConfig: _templateConfig(['server-a', 'server-b']),
-      );
-
-      expect(outcome, isNotNull);
-      expect(outcome!.selectedServerTag, 'server-b');
-    },
-  );
-
-  test('prioritizes the recent auto-selected server before other candidates', () async {
-    await settingsRepository.setRecentAutoSelectedServer(
-      profileId: 'profile-1',
-      serverTag: 'server-c',
-    );
-    final probedTags = <String>[];
+  test('prefers higher throughput across a moderate delay gap', () async {
     final service = AutoSelectPreconnectService(
       settingsRepository: settingsRepository,
       probeCandidate:
@@ -222,24 +176,70 @@ void main() {
             required candidate,
             required settings,
           }) async {
-            probedTags.add(candidate.tag);
-            return AutoSelectPreconnectProbeResult(
-              serverTag: candidate.tag,
-              urlTestDelay: null,
-              domainProbeOk: false,
-              ipProbeOk: false,
-              throughputBytesPerSecond: 0,
-            );
+            return switch (candidate.tag) {
+              'server-a' => const AutoSelectPreconnectProbeResult(
+                serverTag: 'server-a',
+                urlTestDelay: 25,
+                domainProbeOk: true,
+                ipProbeOk: true,
+                throughputBytesPerSecond: 40 * 1024,
+              ),
+              _ => const AutoSelectPreconnectProbeResult(
+                serverTag: 'server-b',
+                urlTestDelay: 95,
+                domainProbeOk: true,
+                ipProbeOk: true,
+                throughputBytesPerSecond: 120 * 1024,
+              ),
+            };
           },
     );
 
-    await service.prepare(
-      profile: _buildProfile(),
-      templateConfig: _templateConfig(['server-a', 'server-b', 'server-c']),
+    final outcome = await service.prepare(
+      profile: _buildProfile(serverTags: ['server-a', 'server-b']),
+      templateConfig: _templateConfig(['server-a', 'server-b']),
     );
 
-    expect(probedTags.first, 'server-c');
+    expect(outcome, isNotNull);
+    expect(outcome!.selectedServerTag, 'server-b');
   });
+
+  test(
+    'prioritizes the recent auto-selected server before other candidates',
+    () async {
+      await settingsRepository.setRecentAutoSelectedServer(
+        profileId: 'profile-1',
+        serverTag: 'server-c',
+      );
+      final probedTags = <String>[];
+      final service = AutoSelectPreconnectService(
+        settingsRepository: settingsRepository,
+        probeCandidate:
+            ({
+              required profileId,
+              required templateConfig,
+              required candidate,
+              required settings,
+            }) async {
+              probedTags.add(candidate.tag);
+              return AutoSelectPreconnectProbeResult(
+                serverTag: candidate.tag,
+                urlTestDelay: null,
+                domainProbeOk: false,
+                ipProbeOk: false,
+                throughputBytesPerSecond: 0,
+              );
+            },
+      );
+
+      await service.prepare(
+        profile: _buildProfile(),
+        templateConfig: _templateConfig(['server-a', 'server-b', 'server-c']),
+      );
+
+      expect(probedTags.first, 'server-c');
+    },
+  );
 
   test('caps the preconnect probe plan at sixteen candidates', () async {
     final probedTags = <String>[];
@@ -324,67 +324,7 @@ void main() {
     expect(progressFrames.last, '4/4');
   });
 
-  test('times out a stuck preconnect probe instead of hanging the batch', () async {
-    final service = AutoSelectPreconnectService(
-      settingsRepository: settingsRepository,
-      preconnectProbeTimeout: const Duration(milliseconds: 20),
-      probeCandidate:
-          ({
-            required profileId,
-            required templateConfig,
-            required candidate,
-            required settings,
-          }) => Completer<AutoSelectPreconnectProbeResult>().future,
-    );
-
-    final stopwatch = Stopwatch()..start();
-    final outcome = await service.prepare(
-      profile: _buildProfile(serverTags: ['server-a']),
-      templateConfig: _templateConfig(['server-a']),
-    );
-    stopwatch.stop();
-
-    expect(outcome, isNull);
-    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 1)));
-  });
-
-  test('falls back to the saved server when no candidate passes preconnect', () async {
-    final progressMessages = <String>[];
-    final service = AutoSelectPreconnectService(
-      settingsRepository: settingsRepository,
-      probeCandidate:
-          ({
-            required profileId,
-            required templateConfig,
-            required candidate,
-            required settings,
-          }) async {
-            return const AutoSelectPreconnectProbeResult(
-              serverTag: 'server-a',
-              urlTestDelay: null,
-              domainProbeOk: false,
-              ipProbeOk: false,
-              throughputBytesPerSecond: 0,
-            );
-          },
-    );
-
-    final outcome = await service.prepare(
-      profile: _buildProfile(serverTags: ['server-a']),
-      templateConfig: _templateConfig(['server-a']),
-      onProgress: (event) {
-        progressMessages.add(event.message);
-      },
-    );
-
-    expect(outcome, isNull);
-    expect(
-      progressMessages.last,
-      contains('Continuing with the saved server and retrying after connect'),
-    );
-  });
-
-  test('uses a best-effort candidate instead of returning null when partial signal exists', () async {
+  test('builds the preconnect summary from the selected server tag', () async {
     final service = AutoSelectPreconnectService(
       settingsRepository: settingsRepository,
       probeCandidate:
@@ -397,17 +337,17 @@ void main() {
             return switch (candidate.tag) {
               'server-a' => const AutoSelectPreconnectProbeResult(
                 serverTag: 'server-a',
-                urlTestDelay: null,
-                domainProbeOk: false,
-                ipProbeOk: false,
-                throughputBytesPerSecond: 0,
+                urlTestDelay: 35,
+                domainProbeOk: true,
+                ipProbeOk: true,
+                throughputBytesPerSecond: 96 * 1024,
               ),
               _ => const AutoSelectPreconnectProbeResult(
                 serverTag: 'server-b',
-                urlTestDelay: null,
+                urlTestDelay: 180,
                 domainProbeOk: true,
-                ipProbeOk: false,
-                throughputBytesPerSecond: 0,
+                ipProbeOk: true,
+                throughputBytesPerSecond: 48 * 1024,
               ),
             };
           },
@@ -419,10 +359,124 @@ void main() {
     );
 
     expect(outcome, isNotNull);
-    expect(outcome!.selectedServerTag, 'server-b');
-    expect(outcome.requiresImmediatePostConnectCheck, isTrue);
-    expect(outcome.summary, contains('best-effort candidate server-b'));
+    expect(
+      outcome!.summary,
+      'Auto-selector chose server-a before connect (35 ms, 96 KB/s).',
+    );
+    expect(
+      outcome.summary,
+      isNot(contains("Instance of 'AutoSelectPreconnectProbeResult'")),
+    );
   });
+
+  test(
+    'times out a stuck preconnect probe instead of hanging the batch',
+    () async {
+      final service = AutoSelectPreconnectService(
+        settingsRepository: settingsRepository,
+        preconnectProbeTimeout: const Duration(milliseconds: 20),
+        probeCandidate:
+            ({
+              required profileId,
+              required templateConfig,
+              required candidate,
+              required settings,
+            }) => Completer<AutoSelectPreconnectProbeResult>().future,
+      );
+
+      final stopwatch = Stopwatch()..start();
+      final outcome = await service.prepare(
+        profile: _buildProfile(serverTags: ['server-a']),
+        templateConfig: _templateConfig(['server-a']),
+      );
+      stopwatch.stop();
+
+      expect(outcome, isNull);
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 1)));
+    },
+  );
+
+  test(
+    'falls back to the saved server when no candidate passes preconnect',
+    () async {
+      final progressMessages = <String>[];
+      final service = AutoSelectPreconnectService(
+        settingsRepository: settingsRepository,
+        probeCandidate:
+            ({
+              required profileId,
+              required templateConfig,
+              required candidate,
+              required settings,
+            }) async {
+              return const AutoSelectPreconnectProbeResult(
+                serverTag: 'server-a',
+                urlTestDelay: null,
+                domainProbeOk: false,
+                ipProbeOk: false,
+                throughputBytesPerSecond: 0,
+              );
+            },
+      );
+
+      final outcome = await service.prepare(
+        profile: _buildProfile(serverTags: ['server-a']),
+        templateConfig: _templateConfig(['server-a']),
+        onProgress: (event) {
+          progressMessages.add(event.message);
+        },
+      );
+
+      expect(outcome, isNull);
+      expect(
+        progressMessages.last,
+        contains('Continuing with the saved server and retrying after connect'),
+      );
+    },
+  );
+
+  test(
+    'uses a best-effort candidate instead of returning null when partial signal exists',
+    () async {
+      final service = AutoSelectPreconnectService(
+        settingsRepository: settingsRepository,
+        probeCandidate:
+            ({
+              required profileId,
+              required templateConfig,
+              required candidate,
+              required settings,
+            }) async {
+              return switch (candidate.tag) {
+                'server-a' => const AutoSelectPreconnectProbeResult(
+                  serverTag: 'server-a',
+                  urlTestDelay: null,
+                  domainProbeOk: false,
+                  ipProbeOk: false,
+                  throughputBytesPerSecond: 0,
+                ),
+                _ => const AutoSelectPreconnectProbeResult(
+                  serverTag: 'server-b',
+                  urlTestDelay: null,
+                  domainProbeOk: true,
+                  ipProbeOk: false,
+                  throughputBytesPerSecond: 0,
+                ),
+              };
+            },
+      );
+
+      final outcome = await service.prepare(
+        profile: _buildProfile(serverTags: ['server-a', 'server-b']),
+        templateConfig: _templateConfig(['server-a', 'server-b']),
+      );
+
+      expect(outcome, isNotNull);
+      expect(outcome!.selectedServerTag, 'server-b');
+      expect(outcome.requiresImmediatePostConnectCheck, isTrue);
+      expect(outcome.summary, contains('best-effort candidate server-b'));
+    },
+  );
 }
 
 ProxyProfile _buildProfile({List<String>? serverTags}) {

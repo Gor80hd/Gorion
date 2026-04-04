@@ -113,7 +113,11 @@ class GorionConsoleLog {
     sink.writeln(
       _paint(
         '[$label] $message',
-        color: isError ? _red : highlight ? _pink : _sectionColor(section),
+        color: isError
+            ? _red
+            : highlight
+            ? _pink
+            : _sectionColor(section),
         bold: !subtle || isError || highlight,
         dim: subtle && !isError && !highlight,
         ansi: ansi,
@@ -220,6 +224,18 @@ class GorionConsoleLog {
     }
 
     match = RegExp(
+      r'^Probe result for (.+): URLTest (n/a|\d+ms), (domain (?:OK|failed)), (IP (?:OK|failed|skipped)), (\d+) KB/s\.$',
+    ).firstMatch(trimmed);
+    if (match != null) {
+      final server = match.group(1)!;
+      final delay = match.group(2)!;
+      final domain = match.group(3)!;
+      final ip = match.group(4)!;
+      final kbps = match.group(5)!;
+      return '$server >> $delay, $domain, $ip, $kbps KB/s';
+    }
+
+    match = RegExp(
       r'^No fully confirmed server passed the detached pre-connect probe\. Using best-effort candidate (.+) and rechecking immediately after connect\.$',
     ).firstMatch(trimmed);
     if (match != null) {
@@ -285,9 +301,7 @@ class GorionConsoleLog {
       return '';
     }
 
-    if (RegExp(
-      r'^Probing contender .+ \(\d+/\d+\)\.$',
-    ).hasMatch(trimmed)) {
+    if (RegExp(r'^Probing contender .+ \(\d+/\d+\)\.$').hasMatch(trimmed)) {
       return '';
     }
 

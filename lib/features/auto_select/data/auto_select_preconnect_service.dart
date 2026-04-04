@@ -274,8 +274,8 @@ class AutoSelectPreconnectService {
     final throughputKbps = (winner.throughputBytesPerSecond / 1024)
         .toStringAsFixed(0);
     final summary = winnerDelay == null
-        ? 'Auto-selector chose $winner.serverTag before connect after confirming end-to-end proxy traffic.'
-        : 'Auto-selector chose $winner.serverTag before connect ($winnerDelay ms, $throughputKbps KB/s).';
+        ? 'Auto-selector chose ${winner.serverTag} before connect after confirming end-to-end proxy traffic.'
+        : 'Auto-selector chose ${winner.serverTag} before connect ($winnerDelay ms, $throughputKbps KB/s).';
 
     onProgress?.call(
       AutoSelectProgressEvent(
