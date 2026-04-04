@@ -12,8 +12,21 @@ class AutoSelectSettingsRepository {
   }) : _storageRootLoader = storageRootLoader ?? _defaultStorageRoot;
 
   final Future<Directory> Function() _storageRootLoader;
+  RecentSuccessfulAutoConnect? _recentSuccessfulAutoConnect;
 
   Future<StoredAutoSelectState> loadState() async {
+    final persistedState = await _readPersistedState();
+    final sanitizedState = persistedState.copyWith(
+      clearRecentSuccessfulAutoConnect: true,
+    );
+    if (persistedState.recentSuccessfulAutoConnect != null) {
+      await _writeState(sanitizedState);
+    }
+
+    return _mergeSessionState(sanitizedState);
+  }
+
+  Future<StoredAutoSelectState> _readPersistedState() async {
     final stateFile = await _stateFile();
     if (!await stateFile.exists()) {
       return const StoredAutoSelectState();
@@ -100,25 +113,28 @@ class AutoSelectSettingsRepository {
     Duration ttl = defaultRecentSuccessfulAutoConnectTtl,
   }) async {
     final current = await loadState();
-    final next = current.copyWith(
-      recentSuccessfulAutoConnect: RecentSuccessfulAutoConnect(
-        profileId: profileId,
-        tag: serverTag,
-        until: DateTime.now().add(ttl),
-      ),
+    _recentSuccessfulAutoConnect = RecentSuccessfulAutoConnect(
+      profileId: profileId,
+      tag: serverTag,
+      until: DateTime.now().add(ttl),
     );
-    await _writeState(next);
-    return next;
+
+    return current.copyWith(
+      recentSuccessfulAutoConnect: _recentSuccessfulAutoConnect,
+    );
   }
 
   Future<StoredAutoSelectState> clearRecentSuccessfulAutoConnect() async {
     final current = await loadState();
-    final next = current.copyWith(clearRecentSuccessfulAutoConnect: true);
-    await _writeState(next);
-    return next;
+    _recentSuccessfulAutoConnect = null;
+    return current.copyWith(clearRecentSuccessfulAutoConnect: true);
   }
 
   Future<StoredAutoSelectState> clearExpiredCaches() async {
+    if (!(_recentSuccessfulAutoConnect?.isActive ?? false)) {
+      _recentSuccessfulAutoConnect = null;
+    }
+
     final current = await loadState();
     final next = current.copyWith(
       clearRecentAutoSelectedServer:
@@ -130,7 +146,7 @@ class AutoSelectSettingsRepository {
       return current;
     }
     await _writeState(next);
-    return next;
+    return _mergeSessionState(next);
   }
 
   Future<File> _stateFile() async {
@@ -139,10 +155,26 @@ class AutoSelectSettingsRepository {
   }
 
   Future<void> _writeState(StoredAutoSelectState state) async {
+    final persistedState = state.copyWith(
+      clearRecentSuccessfulAutoConnect: true,
+    );
     final stateFile = await _stateFile();
     await stateFile.writeAsString(
-      const JsonEncoder.withIndent('  ').convert(state.toJson()),
+      const JsonEncoder.withIndent('  ').convert(persistedState.toJson()),
     );
+  }
+
+  StoredAutoSelectState _mergeSessionState(StoredAutoSelectState state) {
+    final sessionCache = _recentSuccessfulAutoConnect;
+    if (sessionCache == null) {
+      return state;
+    }
+    if (!sessionCache.isActive) {
+      _recentSuccessfulAutoConnect = null;
+      return state;
+    }
+
+    return state.copyWith(recentSuccessfulAutoConnect: sessionCache);
   }
 
   static Future<Directory> _defaultStorageRoot() async {

@@ -372,14 +372,12 @@ void main() {
         expect(controller.state.activeServerTag, 'server-b');
         expect(controller.state.autoSelectResults, hasLength(1));
         expect(controller.state.errorMessage, isNull);
-        expect(
-          settingsRepository.recentAutoSelectedServerCalls,
-          ['profile-1::server-b'],
-        );
-        expect(
-          settingsRepository.recentSuccessfulAutoConnectCalls,
-          ['profile-1::server-b'],
-        );
+        expect(settingsRepository.recentAutoSelectedServerCalls, [
+          'profile-1::server-b',
+        ]);
+        expect(settingsRepository.recentSuccessfulAutoConnectCalls, [
+          'profile-1::server-b',
+        ]);
       },
     );
 
@@ -467,7 +465,7 @@ void main() {
     );
 
     test(
-      'failed auto-selected connect clears recent cache so the next connect probes before startup',
+      'recent successful cache skips immediate recheck and stays reusable across a quick reconnect',
       () async {
         final recentSuccessfulState = StoredAutoSelectState(
           settings: const AutoSelectSettings(enabled: true),
@@ -510,50 +508,7 @@ void main() {
               },
         );
         final runtimeService = _FakeRuntimeService(startSession: _session);
-        final autoSelectorService = _ScriptedAutoSelectorService(
-          maintainResponses: [
-            Future<AutoSelectOutcome>.value(
-              const AutoSelectOutcome(
-                selectedServerTag: 'server-a',
-                previousServerTag: 'server-a',
-                delayByTag: {'server-a': 90, 'server-b': 42},
-                probes: [
-                  AutoSelectProbeResult(
-                    serverTag: 'server-a',
-                    urlTestDelay: 90,
-                    domainProbeOk: false,
-                    ipProbeOk: false,
-                    throughputBytesPerSecond: 0,
-                  ),
-                ],
-                summary:
-                    'Current server server-a failed the latest end-to-end proxy probe, and no reachable replacement was confirmed.',
-                didSwitch: false,
-                hasReachableCandidate: false,
-              ),
-            ),
-            Future<AutoSelectOutcome>.value(
-              const AutoSelectOutcome(
-                selectedServerTag: 'server-b',
-                previousServerTag: 'server-b',
-                delayByTag: {'server-a': 90, 'server-b': 42},
-                probes: [
-                  AutoSelectProbeResult(
-                    serverTag: 'server-b',
-                    urlTestDelay: 42,
-                    domainProbeOk: true,
-                    ipProbeOk: true,
-                    throughputBytesPerSecond: 64 * 1024,
-                  ),
-                ],
-                summary:
-                    'Current server server-b stayed selected after the latest URLTest and proxy probe check.',
-                didSwitch: false,
-                hasReachableCandidate: true,
-              ),
-            ),
-          ],
-        );
+        final autoSelectorService = _ScriptedAutoSelectorService();
         final controller = DashboardController(
           repository: _FakeProfileRepository(
             initialStorage: _storage,
@@ -585,22 +540,154 @@ void main() {
         await controller.connect();
 
         expect(preconnectProbedTags, isEmpty);
-        expect(settingsRepository.clearRecentSuccessfulAutoConnectCallCount, 1);
+        expect(autoSelectorService.maintainCallCount, 0);
+        expect(settingsRepository.clearRecentSuccessfulAutoConnectCallCount, 0);
         expect(runtimeService.selectedServerTags, ['server-a']);
-        expect(controller.state.connectionStage, ConnectionStage.disconnected);
+        expect(controller.state.connectionStage, ConnectionStage.connected);
+        expect(
+          controller.state.hasRecentSuccessfulAutoConnectForActiveProfile,
+          isTrue,
+        );
 
+        await controller.disconnect();
         await controller.connect();
 
-        expect(preconnectProbedTags, contains('server-b'));
-        expect(runtimeService.selectedServerTags, ['server-a', 'server-b']);
+        expect(preconnectProbedTags, isEmpty);
+        expect(autoSelectorService.maintainCallCount, 0);
+        expect(settingsRepository.clearRecentSuccessfulAutoConnectCallCount, 0);
+        expect(runtimeService.selectedServerTags, ['server-a', 'server-a']);
         expect(controller.state.connectionStage, ConnectionStage.connected);
-        expect(controller.state.activeServerTag, 'server-b');
+        expect(controller.state.activeServerTag, 'server-a');
+        expect(
+          controller.state.hasRecentSuccessfulAutoConnectForActiveProfile,
+          isTrue,
+        );
       },
     );
 
     test(
-      'selecting auto server while disconnected clears stale cache and refreshes the startup target',
+      'connect with a valid recent successful cache skips pre-connect activity entirely',
       () async {
+        final cachedAutoConnect = RecentSuccessfulAutoConnect(
+          profileId: _profile.id,
+          tag: 'server-a',
+          until: DateTime.now().add(const Duration(minutes: 1)),
+        );
+        final settingsRepository = _FakeAutoSelectSettingsRepository(
+          initialState: StoredAutoSelectState(
+            settings: const AutoSelectSettings(enabled: true),
+            recentSuccessfulAutoConnect: cachedAutoConnect,
+          ),
+        );
+        final preconnectProbedTags = <String>[];
+        final preconnectService = AutoSelectPreconnectService(
+          settingsRepository: settingsRepository,
+          probeCandidate:
+              ({
+                required profileId,
+                required templateConfig,
+                required candidate,
+                required settings,
+              }) async {
+                preconnectProbedTags.add(candidate.tag);
+                return const AutoSelectPreconnectProbeResult(
+                  serverTag: 'server-a',
+                  urlTestDelay: 42,
+                  domainProbeOk: true,
+                  ipProbeOk: true,
+                  throughputBytesPerSecond: 64 * 1024,
+                );
+              },
+        );
+        final runtimeService = _FakeRuntimeService(startSession: _session);
+        final autoSelectorService = _ScriptedAutoSelectorService(
+          maintainResponses: [
+            Future<AutoSelectOutcome>.value(
+              const AutoSelectOutcome(
+                selectedServerTag: 'server-a',
+                previousServerTag: 'server-a',
+                delayByTag: {'server-a': 42},
+                probes: [
+                  AutoSelectProbeResult(
+                    serverTag: 'server-a',
+                    urlTestDelay: 42,
+                    domainProbeOk: true,
+                    ipProbeOk: true,
+                    throughputBytesPerSecond: 64 * 1024,
+                  ),
+                ],
+                summary:
+                    'Current server server-a stayed selected after the latest URLTest and proxy probe check.',
+                didSwitch: false,
+                hasReachableCandidate: true,
+              ),
+            ),
+          ],
+        );
+        final controller = DashboardController(
+          repository: _FakeProfileRepository(
+            initialStorage: _storage,
+            templateConfig: _autoSelectTemplateConfig,
+          ),
+          runtimeService: runtimeService,
+          autoSelectSettingsRepository: settingsRepository,
+          autoSelectPreconnectService: preconnectService,
+          autoSelectorService: autoSelectorService,
+          clashApiClientFactory: (_) => _FakeClashApiClient(
+            snapshot: const ClashApiSnapshot(
+              selectedTag: 'server-a',
+              delayByTag: {'server-a': 42},
+            ),
+            delays: const {'server-a': 42},
+          ),
+          initialState: DashboardState(
+            bootstrapping: false,
+            runtimeMode: RuntimeMode.mixed,
+            autoSelectSettings: const AutoSelectSettings(enabled: true),
+            storage: _storage,
+            selectedServerTag: autoSelectServerTag,
+            activeServerTag: 'server-a',
+            recentSuccessfulAutoConnect: cachedAutoConnect,
+          ),
+          loadOnInit: false,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.connect();
+
+        expect(runtimeService.selectedServerTags, ['server-a']);
+        expect(runtimeService.stopCallCount, 0);
+        expect(preconnectProbedTags, isEmpty);
+        expect(autoSelectorService.maintainCallCount, 0);
+        expect(autoSelectorService.verifyCallCount, 0);
+        expect(controller.state.connectionStage, ConnectionStage.connected);
+        expect(
+          controller.state.autoSelectActivity.label,
+          isNot('Pre-connect auto-select'),
+        );
+        expect(
+          controller.state.autoSelectActivity.logLines.where(
+            (line) => line.contains('[Pre-connect auto-select]'),
+          ),
+          isEmpty,
+        );
+        expect(
+          controller.state.statusMessage,
+          contains(
+            'Auto-selector reused the recent successful server server-a before starting sing-box.',
+          ),
+        );
+      },
+    );
+
+    test(
+      'selecting auto server while disconnected keeps the quick reconnect cache until reset is pressed',
+      () async {
+        final cachedAutoConnect = RecentSuccessfulAutoConnect(
+          profileId: _manualProfile.id,
+          tag: 'server-a',
+          until: DateTime.now().add(const Duration(minutes: 1)),
+        );
         final manualStorageWithAutoCandidate = StoredProfilesState(
           activeProfileId: _manualProfile.id,
           profiles: [
@@ -610,11 +697,7 @@ void main() {
         final settingsRepository = _FakeAutoSelectSettingsRepository(
           initialState: StoredAutoSelectState(
             settings: const AutoSelectSettings(enabled: true),
-            recentSuccessfulAutoConnect: RecentSuccessfulAutoConnect(
-              profileId: _manualProfile.id,
-              tag: 'server-a',
-              until: DateTime.now().add(const Duration(minutes: 1)),
-            ),
+            recentSuccessfulAutoConnect: cachedAutoConnect,
           ),
         );
         final controller = DashboardController(
@@ -632,6 +715,7 @@ void main() {
             storage: manualStorageWithAutoCandidate,
             selectedServerTag: 'server-a',
             activeServerTag: 'server-a',
+            recentSuccessfulAutoConnect: cachedAutoConnect,
           ),
           loadOnInit: false,
         );
@@ -639,9 +723,61 @@ void main() {
 
         await controller.selectServer(autoSelectServerTag);
 
-        expect(settingsRepository.clearRecentSuccessfulAutoConnectCallCount, 1);
+        expect(settingsRepository.clearRecentSuccessfulAutoConnectCallCount, 0);
         expect(controller.state.selectedServerTag, autoSelectServerTag);
         expect(controller.state.activeServerTag, 'server-b');
+        expect(
+          controller.state.hasRecentSuccessfulAutoConnectForActiveProfile,
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'resetRecentSuccessfulAutoConnect clears the quick reconnect cache for the next connect',
+      () async {
+        final cachedAutoConnect = RecentSuccessfulAutoConnect(
+          profileId: _profile.id,
+          tag: 'server-a',
+          until: DateTime.now().add(const Duration(minutes: 1)),
+        );
+        final settingsRepository = _FakeAutoSelectSettingsRepository(
+          initialState: StoredAutoSelectState(
+            settings: const AutoSelectSettings(enabled: true),
+            recentSuccessfulAutoConnect: cachedAutoConnect,
+          ),
+        );
+        final controller = DashboardController(
+          repository: _FakeProfileRepository(initialStorage: _storage),
+          runtimeService: _FakeRuntimeService(),
+          autoSelectSettingsRepository: settingsRepository,
+          autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+          autoSelectorService: _ScriptedAutoSelectorService(),
+          initialState: DashboardState(
+            bootstrapping: false,
+            runtimeMode: RuntimeMode.mixed,
+            autoSelectSettings: const AutoSelectSettings(enabled: true),
+            storage: _storage,
+            selectedServerTag: autoSelectServerTag,
+            activeServerTag: 'server-a',
+            recentSuccessfulAutoConnect: cachedAutoConnect,
+          ),
+          loadOnInit: false,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.resetRecentSuccessfulAutoConnect();
+
+        expect(settingsRepository.clearRecentSuccessfulAutoConnectCallCount, 1);
+        expect(
+          controller.state.hasRecentSuccessfulAutoConnectForActiveProfile,
+          isFalse,
+        );
+        expect(controller.state.activeServerTag, 'server-a');
+        expect(
+          controller.state.statusMessage,
+          'Auto-select quick reconnect cache cleared. The next connection will run pre-connect probing again.',
+        );
       },
     );
 

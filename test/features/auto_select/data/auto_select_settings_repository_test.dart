@@ -21,45 +21,60 @@ void main() {
     }
   });
 
-  test('persists settings, exclusions, and recent caches', () async {
-    await repository.saveSettings(
-      const AutoSelectSettings(
-        enabled: false,
-        checkIp: false,
-        domainProbeUrl: 'https://probe.example.com/204',
-        ipProbeUrl: 'http://9.9.9.9',
-      ),
-    );
-    await repository.updateExcludedServer(
-      profileId: 'profile-1',
-      serverTag: 'server-a',
-      excluded: true,
-    );
-    await repository.setRecentAutoSelectedServer(
-      profileId: 'profile-1',
-      serverTag: 'server-b',
-    );
-    await repository.setRecentSuccessfulAutoConnect(
-      profileId: 'profile-1',
-      serverTag: 'server-c',
-    );
+  test(
+    'persists settings while keeping recent successful auto-connect in session only',
+    () async {
+      await repository.saveSettings(
+        const AutoSelectSettings(
+          enabled: false,
+          checkIp: false,
+          domainProbeUrl: 'https://probe.example.com/204',
+          ipProbeUrl: 'http://9.9.9.9',
+        ),
+      );
+      await repository.updateExcludedServer(
+        profileId: 'profile-1',
+        serverTag: 'server-a',
+        excluded: true,
+      );
+      await repository.setRecentAutoSelectedServer(
+        profileId: 'profile-1',
+        serverTag: 'server-b',
+      );
+      await repository.setRecentSuccessfulAutoConnect(
+        profileId: 'profile-1',
+        serverTag: 'server-c',
+      );
 
-    final loaded = await repository.loadState();
+      final loaded = await repository.loadState();
 
-    expect(loaded.settings.enabled, isFalse);
-    expect(loaded.settings.checkIp, isFalse);
-    expect(loaded.settings.domainProbeUrl, 'https://probe.example.com/204');
-    expect(loaded.settings.ipProbeUrl, 'http://9.9.9.9');
-    expect(loaded.settings.isExcluded('profile-1', 'server-a'), isTrue);
-    expect(
-      loaded.recentAutoSelectedServer?.matchesProfile('profile-1'),
-      isTrue,
-    );
-    expect(
-      loaded.recentSuccessfulAutoConnect?.matchesProfile('profile-1'),
-      isTrue,
-    );
-  });
+      expect(loaded.settings.enabled, isFalse);
+      expect(loaded.settings.checkIp, isFalse);
+      expect(loaded.settings.domainProbeUrl, 'https://probe.example.com/204');
+      expect(loaded.settings.ipProbeUrl, 'http://9.9.9.9');
+      expect(loaded.settings.isExcluded('profile-1', 'server-a'), isTrue);
+      expect(
+        loaded.recentAutoSelectedServer?.matchesProfile('profile-1'),
+        isTrue,
+      );
+      expect(
+        loaded.recentSuccessfulAutoConnect?.matchesProfile('profile-1'),
+        isTrue,
+      );
+
+      final restartedRepository = AutoSelectSettingsRepository(
+        storageRootLoader: () async => tempDir,
+      );
+      final restartedState = await restartedRepository.loadState();
+
+      expect(restartedState.settings.enabled, isFalse);
+      expect(
+        restartedState.recentAutoSelectedServer?.matchesProfile('profile-1'),
+        isTrue,
+      );
+      expect(restartedState.recentSuccessfulAutoConnect, isNull);
+    },
+  );
 
   test('clearExpiredCaches removes inactive entries', () async {
     await repository.setRecentAutoSelectedServer(

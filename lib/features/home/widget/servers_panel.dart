@@ -429,6 +429,14 @@ class ServersPanelWidget extends HookConsumerWidget {
         (state) => state.selectedServerTag == autoSelectServerTag,
       ),
     );
+    final autoReconnectCacheAvailable = ref.watch(
+      dashboardControllerProvider.select(
+        (state) => state.hasRecentSuccessfulAutoConnectForActiveProfile,
+      ),
+    );
+    final dashboardBusy = ref.watch(
+      dashboardControllerProvider.select((state) => state.busy),
+    );
     final autoServerSelectionExcluded = ref
         .watch(Preferences.autoSelectServerExcluded)
         .toSet();
@@ -471,6 +479,7 @@ class ServersPanelWidget extends HookConsumerWidget {
         autoServerSelected &&
         selectedPreview == null &&
         pendingSelection == null;
+    final autoResetEnabled = autoReconnectCacheAvailable && !dashboardBusy;
     final activeProfileLabel = activeProfile?.name ?? 'Нет активной подписки';
     final updateState = ref
         .watch(foregroundProfilesUpdateNotifierProvider)
@@ -1054,6 +1063,55 @@ class ServersPanelWidget extends HookConsumerWidget {
                         pingOverride: autoCardPing,
                         hasSpeedResult: false,
                         isBenchmarking: false,
+                        badge: Tooltip(
+                          message: autoResetEnabled
+                              ? 'Сбросить быстрый кеш переподключения'
+                              : 'Быстрый кеш переподключения уже пуст',
+                          child: TextButton(
+                            onPressed: autoResetEnabled
+                                ? () async {
+                                    await ref
+                                        .read(
+                                          dashboardControllerProvider.notifier,
+                                        )
+                                        .resetRecentSuccessfulAutoConnect();
+                                  }
+                                : null,
+                            style: TextButton.styleFrom(
+                              minimumSize: const Size(0, 0),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 2,
+                              ),
+                              foregroundColor: autoResetEnabled
+                                  ? const Color(0xFFFFB86B)
+                                  : Colors.white.withValues(alpha: 0.3),
+                              backgroundColor: autoResetEnabled
+                                  ? const Color(
+                                      0xFFFFB86B,
+                                    ).withValues(alpha: 0.12)
+                                  : Colors.white.withValues(alpha: 0.04),
+                              side: BorderSide(
+                                color: autoResetEnabled
+                                    ? const Color(
+                                        0xFFFFB86B,
+                                      ).withValues(alpha: 0.35)
+                                    : Colors.white.withValues(alpha: 0.08),
+                                width: 0.7,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              textStyle: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.4,
+                              ),
+                            ),
+                            child: const Text('RESET'),
+                          ),
+                        ),
                         selectionProgress: autoServerSelectionProgress,
                         onSelect: () async {
                           ref
@@ -2265,6 +2323,7 @@ class _ServerCard extends HookConsumerWidget {
     this.speedOverride,
     required this.hasSpeedResult,
     required this.isBenchmarking,
+    this.badge,
     this.selectionProgress,
     this.isAutoExcluded = false,
     this.onToggleAutoExclusion,
@@ -2281,6 +2340,7 @@ class _ServerCard extends HookConsumerWidget {
   final int? speedOverride;
   final bool hasSpeedResult;
   final bool isBenchmarking;
+  final Widget? badge;
   final AutoServerSelectionProgress? selectionProgress;
   final bool isAutoExcluded;
   final VoidCallback? onToggleAutoExclusion;
@@ -2553,6 +2613,8 @@ class _ServerCard extends HookConsumerWidget {
                                       ),
                                     ),
                                   )
+                                else if (badge != null)
+                                  badge!
                                 else
                                   Container(
                                     padding: const EdgeInsets.symmetric(

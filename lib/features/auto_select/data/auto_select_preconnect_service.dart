@@ -90,6 +90,37 @@ class AutoSelectPreconnectService {
   final int throughputPreferenceWindowMs;
   final int minimumUsableThroughput;
 
+  Future<PreparedAutoConnectSelection?> recentSuccessfulSelection({
+    required ProxyProfile profile,
+    required String templateConfig,
+  }) async {
+    final storedState = await _settingsRepository.clearExpiredCaches();
+    final settings = storedState.settings;
+    if (!settings.enabled || !profile.prefersAutoSelection) {
+      return null;
+    }
+
+    final extractedCandidates = extractAutoSelectConfigCandidates(
+      templateConfig,
+    );
+    if (extractedCandidates.isEmpty) {
+      return null;
+    }
+
+    final candidates = extractedCandidates
+        .where((candidate) => !settings.isExcluded(profile.id, candidate.tag))
+        .toList(growable: false);
+    if (candidates.isEmpty) {
+      return null;
+    }
+
+    return _resolveRecentSuccessfulSelection(
+      storedState: storedState,
+      profileId: profile.id,
+      candidates: candidates,
+    );
+  }
+
   Future<PreparedAutoConnectSelection?> prepare({
     required ProxyProfile profile,
     required String templateConfig,
@@ -119,30 +150,21 @@ class AutoSelectPreconnectService {
       );
     }
 
-    final recentSuccessfulAutoConnect = storedState.recentSuccessfulAutoConnect;
-    if (recentSuccessfulAutoConnect != null &&
-        recentSuccessfulAutoConnect.matchesProfile(profile.id)) {
-      for (final candidate in candidates) {
-        if (candidate.tag == recentSuccessfulAutoConnect.tag) {
-          onProgress?.call(
-            AutoSelectProgressEvent(
-              message:
-                  'Reusing recent successful server ${candidate.tag} before probing new candidates.',
-              completedSteps: 2,
-              totalSteps: 2,
-            ),
-          );
-          return PreparedAutoConnectSelection(
-            selectedServerTag: candidate.tag,
-            delayByTag: const {},
-            probes: const [],
-            summary:
-                'Auto-selector reused the recent successful server ${candidate.tag} before starting sing-box.',
-            reusedRecentSuccessfulSelection: true,
-            requiresImmediatePostConnectCheck: false,
-          );
-        }
-      }
+    final reusedRecentSuccessfulSelection = _resolveRecentSuccessfulSelection(
+      storedState: storedState,
+      profileId: profile.id,
+      candidates: candidates,
+    );
+    if (reusedRecentSuccessfulSelection != null) {
+      onProgress?.call(
+        AutoSelectProgressEvent(
+          message:
+              'Reusing recent successful server ${reusedRecentSuccessfulSelection.selectedServerTag} before probing new candidates.',
+          completedSteps: 2,
+          totalSteps: 2,
+        ),
+      );
+      return reusedRecentSuccessfulSelection;
     }
 
     final prioritizedCandidates = _prioritizeCandidates(
@@ -293,6 +315,34 @@ class AutoSelectPreconnectService {
       reusedRecentSuccessfulSelection: false,
       requiresImmediatePostConnectCheck: false,
     );
+  }
+
+  PreparedAutoConnectSelection? _resolveRecentSuccessfulSelection({
+    required StoredAutoSelectState storedState,
+    required String profileId,
+    required List<AutoSelectConfigCandidate> candidates,
+  }) {
+    final recentSuccessfulAutoConnect = storedState.recentSuccessfulAutoConnect;
+    if (recentSuccessfulAutoConnect == null ||
+        !recentSuccessfulAutoConnect.matchesProfile(profileId)) {
+      return null;
+    }
+
+    for (final candidate in candidates) {
+      if (candidate.tag == recentSuccessfulAutoConnect.tag) {
+        return PreparedAutoConnectSelection(
+          selectedServerTag: candidate.tag,
+          delayByTag: const {},
+          probes: const [],
+          summary:
+              'Auto-selector reused the recent successful server ${candidate.tag} before starting sing-box.',
+          reusedRecentSuccessfulSelection: true,
+          requiresImmediatePostConnectCheck: false,
+        );
+      }
+    }
+
+    return null;
   }
 
   Future<AutoSelectPreconnectProbeResult> _safeProbeCandidate({

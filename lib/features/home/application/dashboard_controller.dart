@@ -80,6 +80,7 @@ class DashboardState {
     this.delayByTag = const {},
     this.selectedServerTag,
     this.activeServerTag,
+    this.recentSuccessfulAutoConnect,
     this.autoSelectResults = const [],
     this.autoSelectActivity = const AutoSelectActivityState(),
     this.statusMessage,
@@ -98,6 +99,7 @@ class DashboardState {
   final Map<String, int> delayByTag;
   final String? selectedServerTag;
   final String? activeServerTag;
+  final RecentSuccessfulAutoConnect? recentSuccessfulAutoConnect;
   final List<AutoSelectProbeResult> autoSelectResults;
   final AutoSelectActivityState autoSelectActivity;
   final String? statusMessage;
@@ -105,6 +107,15 @@ class DashboardState {
   final List<String> logs;
 
   ProxyProfile? get activeProfile => storage.activeProfile;
+
+  bool get hasRecentSuccessfulAutoConnectForActiveProfile {
+    final profileId = activeProfile?.id;
+    if (profileId == null) {
+      return false;
+    }
+
+    return recentSuccessfulAutoConnect?.matchesProfile(profileId) ?? false;
+  }
 
   DashboardState copyWith({
     bool? bootstrapping,
@@ -121,6 +132,8 @@ class DashboardState {
     bool clearSelectedServerTag = false,
     String? activeServerTag,
     bool clearActiveServerTag = false,
+    RecentSuccessfulAutoConnect? recentSuccessfulAutoConnect,
+    bool clearRecentSuccessfulAutoConnect = false,
     List<AutoSelectProbeResult>? autoSelectResults,
     AutoSelectActivityState? autoSelectActivity,
     bool clearAutoSelectActivity = false,
@@ -148,6 +161,9 @@ class DashboardState {
       activeServerTag: clearActiveServerTag
           ? null
           : activeServerTag ?? this.activeServerTag,
+      recentSuccessfulAutoConnect: clearRecentSuccessfulAutoConnect
+          ? null
+          : recentSuccessfulAutoConnect ?? this.recentSuccessfulAutoConnect,
       autoSelectResults: autoSelectResults ?? this.autoSelectResults,
       autoSelectActivity: clearAutoSelectActivity
           ? const AutoSelectActivityState()
@@ -356,6 +372,8 @@ class DashboardController extends StateNotifier<DashboardState> {
         storage: storage,
         selectedServerTag: storage.activeProfile?.selectedServerTag,
         activeServerTag: storage.activeProfile?.startupServerTag,
+        recentSuccessfulAutoConnect:
+            autoSelectState.recentSuccessfulAutoConnect,
         autoSelectResults: const [],
         clearAutoSelectActivity: true,
       );
@@ -458,6 +476,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       state = state.copyWith(
         busy: false,
         autoSelectSettings: stored.settings,
+        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
         statusMessage: enabled
             ? 'Automatic server selection is enabled.'
             : 'Automatic server selection is disabled.',
@@ -505,6 +524,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       state = state.copyWith(
         busy: false,
         autoSelectSettings: stored.settings,
+        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
         statusMessage: checkIp
             ? 'IP-only probe is required during automatic selection.'
             : 'IP-only probe is optional during automatic selection.',
@@ -562,6 +582,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       state = state.copyWith(
         busy: false,
         autoSelectSettings: updatedSettings,
+        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
         statusMessage: excluded
             ? 'Server $serverTag was excluded from automatic selection.'
             : 'Server $serverTag was returned to automatic selection.',
@@ -615,19 +636,26 @@ class DashboardController extends StateNotifier<DashboardState> {
       PreparedAutoConnectSelection? preparedAutoSelection;
       var startupServerTag = profile.startupServerTag;
       if (profile.prefersAutoSelection && autoSelectSettings.enabled) {
-        _startAutoSelectActivity(
-          'Pre-connect auto-select',
-          message:
-              'Loading saved auto-select state and preparing candidate probes.',
-        );
-        preparedAutoSelection = await _autoSelectPreconnectService.prepare(
-          profile: profile,
-          templateConfig: templateConfig,
-          onProgress: (event) {
-            _reportAutoSelectProgress('Pre-connect auto-select', event);
-          },
-        );
-        _finishAutoSelectActivity('Pre-connect auto-select');
+        preparedAutoSelection = await _autoSelectPreconnectService
+            .recentSuccessfulSelection(
+              profile: profile,
+              templateConfig: templateConfig,
+            );
+        if (preparedAutoSelection == null) {
+          _startAutoSelectActivity(
+            'Pre-connect auto-select',
+            message:
+                'Loading saved auto-select state and preparing candidate probes.',
+          );
+          preparedAutoSelection = await _autoSelectPreconnectService.prepare(
+            profile: profile,
+            templateConfig: templateConfig,
+            onProgress: (event) {
+              _reportAutoSelectProgress('Pre-connect auto-select', event);
+            },
+          );
+          _finishAutoSelectActivity('Pre-connect auto-select');
+        }
         startupServerTag =
             preparedAutoSelection?.selectedServerTag ?? startupServerTag;
       }
@@ -662,9 +690,8 @@ class DashboardController extends StateNotifier<DashboardState> {
       var effectiveActiveServerTag = connectedTag;
       var effectiveProbes =
           preparedAutoSelection?.probes ?? const <AutoSelectProbeResult>[];
-        final shouldVerifyPostConnectInternetAccess =
+      final shouldVerifyPostConnectInternetAccess =
           preparedAutoSelection == null ||
-          preparedAutoSelection.reusedRecentSuccessfulSelection ||
           preparedAutoSelection.requiresImmediatePostConnectCheck;
 
       final verification = shouldVerifyPostConnectInternetAccess
@@ -720,9 +747,14 @@ class DashboardController extends StateNotifier<DashboardState> {
           profileId: profile.id,
           serverTag: effectiveActiveServerTag,
         );
-        await _autoSelectSettingsRepository.setRecentSuccessfulAutoConnect(
-          profileId: profile.id,
-          serverTag: effectiveActiveServerTag,
+        final autoSelectState = await _autoSelectSettingsRepository
+            .setRecentSuccessfulAutoConnect(
+              profileId: profile.id,
+              serverTag: effectiveActiveServerTag,
+            );
+        state = state.copyWith(
+          recentSuccessfulAutoConnect:
+              autoSelectState.recentSuccessfulAutoConnect,
         );
       }
 
@@ -819,7 +851,6 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
     try {
       if (isAutoSelectServerTag(serverTag)) {
-        await _clearRecentSuccessfulAutoConnect();
         final storage = await _repository.updateSelectedServer(
           profile.id,
           autoSelectServerTag,
@@ -1065,6 +1096,45 @@ class DashboardController extends StateNotifier<DashboardState> {
     await connect();
   }
 
+  Future<void> resetRecentSuccessfulAutoConnect() async {
+    final profile = state.activeProfile;
+    if (profile == null || state.busy) {
+      return;
+    }
+    if (!state.hasRecentSuccessfulAutoConnectForActiveProfile) {
+      return;
+    }
+
+    final isConnected = state.connectionStage == ConnectionStage.connected;
+    state = state.copyWith(
+      busy: true,
+      clearErrorMessage: true,
+      clearStatusMessage: true,
+    );
+
+    try {
+      await _clearRecentSuccessfulAutoConnect();
+      state = state.copyWith(
+        busy: false,
+        activeServerTag: isConnected
+            ? state.activeServerTag
+            : profile.startupServerTag,
+        autoSelectResults: isConnected ? state.autoSelectResults : const [],
+        clearAutoSelectActivity: !isConnected,
+        statusMessage: isConnected
+            ? 'Auto-select quick reconnect cache cleared. The next reconnect will run pre-connect probing again.'
+            : 'Auto-select quick reconnect cache cleared. The next connection will run pre-connect probing again.',
+        logs: _runtimeService.logs,
+      );
+    } on Object catch (error) {
+      state = state.copyWith(
+        busy: false,
+        errorMessage: error.toString(),
+        logs: _runtimeService.logs,
+      );
+    }
+  }
+
   Future<void> setRuntimeMode(RuntimeMode mode) async {
     if (state.busy || state.refreshingDelays || state.runtimeMode == mode) {
       return;
@@ -1230,11 +1300,13 @@ class DashboardController extends StateNotifier<DashboardState> {
   }) async {
     if (!ignoreErrors) {
       await _autoSelectSettingsRepository.clearRecentSuccessfulAutoConnect();
+      state = state.copyWith(clearRecentSuccessfulAutoConnect: true);
       return;
     }
 
     try {
       await _autoSelectSettingsRepository.clearRecentSuccessfulAutoConnect();
+      state = state.copyWith(clearRecentSuccessfulAutoConnect: true);
     } on Object {}
   }
 
