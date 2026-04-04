@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
 import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
+import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
 import 'package:gorion_clean/features/proxy/notifier/ip_info_notifier.dart';
@@ -56,11 +57,12 @@ HomeStatusCardModel buildHomeStatusCardModel({
   required String? autoStatus,
 }) {
   final autoEnabled = state.autoSelectSettings.enabled;
+  final autoModeSelected =
+      autoEnabled && isAutoSelectServerTag(state.selectedServerTag);
 
   final isManualPreviewActive =
-      !autoEnabled &&
-      (selectedPreview != null || pendingManualSelection != null);
-  final isAutoMode = autoEnabled && !isManualPreviewActive;
+      selectedPreview != null || pendingManualSelection != null;
+  final isAutoMode = autoModeSelected && !isManualPreviewActive;
 
   final activeProxy = _resolveActiveProxy(state);
 

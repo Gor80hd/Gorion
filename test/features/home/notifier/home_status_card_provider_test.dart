@@ -51,10 +51,7 @@ void main() {
 
       expect(model.title, 'Server A');
       expect(model.routeName, 'Server A');
-      expect(
-        model.alertText,
-        'Подключение не удалось: Server A недоступен.',
-      );
+      expect(model.alertText, 'Подключение не удалось: Server A недоступен.');
       expect(model.statusText, isNull);
     });
 
@@ -77,6 +74,28 @@ void main() {
       );
 
       expect(model.alertText, message);
+      expect(model.statusText, isNull);
+    });
+
+    test('keeps manual mode when auto-select is only enabled globally', () {
+      final model = buildHomeStatusCardModel(
+        state: DashboardState(
+          bootstrapping: false,
+          autoSelectSettings: AutoSelectSettings(enabled: true),
+          storage: _storage,
+          selectedServerTag: 'server-a',
+          activeServerTag: 'server-a',
+        ),
+        selectedPreview: null,
+        pendingManualSelection: null,
+        sourceIp: null,
+        currentIp: null,
+        autoStatus: 'Подбор перед подключением',
+      );
+
+      expect(model.isAutoMode, isFalse);
+      expect(model.title, 'Server A');
+      expect(model.routeName, 'Server A');
       expect(model.statusText, isNull);
     });
 

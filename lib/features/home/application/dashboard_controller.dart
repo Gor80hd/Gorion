@@ -662,20 +662,36 @@ class DashboardController extends StateNotifier<DashboardState> {
       var effectiveActiveServerTag = connectedTag;
       var effectiveProbes =
           preparedAutoSelection?.probes ?? const <AutoSelectProbeResult>[];
+        final shouldVerifyPostConnectInternetAccess =
+          preparedAutoSelection == null ||
+          preparedAutoSelection.reusedRecentSuccessfulSelection ||
+          preparedAutoSelection.requiresImmediatePostConnectCheck;
 
-      final verification = await _verifyPostConnectInternetAccess(
-        profile: profile,
-        session: session,
-        storage: persistedStorage,
-        activeServerTag: effectiveActiveServerTag,
-        delayByTag: effectiveDelayByTag,
-      );
+      final verification = shouldVerifyPostConnectInternetAccess
+          ? await _verifyPostConnectInternetAccess(
+              profile: profile,
+              session: session,
+              storage: persistedStorage,
+              activeServerTag: effectiveActiveServerTag,
+              delayByTag: effectiveDelayByTag,
+            )
+          : (
+              storage: persistedStorage,
+              activeServerTag: effectiveActiveServerTag,
+              delayByTag: effectiveDelayByTag,
+              probes: effectiveProbes,
+              statusMessage: null,
+              failureMessage: null,
+            );
       persistedStorage = verification.storage;
       effectiveDelayByTag = verification.delayByTag;
       effectiveActiveServerTag = verification.activeServerTag;
       effectiveProbes = verification.probes;
 
       if (verification.failureMessage case final failureMessage?) {
+        if (profile.prefersAutoSelection && autoSelectSettings.enabled) {
+          await _clearRecentSuccessfulAutoConnect(ignoreErrors: true);
+        }
         await _runtimeService.stop();
         _autoSelectorService.resetProfileState(session.profileId);
         state = state.copyWith(
@@ -803,6 +819,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
     try {
       if (isAutoSelectServerTag(serverTag)) {
+        await _clearRecentSuccessfulAutoConnect();
         final storage = await _repository.updateSelectedServer(
           profile.id,
           autoSelectServerTag,
@@ -813,8 +830,9 @@ class DashboardController extends StateNotifier<DashboardState> {
           busy: false,
           storage: storage,
           selectedServerTag: updatedProfile?.selectedServerTag,
-          activeServerTag:
-              state.activeServerTag ?? updatedProfile?.startupServerTag,
+          activeServerTag: state.connectionStage == ConnectionStage.connected
+              ? (state.activeServerTag ?? updatedProfile?.startupServerTag)
+              : updatedProfile?.startupServerTag,
           autoSelectResults: const [],
           clearAutoSelectActivity: true,
           statusMessage: !state.autoSelectSettings.enabled
@@ -1205,6 +1223,19 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
 
     await removeProfile(profile.id);
+  }
+
+  Future<void> _clearRecentSuccessfulAutoConnect({
+    bool ignoreErrors = false,
+  }) async {
+    if (!ignoreErrors) {
+      await _autoSelectSettingsRepository.clearRecentSuccessfulAutoConnect();
+      return;
+    }
+
+    try {
+      await _autoSelectSettingsRepository.clearRecentSuccessfulAutoConnect();
+    } on Object {}
   }
 
   void _startAutoSelectionMonitoring() {

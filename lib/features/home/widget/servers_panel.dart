@@ -16,6 +16,7 @@ import 'package:gorion_clean/core/router/dialog/dialog_notifier.dart';
 import 'package:gorion_clean/core/widget/emoji_flag_text.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
+import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
 import 'package:gorion_clean/features/home/utils/auto_select_probe_utils.dart'
     as probe_utils;
@@ -24,6 +25,8 @@ import 'package:gorion_clean/features/home/widget/selected_server_preview_provid
 import 'package:gorion_clean/features/profiles/data/profile_data_providers.dart';
 import 'package:gorion_clean/features/profiles/model/profile_connection_mode.dart';
 import 'package:gorion_clean/features/profiles/model/profile_entity.dart';
+import 'package:gorion_clean/features/profiles/model/profile_models.dart'
+    show autoSelectServerTag;
 import 'package:gorion_clean/features/profiles/model/profile_sort_enum.dart';
 import 'package:gorion_clean/features/profiles/notifier/active_profile_notifier.dart';
 import 'package:gorion_clean/features/profiles/notifier/profiles_update_notifier.dart';
@@ -421,6 +424,11 @@ class ServersPanelWidget extends HookConsumerWidget {
     final proxyRepo = ref.watch(proxyRepositoryProvider);
     final coreRestartSignal = ref.watch(coreRestartSignalProvider);
     final autoServerSelectionEnabled = ref.watch(Preferences.autoSelectServer);
+    final autoServerSelected = ref.watch(
+      dashboardControllerProvider.select(
+        (state) => state.selectedServerTag == autoSelectServerTag,
+      ),
+    );
     final autoServerSelectionExcluded = ref
         .watch(Preferences.autoSelectServerExcluded)
         .toSet();
@@ -459,6 +467,10 @@ class ServersPanelWidget extends HookConsumerWidget {
         ? (autoServerSelectionStatus ?? 'Автовыбор включён')
         : 'Выберет лучший доступный сервер, кроме исключённых';
     const autoCardDetailLines = <String>[];
+    final autoCardSelected =
+        autoServerSelected &&
+        selectedPreview == null &&
+        pendingSelection == null;
     final activeProfileLabel = activeProfile?.name ?? 'Нет активной подписки';
     final updateState = ref
         .watch(foregroundProfilesUpdateNotifierProvider)
@@ -1035,7 +1047,7 @@ class ServersPanelWidget extends HookConsumerWidget {
                       child: _ServerCard(
                         key: const ValueKey('auto-server-card'),
                         server: autoCardServer,
-                        isSelected: autoServerSelectionEnabled,
+                        isSelected: autoCardSelected,
                         groupName: autoCardDescription,
                         detailLines: autoCardDetailLines,
                         groupTag: onlineGroup?.tag ?? '',
@@ -1055,6 +1067,9 @@ class ServersPanelWidget extends HookConsumerWidget {
                           await ref
                               .read(Preferences.autoSelectServer.notifier)
                               .update(true);
+                          await ref
+                              .read(dashboardControllerProvider.notifier)
+                              .selectServer(autoSelectServerTag);
                         },
                       ),
                     ),
@@ -1139,7 +1154,7 @@ class ServersPanelWidget extends HookConsumerWidget {
                                             ),
                                             server: server,
                                             isSelected:
-                                                !autoServerSelectionEnabled &&
+                                                !autoCardSelected &&
                                                 ((pendingSelection?.profileId ==
                                                             profile.id &&
                                                         pendingSelection
