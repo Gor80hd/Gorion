@@ -6,6 +6,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gap/gap.dart';
+import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/runtime/model/connection_status.dart';
@@ -179,7 +180,10 @@ String? _extractCountryCodeFromFlag(String value) {
       continue;
     }
 
-    final code = String.fromCharCodes([0x41 + first - 0x1F1E6, 0x41 + second - 0x1F1E6]);
+    final code = String.fromCharCodes([
+      0x41 + first - 0x1F1E6,
+      0x41 + second - 0x1F1E6,
+    ]);
     if (_countryLatLon.containsKey(code)) {
       return code;
     }
@@ -208,16 +212,22 @@ Offset? _extractLatLonFromKeyword(String value) {
   return (lat, lon);
 }
 
-(double, double) _resolveDestinationLatLon(OutboundInfo? selectedProxy, String? destCountry) {
+(double, double) _resolveDestinationLatLon(
+  OutboundInfo? selectedProxy,
+  String? destCountry,
+) {
   if (selectedProxy == null) return _getLatLon(destCountry ?? 'DE');
 
-  final rawName = selectedProxy.tagDisplay.isNotEmpty ? selectedProxy.tagDisplay : selectedProxy.tag;
+  final rawName = selectedProxy.tagDisplay.isNotEmpty
+      ? selectedProxy.tagDisplay
+      : selectedProxy.tag;
   final keywordLatLon = _extractLatLonFromKeyword(rawName);
   if (keywordLatLon != null) {
     return (keywordLatLon.dx, keywordLatLon.dy);
   }
 
-  final countryCode = _extractCountryCode(rawName) ?? _extractCountryCodeFromFlag(rawName);
+  final countryCode =
+      _extractCountryCode(rawName) ?? _extractCountryCodeFromFlag(rawName);
 
   if (countryCode != null) {
     return _getLatLon(countryCode);
@@ -236,7 +246,11 @@ Offset? _extractLatLonFromKeyword(String value) {
     return (55.7558, 37.6173);
   }
 
-  final locationParts = [ipInfo.city, ipInfo.region, ipInfo.countryCode].whereType<String>().join(', ');
+  final locationParts = [
+    ipInfo.city,
+    ipInfo.region,
+    ipInfo.countryCode,
+  ].whereType<String>().join(', ');
   final keywordLatLon = _extractLatLonFromKeyword(locationParts);
   if (keywordLatLon != null) {
     return (keywordLatLon.dx, keywordLatLon.dy);
@@ -295,18 +309,28 @@ class MapView extends HookConsumerWidget {
     final keepSourceAnchored = isConnected || isSwitching;
     final shouldUseLocalSource = serviceMode == ServiceMode.systemProxy;
     final sourceAnchor = useState<IpInfo?>(null);
-    final mapTransition = useAnimationController(duration: const Duration(milliseconds: 1200));
-    final packetTravel = useAnimationController(duration: const Duration(milliseconds: 3200));
+    final mapTransition = useAnimationController(
+      duration: const Duration(milliseconds: 1200),
+    );
+    final packetTravel = useAnimationController(
+      duration: const Duration(milliseconds: 3200),
+    );
 
     final sourceInfo = directIpInfo.asData?.value;
     final routedInfo = routedIpInfo.asData?.value;
     final activeProxyInfo = activeProxy.asData?.value;
-    final selectedProxy = statusCard.displayProxy ?? (activeProxyInfo?.tag.isNotEmpty == true ? activeProxyInfo : null);
-    final destCountry = routedInfo?.countryCode ?? sourceInfo?.countryCode ?? sourceAnchor.value?.countryCode;
+    final selectedProxy =
+        statusCard.displayProxy ??
+        (activeProxyInfo?.tag.isNotEmpty == true ? activeProxyInfo : null);
+    final destCountry =
+        routedInfo?.countryCode ??
+        sourceInfo?.countryCode ??
+        sourceAnchor.value?.countryCode;
 
     useEffect(
       () {
-        if (sourceInfo != null && !_sameIpInfo(sourceAnchor.value, sourceInfo)) {
+        if (sourceInfo != null &&
+            !_sameIpInfo(sourceAnchor.value, sourceInfo)) {
           sourceAnchor.value = sourceInfo;
         }
         return null;
@@ -360,18 +384,28 @@ class MapView extends HookConsumerWidget {
 
         final screenW = constraints.maxWidth;
         final screenH = constraints.maxHeight;
-        final contentWidth = math.max(220.0, screenW - contentPadding.horizontal);
-        final contentHeight = math.max(220.0, screenH - contentPadding.vertical);
+        final contentWidth = math.max(
+          220.0,
+          screenW - contentPadding.horizontal,
+        );
+        final contentHeight = math.max(
+          220.0,
+          screenH - contentPadding.vertical,
+        );
 
-        const double fullMapInset = 72;
-        final fullScale = math.min(
+        final fullMapInset = isDisconnected ? 36.0 : 72.0;
+        final fullScaleBase = math.min(
           math.max(0.4, (contentWidth - fullMapInset * 2) / _svgW),
           math.max(0.4, (contentHeight - fullMapInset * 2) / _svgH),
         );
-        final fullTx = contentPadding.left + (contentWidth - _svgW * fullScale) / 2;
-        final fullTy = contentPadding.top + (contentHeight - _svgH * fullScale) / 2;
+        final fullScale = isDisconnected ? fullScaleBase * 1.35 : fullScaleBase;
+        final fullTx =
+            contentPadding.left + (contentWidth - _svgW * fullScale) / 2;
+        final fullTy =
+            contentPadding.top + (contentHeight - _svgH * fullScale) / 2;
 
-        const double padding = 190; // extra space around the bounding box (SVG units)
+        const double padding =
+            190; // extra space around the bounding box (SVG units)
         final minX = math.min(srcSvg.dx, dstSvg.dx) - padding;
         final maxX = math.max(srcSvg.dx, dstSvg.dx) + padding;
         final minY = math.min(srcSvg.dy, dstSvg.dy) - padding;
@@ -382,7 +416,10 @@ class MapView extends HookConsumerWidget {
 
         final zoomScale = math.min(
           fullScale * 2.55,
-          math.max(fullScale, math.min(contentWidth / boxW, contentHeight / boxH)),
+          math.max(
+            fullScale,
+            math.min(contentWidth / boxW, contentHeight / boxH),
+          ),
         );
 
         final centerSvgX = (minX + maxX) / 2;
@@ -391,17 +428,30 @@ class MapView extends HookConsumerWidget {
 
         const outerR = 14.0;
         final zoomTx = focusCenterX - centerSvgX * zoomScale;
-        final zoomTy = contentPadding.top + (contentHeight / 2) - centerSvgY * zoomScale;
+        final zoomTy =
+            contentPadding.top + (contentHeight / 2) - centerSvgY * zoomScale;
 
-        final focusProgress = Curves.easeInOutCubicEmphasized.transform(mapProgress);
-        final revealProgress = Curves.easeOutCubic.transform(((mapProgress - 0.1) / 0.9).clamp(0.0, 1.0));
-        final scale = ui.lerpDouble(fullScale, zoomScale, focusProgress) ?? fullScale;
+        final focusProgress = Curves.easeInOutCubicEmphasized.transform(
+          mapProgress,
+        );
+        final revealProgress = Curves.easeOutCubic.transform(
+          ((mapProgress - 0.1) / 0.9).clamp(0.0, 1.0),
+        );
+        final scale =
+            ui.lerpDouble(fullScale, zoomScale, focusProgress) ?? fullScale;
         final tx = ui.lerpDouble(fullTx, zoomTx, focusProgress) ?? fullTx;
         final ty = ui.lerpDouble(fullTy, zoomTy, focusProgress) ?? fullTy;
 
-        final srcScreen = Offset(srcSvg.dx * scale + tx, srcSvg.dy * scale + ty);
-        final dstScreen = Offset(dstSvg.dx * scale + tx, dstSvg.dy * scale + ty);
-        final destinationOpacity = ui.lerpDouble(0.4, 1.0, revealProgress) ?? 0.4;
+        final srcScreen = Offset(
+          srcSvg.dx * scale + tx,
+          srcSvg.dy * scale + ty,
+        );
+        final dstScreen = Offset(
+          dstSvg.dx * scale + tx,
+          dstSvg.dy * scale + ty,
+        );
+        final destinationOpacity =
+            ui.lerpDouble(0.4, 1.0, revealProgress) ?? 0.4;
 
         return SizedBox.expand(
           child: Stack(
@@ -418,7 +468,7 @@ class MapView extends HookConsumerWidget {
                   colorFilter: ColorFilter.mode(
                     isConnected
                         ? const Color(0xFF1EFFAC).withValues(alpha: 0.55)
-                        : const Color(0xFF4B6B5B).withValues(alpha: 0.50),
+                        : const Color(0xFF3E5A4D).withValues(alpha: 0.62),
                     BlendMode.srcIn,
                   ),
                 ),
@@ -444,7 +494,10 @@ class MapView extends HookConsumerWidget {
               Positioned(
                 left: dstScreen.dx - outerR,
                 top: dstScreen.dy - outerR,
-                child: _LocationDot(color: const Color(0xFF1EFFAC), opacity: destinationOpacity),
+                child: _LocationDot(
+                  color: const Color(0xFF1EFFAC),
+                  opacity: destinationOpacity,
+                ),
               ),
               Positioned(
                 left: 0,
@@ -468,9 +521,13 @@ class MapView extends HookConsumerWidget {
                           isSwitching: isSwitching,
                           downlink: downlink,
                           uplink: uplink,
-                          onToggle: () => ref.read(connectionNotifierProvider.notifier).toggleConnection(),
+                          onToggle: () => ref
+                              .read(connectionNotifierProvider.notifier)
+                              .toggleConnection(),
                           serviceMode: serviceMode,
-                          onModeChanged: (mode) => ref.read(ConfigOptions.serviceMode.notifier).update(mode),
+                          onModeChanged: (mode) => ref
+                              .read(ConfigOptions.serviceMode.notifier)
+                              .update(mode),
                         ),
                       ),
                     ),
@@ -510,11 +567,17 @@ class _ConnectionPainter extends CustomPainter {
 
     final controlPoint = Offset(
       (source.dx + destination.dx) / 2,
-      math.min(source.dy, destination.dy) - math.max(60.0, delta.distance * 0.18),
+      math.min(source.dy, destination.dy) -
+          math.max(60.0, delta.distance * 0.18),
     );
     final path = Path()
       ..moveTo(source.dx, source.dy)
-      ..quadraticBezierTo(controlPoint.dx, controlPoint.dy, destination.dx, destination.dy);
+      ..quadraticBezierTo(
+        controlPoint.dx,
+        controlPoint.dy,
+        destination.dx,
+        destination.dy,
+      );
 
     final metric = path.computeMetrics().first;
     final visibleLength = metric.length * revealProgress.clamp(0.0, 1.0);
@@ -566,8 +629,16 @@ class _ConnectionPainter extends CustomPainter {
       final glowRadius = 5.4 - i;
       final coreRadius = 2.4 - (i * 0.3);
 
-      canvas.drawCircle(center, glowRadius, Paint()..color = color.withValues(alpha: 0.14 + (0.05 * (2 - i))));
-      canvas.drawCircle(center, coreRadius, Paint()..color = color.withValues(alpha: 0.9 - (i * 0.12)));
+      canvas.drawCircle(
+        center,
+        glowRadius,
+        Paint()..color = color.withValues(alpha: 0.14 + (0.05 * (2 - i))),
+      );
+      canvas.drawCircle(
+        center,
+        coreRadius,
+        Paint()..color = color.withValues(alpha: 0.9 - (i * 0.12)),
+      );
     }
   }
 
@@ -605,11 +676,18 @@ class _LocationDot extends StatelessWidget {
                   height: outerR * 2,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: color.withValues(alpha: 0.4), width: 1.5),
+                    border: Border.all(
+                      color: color.withValues(alpha: 0.4),
+                      width: 1.5,
+                    ),
                   ),
                 )
                 .animate(onPlay: (c) => c.repeat())
-                .scale(begin: const Offset(0.7, 0.7), end: const Offset(1.2, 1.2), duration: 1800.ms)
+                .scale(
+                  begin: const Offset(0.7, 0.7),
+                  end: const Offset(1.2, 1.2),
+                  duration: 1800.ms,
+                )
                 .fadeOut(begin: 0.6, duration: 1800.ms),
             Container(
               width: dotR * 2,
@@ -617,7 +695,9 @@ class _LocationDot extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: color,
-                boxShadow: [BoxShadow(color: color.withValues(alpha: 0.6), blurRadius: 8)],
+                boxShadow: [
+                  BoxShadow(color: color.withValues(alpha: 0.6), blurRadius: 8),
+                ],
               ),
             ),
           ],
@@ -667,19 +747,26 @@ class _ServerInfoPopup extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isBenchmarking = ref.watch(benchmarkActiveProvider);
-    final autoSelectionProgress = ref.watch(autoServerSelectionProgressProvider);
+    final autoSelectionProgress = ref.watch(
+      autoServerSelectionProgressProvider,
+    );
     final proxyInfo = model.displayProxy;
     final type = proxyInfo?.type.toUpperCase() ?? '';
     final ping = proxyInfo?.urlTestDelay ?? 0;
     final currentIpInfo = isConnected ? model.currentIp : null;
-    final shouldAnimateProgressStroke = isBenchmarking || isSwitching || autoSelectionProgress != null;
-    final progressStrokeColor = isSwitching ? const Color(0xFFFFB457) : const Color(0xFF1EFFAC);
+    final shouldAnimateProgressStroke =
+        isBenchmarking || isSwitching || autoSelectionProgress != null;
+    final progressStrokeColor = isSwitching
+        ? const Color(0xFFFFB457)
+        : const Color(0xFF1EFFAC);
     final routeName = model.isAutoMode ? model.routeName : null;
     final headerSummary = <String>[
       if (routeName != null && routeName.isNotEmpty) routeName,
       if (ping > 0) '$ping мс',
     ].join(' · ');
-    final throughputSummary = isConnected ? '↓ ${_formatSpeed(downlink)} · ↑ ${_formatSpeed(uplink)}' : null;
+    final throughputSummary = isConnected
+        ? '↓ ${_formatSpeed(downlink)} · ↑ ${_formatSpeed(uplink)}'
+        : null;
 
     if (isBenchmarking) {
       return _ProgressStrokeFrame(
@@ -695,7 +782,11 @@ class _ServerInfoPopup extends ConsumerWidget {
             opacity: 0.07,
             strokeOpacity: 0.18,
             boxShadow: [
-              BoxShadow(color: Colors.black.withValues(alpha: 0.24), blurRadius: 28, offset: const Offset(0, 8)),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.24),
+                blurRadius: 28,
+                offset: const Offset(0, 8),
+              ),
             ],
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -703,12 +794,19 @@ class _ServerInfoPopup extends ConsumerWidget {
                 const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1EFFAC)),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF1EFFAC),
+                  ),
                 ),
                 const Gap(10),
                 const Text(
                   'Идёт тест серверов…',
-                  style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -726,22 +824,19 @@ class _ServerInfoPopup extends ConsumerWidget {
         child: GlassPanel(
           padding: EdgeInsets.zero,
           borderRadius: 24,
-          backgroundColor: isConnected ? const Color(0xFF121715) : Colors.white,
-          opacity: isConnected ? 0.82 : 0.07,
-          strokeColor: isConnected ? const Color(0xFFDDEAAB) : const Color(0xFF1EFFAC),
-          strokeOpacity: isConnected ? 0.3 : 0.18,
-          strokeWidth: isConnected ? 1.15 : 1.0,
-          showGlow: isConnected,
-          glowBlur: isConnected ? 18 : 8,
+          backgroundColor: Colors.white,
+          opacity: 0.05,
+          strokeColor: Colors.white,
+          strokeOpacity: 0.0,
+          strokeWidth: 1,
+          showGlow: false,
+          glowBlur: 8,
           boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.24), blurRadius: 28, offset: const Offset(0, 8)),
-            if (isConnected)
-              BoxShadow(
-                color: const Color(0xFFEFF6CC).withValues(alpha: 0.16),
-                blurRadius: 28,
-                spreadRadius: -8,
-                offset: const Offset(-14, -10),
-              ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.22),
+              blurRadius: 20,
+              offset: const Offset(0, 14),
+            ),
           ],
           child: _ConnectionCardSurface(
             isConnected: isConnected,
@@ -754,7 +849,10 @@ class _ServerInfoPopup extends ConsumerWidget {
                   final sourceBlock = _InfoBlock(
                     label: 'Исходный IP',
                     value: model.sourceIp?.ip ?? '—',
-                    detail: _describeIpInfo(model.sourceIp, fallback: 'Определяем внешний адрес…'),
+                    detail: _describeIpInfo(
+                      model.sourceIp,
+                      fallback: 'Определяем внешний адрес…',
+                    ),
                     accent: const Color(0xFF60A5FA),
                   );
                   final currentBlock = _InfoBlock(
@@ -762,9 +860,13 @@ class _ServerInfoPopup extends ConsumerWidget {
                     value: currentIpInfo?.ip ?? '—',
                     detail: _describeIpInfo(
                       currentIpInfo,
-                      fallback: isConnected ? 'Получаем маршрут…' : 'Появится после подключения',
+                      fallback: isConnected
+                          ? 'Получаем маршрут…'
+                          : 'Появится после подключения',
                     ),
-                    accent: isConnected ? const Color(0xFF1EFFAC) : Colors.white.withValues(alpha: 0.42),
+                    accent: isConnected
+                        ? const Color(0xFF1EFFAC)
+                        : Colors.white.withValues(alpha: 0.42),
                   );
 
                   Widget infoContent() {
@@ -774,7 +876,10 @@ class _ServerInfoPopup extends ConsumerWidget {
                         children: [
                           sourceBlock,
                           const Gap(12),
-                          Container(height: 1, color: Colors.white.withValues(alpha: 0.06)),
+                          Container(
+                            height: 1,
+                            color: Colors.white.withValues(alpha: 0.06),
+                          ),
                           const Gap(12),
                           currentBlock,
                         ],
@@ -817,15 +922,23 @@ class _ServerInfoPopup extends ConsumerWidget {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                                    if (type.isNotEmpty || model.isAutoMode) ...[
+                                    if (type.isNotEmpty ||
+                                        model.isAutoMode) ...[
                                       const Gap(8),
                                       Wrap(
                                         spacing: 6,
                                         runSpacing: 6,
                                         children: [
-                                          if (type.isNotEmpty) _GlassBadge(label: type, color: const Color(0xFF60A5FA)),
+                                          if (type.isNotEmpty)
+                                            _GlassBadge(
+                                              label: type,
+                                              color: const Color(0xFF60A5FA),
+                                            ),
                                           if (model.isAutoMode)
-                                            const _GlassBadge(label: 'AUTO', color: Color(0xFF1EFFAC)),
+                                            const _GlassBadge(
+                                              label: 'AUTO',
+                                              color: Color(0xFF1EFFAC),
+                                            ),
                                         ],
                                       ),
                                     ],
@@ -834,19 +947,24 @@ class _ServerInfoPopup extends ConsumerWidget {
                                       Text(
                                         headerSummary,
                                         style: TextStyle(
-                                          color: Colors.white.withValues(alpha: 0.76),
+                                          color: Colors.white.withValues(
+                                            alpha: 0.76,
+                                          ),
                                           fontSize: 13.2,
                                           fontWeight: FontWeight.w600,
                                           height: 1.35,
                                         ),
                                       ),
                                     ],
-                                    if (model.statusText case final statusText?) ...[
+                                    if (model.statusText
+                                        case final statusText?) ...[
                                       const Gap(4),
                                       Text(
                                         statusText,
                                         style: TextStyle(
-                                          color: Colors.white.withValues(alpha: 0.60),
+                                          color: Colors.white.withValues(
+                                            alpha: 0.60,
+                                          ),
                                           fontSize: 12.5,
                                           fontWeight: FontWeight.w500,
                                           height: 1.35,
@@ -881,13 +999,18 @@ class _ServerInfoPopup extends ConsumerWidget {
                                     ServiceMode.tun => 'TUN',
                                   },
                                   selected: selected,
-                                  onTap: selected ? null : () => onModeChanged(mode),
+                                  onTap: selected
+                                      ? null
+                                      : () => onModeChanged(mode),
                                 );
                               }).toList(),
                             ),
                           ),
                           const Gap(16),
-                          Container(height: 1, color: Colors.white.withValues(alpha: 0.08)),
+                          Container(
+                            height: 1,
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
                           const Gap(14),
                           infoContent(),
                           if (throughputSummary case final summary?) ...[
@@ -917,7 +1040,11 @@ class _ServerInfoPopup extends ConsumerWidget {
 }
 
 class _ConnectionCardSurface extends StatelessWidget {
-  const _ConnectionCardSurface({required this.isConnected, required this.isSwitching, required this.child});
+  const _ConnectionCardSurface({
+    required this.isConnected,
+    required this.isSwitching,
+    required this.child,
+  });
 
   final bool isConnected;
   final bool isSwitching;
@@ -925,47 +1052,7 @@ class _ConnectionCardSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final highlighted = isConnected || isSwitching;
-    final borderRadius = BorderRadius.circular(24);
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: borderRadius,
-        gradient: LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: highlighted
-              ? const [Color(0xFF181C1A), Color(0xFF17221E), Color(0xFF173228)]
-              : const [Color(0xFF171918), Color(0xFF151817), Color(0xFF141715)],
-          stops: const [0.0, 0.56, 1.0],
-        ),
-      ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: borderRadius,
-                  gradient: RadialGradient(
-                    center: const Alignment(-1.05, -1.08),
-                    radius: highlighted ? 1.1 : 0.88,
-                    colors: [
-                      const Color(0xFFF3F8D6).withValues(alpha: highlighted ? 0.16 : 0.08),
-                      const Color(0xFFBDE894).withValues(alpha: highlighted ? 0.10 : 0.04),
-                      const Color(0xFF1EFFAC).withValues(alpha: highlighted ? 0.05 : 0.02),
-                      Colors.transparent,
-                    ],
-                    stops: const [0.0, 0.18, 0.42, 1.0],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          child,
-        ],
-      ),
-    );
+    return child;
   }
 }
 
@@ -984,7 +1071,9 @@ class _ProgressStrokeFrame extends HookWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controller = useAnimationController(duration: const Duration(milliseconds: 3400));
+    final controller = useAnimationController(
+      duration: const Duration(milliseconds: 3400),
+    );
 
     useEffect(() {
       if (active) {
@@ -1001,7 +1090,11 @@ class _ProgressStrokeFrame extends HookWidget {
 
     return CustomPaint(
       foregroundPainter: active
-          ? _TravelStrokePainter(progress: animationValue, borderRadius: borderRadius, color: color)
+          ? _TravelStrokePainter(
+              progress: animationValue,
+              borderRadius: borderRadius,
+              color: color,
+            )
           : null,
       child: child,
     );
@@ -1009,7 +1102,11 @@ class _ProgressStrokeFrame extends HookWidget {
 }
 
 class _TravelStrokePainter extends CustomPainter {
-  const _TravelStrokePainter({required this.progress, required this.borderRadius, required this.color});
+  const _TravelStrokePainter({
+    required this.progress,
+    required this.borderRadius,
+    required this.color,
+  });
 
   final double progress;
   final double borderRadius;
@@ -1025,10 +1122,14 @@ class _TravelStrokePainter extends CustomPainter {
     if (right <= left) return;
 
     final rect = Rect.fromLTRB(left, y, right, y + 2);
-    final easedProgress = Curves.easeInOutSine.transform(progress.clamp(0.0, 1.0));
+    final easedProgress = Curves.easeInOutSine.transform(
+      progress.clamp(0.0, 1.0),
+    );
     final travel = ui.lerpDouble(0.16, 0.42, easedProgress) ?? 0.28;
     final breath = math.sin(easedProgress * math.pi);
-    final warmTone = Color.lerp(const Color(0xFFEFF7CA), color, 0.36) ?? const Color(0xFFEFF7CA);
+    final warmTone =
+        Color.lerp(const Color(0xFFEFF7CA), color, 0.36) ??
+        const Color(0xFFEFF7CA);
     final coolTone = Color.lerp(const Color(0xFF8BE2B3), color, 0.52) ?? color;
     final basePaint = Paint()
       ..color = warmTone.withValues(alpha: 0.03 + (breath * 0.015))
@@ -1068,11 +1169,18 @@ class _TravelStrokePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_TravelStrokePainter oldDelegate) =>
-      oldDelegate.progress != progress || oldDelegate.borderRadius != borderRadius || oldDelegate.color != color;
+      oldDelegate.progress != progress ||
+      oldDelegate.borderRadius != borderRadius ||
+      oldDelegate.color != color;
 }
 
 class _InfoBlock extends StatelessWidget {
-  const _InfoBlock({required this.label, required this.value, required this.detail, required this.accent});
+  const _InfoBlock({
+    required this.label,
+    required this.value,
+    required this.detail,
+    required this.accent,
+  });
 
   final String label;
   final String value;
@@ -1086,19 +1194,31 @@ class _InfoBlock extends StatelessWidget {
       children: [
         Text(
           label,
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.46), fontSize: 10.5, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.46),
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         const Gap(5),
         Text(
           value,
-          style: TextStyle(color: accent, fontSize: 19, fontWeight: FontWeight.w800),
+          style: TextStyle(
+            color: accent,
+            fontSize: 19,
+            fontWeight: FontWeight.w800,
+          ),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
         const Gap(5),
         Text(
           detail,
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.66), fontSize: 11.8, height: 1.38),
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.66),
+            fontSize: 11.8,
+            height: 1.38,
+          ),
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
         ),
@@ -1122,7 +1242,11 @@ class _InfoDivider extends StatelessWidget {
 }
 
 class _ModeTextButton extends StatelessWidget {
-  const _ModeTextButton({required this.label, required this.selected, required this.onTap});
+  const _ModeTextButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   final String label;
   final bool selected;
@@ -1137,13 +1261,18 @@ class _ModeTextButton extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: 2),
         decoration: BoxDecoration(
           border: Border(
-            bottom: BorderSide(color: selected ? const Color(0xFF1EFFAC) : Colors.transparent, width: 1.6),
+            bottom: BorderSide(
+              color: selected ? const Color(0xFF1EFFAC) : Colors.transparent,
+              width: 1.6,
+            ),
           ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? const Color(0xFF1EFFAC) : Colors.white.withValues(alpha: 0.55),
+            color: selected
+                ? const Color(0xFF1EFFAC)
+                : Colors.white.withValues(alpha: 0.55),
             fontSize: 11.5,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
           ),
@@ -1193,7 +1322,10 @@ class _PowerButton extends StatelessWidget {
                   SizedBox(
                     width: 22,
                     height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: color.withValues(alpha: 0.92)),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: color.withValues(alpha: 0.92),
+                    ),
                   ),
                   Icon(Icons.close_rounded, size: 16, color: color),
                 ],
@@ -1227,9 +1359,13 @@ class _GlassBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       child: Text(
         label,
-        style: TextStyle(color: color, fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 0.3),
+        style: TextStyle(
+          color: color,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.3,
+        ),
       ),
     );
   }
 }
-

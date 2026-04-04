@@ -16,7 +16,8 @@ import 'package:gorion_clean/core/router/dialog/dialog_notifier.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
-import 'package:gorion_clean/features/home/utils/auto_select_probe_utils.dart' as probe_utils;
+import 'package:gorion_clean/features/home/utils/auto_select_probe_utils.dart'
+    as probe_utils;
 import 'package:gorion_clean/features/auto_select/utils/auto_select_server_exclusion.dart';
 import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
 import 'package:gorion_clean/features/profiles/data/profile_data_providers.dart';
@@ -40,7 +41,8 @@ bool _isLeafServer(OutboundInfo item) {
   return item.isVisible && !item.isGroup && _proxySchemes.contains(type);
 }
 
-List<OutboundInfo> _visibleServers(OutboundGroup group) => group.items.where(_isLeafServer).toList();
+List<OutboundInfo> _visibleServers(OutboundGroup group) =>
+    group.items.where(_isLeafServer).toList();
 
 // ---------------------------------------------------------------------------
 // Parallel speed-test helpers (v2rayN-style: temp srun per server)
@@ -71,7 +73,12 @@ String _buildSpeedtestSingboxConfig(Map<String, dynamic> outbound, int port) {
     // per-port connection activity during the batch speed test.
     'log': {'level': 'info'},
     'inbounds': [
-      {'type': 'mixed', 'listen': '127.0.0.1', 'listen_port': port, 'tag': inboundTag},
+      {
+        'type': 'mixed',
+        'listen': '127.0.0.1',
+        'listen_port': port,
+        'tag': inboundTag,
+      },
     ],
     'outbounds': [
       outbound,
@@ -90,11 +97,16 @@ String _formatDevConsoleTimestamp([DateTime? now]) {
       '${micros.toString().padLeft(6, '0')}';
 }
 
-void _devConsoleLog(String message, {String level = 'Info', String source = 'batch-speed'}) {
+void _devConsoleLog(
+  String message, {
+  String level = 'Info',
+  String source = 'batch-speed',
+}) {
   debugPrint('${_formatDevConsoleTimestamp()} [$level] $source: $message');
 }
 
-Future<bool> _waitForLocalPortReady(int port) => probe_utils.waitForLocalPortReady(port);
+Future<bool> _waitForLocalPortReady(int port) =>
+    probe_utils.waitForLocalPortReady(port);
 
 // Simple counting semaphore for concurrency control.
 class _Semaphore {
@@ -181,7 +193,8 @@ String _formatBytesCompact(int bytes) {
   return '${size.toStringAsFixed(decimals)} ${units[unitIndex]}';
 }
 
-String _formatRate(int bytesPerSecond) => '${_formatBytesCompact(bytesPerSecond)}/s';
+String _formatRate(int bytesPerSecond) =>
+    '${_formatBytesCompact(bytesPerSecond)}/s';
 
 String _formatElapsed(Duration value) {
   String two(int n) => n.toString().padLeft(2, '0');
@@ -196,7 +209,8 @@ String _formatElapsed(Duration value) {
 
 enum _ServerSortMode { none, ping, alpha }
 
-const _throughputBenchmarkUrl = 'https://speed.cloudflare.com/__down?bytes=2097152';
+const _throughputBenchmarkUrl =
+    'https://speed.cloudflare.com/__down?bytes=2097152';
 const _throughputBenchmarkBytes = 2 * 1024 * 1024;
 const _pingBenchmarkUrl = 'https://www.gstatic.com/generate_204';
 const _batchSpeedMaxConcurrentServers = 5;
@@ -227,7 +241,11 @@ const _proxySchemes = {
 };
 
 class _ParsedOfflineGroup {
-  const _ParsedOfflineGroup({required this.tag, required this.selectedTag, required this.items});
+  const _ParsedOfflineGroup({
+    required this.tag,
+    required this.selectedTag,
+    required this.items,
+  });
 
   final String tag;
   final String? selectedTag;
@@ -235,19 +253,27 @@ class _ParsedOfflineGroup {
 }
 
 class _BenchmarkTarget {
-  const _BenchmarkTarget({required this.profile, required this.server, required this.generatedConfig});
+  const _BenchmarkTarget({
+    required this.profile,
+    required this.server,
+    required this.generatedConfig,
+  });
 
   final ProfileEntity profile;
   final OutboundInfo server;
   final String generatedConfig;
 }
 
-String _benchmarkKey(String profileId, String serverTag) => '$profileId::$serverTag';
+String _benchmarkKey(String profileId, String serverTag) =>
+    '$profileId::$serverTag';
 
 class ServersPanelWidget extends HookConsumerWidget {
   const ServersPanelWidget({super.key});
 
   static const panelWidth = 348.0;
+  static const topOffset = 50.0;
+  static const searchFieldHeight = 48.0;
+  static const searchFieldRadius = 20.0;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -292,7 +318,19 @@ class ServersPanelWidget extends HookConsumerWidget {
       return () => disposed = true;
     }, [activeProfile?.id]);
 
-    final allProfiles = sortProfilesForDisplay(profilesAsync.data ?? const <ProfileEntity>[], storedProfileOrder);
+    final allProfiles = sortProfilesForDisplay(
+      profilesAsync.data ?? const <ProfileEntity>[],
+      storedProfileOrder,
+    );
+
+    useEffect(() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        ref.read(bottomSheetsNotifierProvider.notifier).attachContext(context);
+        ref.read(dialogNotifierProvider.notifier).attachContext(context);
+      });
+      return null;
+    }, const []);
 
     useEffect(() {
       void listener() => searchQuery.value = searchCtrl.text;
@@ -302,7 +340,8 @@ class ServersPanelWidget extends HookConsumerWidget {
 
     useEffect(() {
       final startedAt = benchmarkStartedAt.value;
-      final shouldTick = startedAt != null && (isTesting.value || pingStatus.value != null);
+      final shouldTick =
+          startedAt != null && (isTesting.value || pingStatus.value != null);
       if (!shouldTick) {
         if (startedAt == null) {
           benchmarkElapsed.value = Duration.zero;
@@ -315,12 +354,17 @@ class ServersPanelWidget extends HookConsumerWidget {
       }
 
       updateElapsed();
-      final timer = Timer.periodic(const Duration(seconds: 1), (_) => updateElapsed());
+      final timer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => updateElapsed(),
+      );
       return timer.cancel;
     }, [benchmarkStartedAt.value, isTesting.value, pingStatus.value]);
 
     useEffect(() {
-      if (!isTesting.value && pingStatus.value == null && benchmarkStartedAt.value != null) {
+      if (!isTesting.value &&
+          pingStatus.value == null &&
+          benchmarkStartedAt.value != null) {
         benchmarkStartedAt.value = null;
         benchmarkElapsed.value = Duration.zero;
       }
@@ -330,18 +374,32 @@ class ServersPanelWidget extends HookConsumerWidget {
     final proxyRepo = ref.watch(proxyRepositoryProvider);
     final coreRestartSignal = ref.watch(coreRestartSignalProvider);
     final autoServerSelectionEnabled = ref.watch(Preferences.autoSelectServer);
-    final autoServerSelectionExcluded = ref.watch(Preferences.autoSelectServerExcluded).toSet();
-    final autoServerSelectionStatus = ref.watch(autoServerSelectionStatusProvider);
-    final autoServerSelectionProgress = ref.watch(autoServerSelectionProgressProvider);
-    final groupAsync = useStream(useMemoized(() => proxyRepo.watchProxies(), [proxyRepo, coreRestartSignal]));
+    final autoServerSelectionExcluded = ref
+        .watch(Preferences.autoSelectServerExcluded)
+        .toSet();
+    final autoServerSelectionStatus = ref.watch(
+      autoServerSelectionStatusProvider,
+    );
+    final autoServerSelectionProgress = ref.watch(
+      autoServerSelectionProgressProvider,
+    );
+    final groupAsync = useStream(
+      useMemoized(() => proxyRepo.watchProxies(), [
+        proxyRepo,
+        coreRestartSignal,
+      ]),
+    );
 
     final onlineGroup = groupAsync.data?.fold((_) => null, (g) => g);
     final currentOnlineServer = onlineGroup == null
         ? null
-        : _visibleServers(
-            onlineGroup,
-          ).cast<OutboundInfo?>().firstWhere((server) => server?.tag == onlineGroup.selected, orElse: () => null);
-    final autoCardPing = autoServerSelectionProgress == null ? currentOnlineServer?.urlTestDelay : 0;
+        : _visibleServers(onlineGroup).cast<OutboundInfo?>().firstWhere(
+            (server) => server?.tag == onlineGroup.selected,
+            orElse: () => null,
+          );
+    final autoCardPing = autoServerSelectionProgress == null
+        ? currentOnlineServer?.urlTestDelay
+        : 0;
     final autoCardServer = OutboundInfo(
       tag: 'Автоматически',
       tagDisplay: 'Автоматически',
@@ -353,11 +411,19 @@ class ServersPanelWidget extends HookConsumerWidget {
     final autoCardDescription = autoServerSelectionEnabled
         ? (autoServerSelectionStatus ?? 'Автовыбор включён')
         : 'Выберет лучший доступный сервер, кроме исключённых';
+    const autoCardDetailLines = <String>[];
     final activeProfileLabel = activeProfile?.name ?? 'Нет активной подписки';
-    final updateState = ref.watch(foregroundProfilesUpdateNotifierProvider).valueOrNull;
-    final visibleProfiles = allProfiles.where((profile) => profile.userOverride?.showOnHome ?? true).toList();
+    final updateState = ref
+        .watch(foregroundProfilesUpdateNotifierProvider)
+        .valueOrNull;
+    final visibleProfiles = allProfiles
+        .where((profile) => profile.userOverride?.showOnHome ?? true)
+        .toList();
     final visibleProfilesKey = visibleProfiles
-        .map((profile) => '${profile.id}:${profile.lastUpdate.millisecondsSinceEpoch}')
+        .map(
+          (profile) =>
+              '${profile.id}:${profile.lastUpdate.millisecondsSinceEpoch}',
+        )
         .join('|');
     final subscriptionsSubtitle = allProfiles.isEmpty
         ? 'Добавьте первую подписку из буфера обмена, ссылки или QR-кода'
@@ -370,12 +436,18 @@ class ServersPanelWidget extends HookConsumerWidget {
 
         final groups = <String, OutboundGroup?>{};
         for (final profile in visibleProfiles) {
-          final rawConfig = await profileRepo.getRawConfig(profile.id).getOrElse((_) => '').run();
+          final rawConfig = await profileRepo
+              .getRawConfig(profile.id)
+              .getOrElse((_) => '')
+              .run();
           if (rawConfig.isEmpty) {
             groups[profile.id] = null;
             continue;
           }
-          final parsed = _parseOfflineGroup(rawConfig, fallbackGroupName: profile.name);
+          final parsed = _parseOfflineGroup(
+            rawConfig,
+            fallbackGroupName: profile.name,
+          );
           groups[profile.id] = parsed == null ? null : _toOutboundGroup(parsed);
         }
         return groups;
@@ -384,13 +456,16 @@ class ServersPanelWidget extends HookConsumerWidget {
 
     useEffect(() {
       final visibleIds = visibleProfiles.map((profile) => profile.id).toSet();
-      final retained = expandedSubscriptionIds.value.where(visibleIds.contains).toSet();
+      final retained = expandedSubscriptionIds.value
+          .where(visibleIds.contains)
+          .toSet();
       final missing = visibleIds.difference(retained);
       expandedSubscriptionIds.value = {...retained, ...missing};
       return null;
     }, [visibleProfilesKey]);
 
-    final parsedSubscriptionGroups = parsedSubscriptionGroupsAsync.data ?? const <String, OutboundGroup?>{};
+    final parsedSubscriptionGroups =
+        parsedSubscriptionGroupsAsync.data ?? const <String, OutboundGroup?>{};
     OutboundGroup? subscriptionGroup(ProfileEntity profile) {
       if (profile.id == activeProfile?.id && onlineGroup != null) {
         return onlineGroup;
@@ -399,24 +474,35 @@ class ServersPanelWidget extends HookConsumerWidget {
     }
 
     int effectivePing(String profileId, OutboundInfo server) =>
-        pingResults.value[_benchmarkKey(profileId, server.tag)] ?? server.urlTestDelay;
+        pingResults.value[_benchmarkKey(profileId, server.tag)] ??
+        server.urlTestDelay;
 
     String autoSelectExclusionKey(String profileId, OutboundInfo server) {
-      return buildAutoSelectServerExclusionKey(profileId: profileId, serverTag: server.tag);
+      return buildAutoSelectServerExclusionKey(
+        profileId: profileId,
+        serverTag: server.tag,
+      );
     }
 
     bool isAutoSelectExcluded(String profileId, OutboundInfo server) {
-      return autoServerSelectionExcluded.contains(autoSelectExclusionKey(profileId, server));
+      return autoServerSelectionExcluded.contains(
+        autoSelectExclusionKey(profileId, server),
+      );
     }
 
-    Future<void> toggleAutoSelectExclusion(ProfileEntity profile, OutboundInfo server) async {
+    Future<void> toggleAutoSelectExclusion(
+      ProfileEntity profile,
+      OutboundInfo server,
+    ) async {
       final next = {...autoServerSelectionExcluded};
       final key = autoSelectExclusionKey(profile.id, server);
       if (!next.add(key)) {
         next.remove(key);
       }
 
-      await ref.read(Preferences.autoSelectServerExcluded.notifier).update(next.toList()..sort());
+      await ref
+          .read(Preferences.autoSelectServerExcluded.notifier)
+          .update(next.toList()..sort());
     }
 
     List<OutboundInfo> visibleSubscriptionServers(ProfileEntity profile) {
@@ -427,7 +513,9 @@ class ServersPanelWidget extends HookConsumerWidget {
 
       if (searchQuery.value.isNotEmpty) {
         final q = searchQuery.value.toLowerCase();
-        sectionServers = sectionServers.where((s) => _displayName(s).toLowerCase().contains(q)).toList();
+        sectionServers = sectionServers
+            .where((s) => _displayName(s).toLowerCase().contains(q))
+            .toList();
       }
 
       switch (sortMode.value) {
@@ -443,7 +531,11 @@ class ServersPanelWidget extends HookConsumerWidget {
             });
         case _ServerSortMode.alpha:
           sectionServers = [...sectionServers]
-            ..sort((a, b) => _displayName(a).toLowerCase().compareTo(_displayName(b).toLowerCase()));
+            ..sort(
+              (a, b) => _displayName(
+                a,
+              ).toLowerCase().compareTo(_displayName(b).toLowerCase()),
+            );
         case _ServerSortMode.none:
           break;
       }
@@ -458,10 +550,16 @@ class ServersPanelWidget extends HookConsumerWidget {
 
     final isRemoteProfile = activeProfile is RemoteProfileEntity;
 
-    Future<void> showServerSettings(ProfileEntity profile, OutboundInfo server) async {
+    Future<void> showServerSettings(
+      ProfileEntity profile,
+      OutboundInfo server,
+    ) async {
       Map<String, dynamic>? outbound;
       if (profileRepo != null) {
-        final generatedConfig = await profileRepo.generateConfig(profile.id).getOrElse((_) => '').run();
+        final generatedConfig = await profileRepo
+            .generateConfig(profile.id)
+            .getOrElse((_) => '')
+            .run();
         if (generatedConfig.isNotEmpty) {
           outbound = _extractOutbound(generatedConfig, server.tag);
         }
@@ -470,7 +568,8 @@ class ServersPanelWidget extends HookConsumerWidget {
       if (!context.mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (_) => _ServerSettingsDialog(server: server, outbound: outbound),
+        builder: (_) =>
+            _ServerSettingsDialog(server: server, outbound: outbound),
       );
     }
 
@@ -480,7 +579,10 @@ class ServersPanelWidget extends HookConsumerWidget {
       result.match(
         (err) => ref
             .read(dialogNotifierProvider.notifier)
-            .showCustomAlert(title: 'Не удалось сделать подписку текущей', message: err.toString()),
+            .showCustomAlert(
+              title: 'Не удалось сделать подписку текущей',
+              message: err.toString(),
+            ),
         (_) => null,
       );
     }
@@ -495,21 +597,36 @@ class ServersPanelWidget extends HookConsumerWidget {
 
       final targets = <_BenchmarkTarget>[];
       for (final profile in visibleProfiles) {
-        final generatedConfig = await profileRepo.generateConfig(profile.id).getOrElse((_) => '').run();
+        final generatedConfig = await profileRepo
+            .generateConfig(profile.id)
+            .getOrElse((_) => '')
+            .run();
         if (generatedConfig.isEmpty) continue;
 
         var sectionGroup = subscriptionGroup(profile);
         if (sectionGroup == null) {
-          final rawConfig = await profileRepo.getRawConfig(profile.id).getOrElse((_) => '').run();
+          final rawConfig = await profileRepo
+              .getRawConfig(profile.id)
+              .getOrElse((_) => '')
+              .run();
           if (rawConfig.isNotEmpty) {
-            final parsed = _parseOfflineGroup(rawConfig, fallbackGroupName: profile.name);
+            final parsed = _parseOfflineGroup(
+              rawConfig,
+              fallbackGroupName: profile.name,
+            );
             sectionGroup = parsed == null ? null : _toOutboundGroup(parsed);
           }
         }
         if (sectionGroup == null) continue;
 
         for (final server in _visibleServers(sectionGroup)) {
-          targets.add(_BenchmarkTarget(profile: profile, server: server, generatedConfig: generatedConfig));
+          targets.add(
+            _BenchmarkTarget(
+              profile: profile,
+              server: server,
+              generatedConfig: generatedConfig,
+            ),
+          );
         }
       }
 
@@ -520,13 +637,17 @@ class ServersPanelWidget extends HookConsumerWidget {
       _BenchmarkTarget target, {
       void Function(int value)? onProgress,
     }) async {
-      final outbound = _extractOutbound(target.generatedConfig, target.server.tag);
+      final outbound = _extractOutbound(
+        target.generatedConfig,
+        target.server.tag,
+      );
       if (outbound == null) {
         return (ping: -1, speed: 0);
       }
 
       final httpClient = ref.read(httpClientProvider);
-      final displayName = '${target.profile.name} / ${_displayName(target.server)}';
+      final displayName =
+          '${target.profile.name} / ${_displayName(target.server)}';
       final testPort = await probe_utils.allocateFreePort();
       final configJson = _buildSpeedtestSingboxConfig(outbound, testPort.port);
 
@@ -540,7 +661,11 @@ class ServersPanelWidget extends HookConsumerWidget {
         _devConsoleLog('start $displayName on socks${testPort.port}');
         // Close the reserved socket immediately before starting the subprocess.
         await testPort.socket.close();
-        process = await Process.start(probe_utils.hiddifyCliPath(), ['srun', '-c', tempFile.path]);
+        process = await Process.start(probe_utils.hiddifyCliPath(), [
+          'srun',
+          '-c',
+          tempFile.path,
+        ]);
         unawaited(process.stdout.drain<void>());
         unawaited(process.stderr.drain<void>());
 
@@ -604,7 +729,8 @@ class ServersPanelWidget extends HookConsumerWidget {
     }
 
     Future<void> runSingleBenchmark() async {
-      if (isTesting.value || visibleProfiles.isEmpty || profileRepo == null) return;
+      if (isTesting.value || visibleProfiles.isEmpty || profileRepo == null)
+        return;
 
       try {
         isTesting.value = true;
@@ -632,7 +758,8 @@ class ServersPanelWidget extends HookConsumerWidget {
 
           final key = _benchmarkKey(target.profile.id, target.server.tag);
           benchmarkingTags.value = {key};
-          pingStatus.value = '${target.profile.name} · ${_displayName(target.server)}';
+          pingStatus.value =
+              '${target.profile.name} · ${_displayName(target.server)}';
 
           final result = await runDetachedBenchmark(target);
           pingResults.value = {...pingResults.value, key: result.ping};
@@ -655,7 +782,8 @@ class ServersPanelWidget extends HookConsumerWidget {
     }
 
     Future<void> runBatchBenchmark() async {
-      if (isTesting.value || visibleProfiles.isEmpty || profileRepo == null) return;
+      if (isTesting.value || visibleProfiles.isEmpty || profileRepo == null)
+        return;
 
       try {
         isTesting.value = true;
@@ -702,7 +830,8 @@ class ServersPanelWidget extends HookConsumerWidget {
             benchmarkingTags.value = nextBenchmarking;
             completedCount += 1;
             pingCompleted.value = completedCount;
-            pingStatus.value = 'Параллельный тест $completedCount/${targets.length}';
+            pingStatus.value =
+                'Параллельный тест $completedCount/${targets.length}';
             semaphore.release();
           }
         }).toList();
@@ -723,30 +852,41 @@ class ServersPanelWidget extends HookConsumerWidget {
     return SizedBox(
       width: panelWidth,
       child: Padding(
-        padding: const EdgeInsets.only(top: 16, bottom: 16, left: 8),
+        padding: const EdgeInsets.only(top: topOffset, bottom: 16, left: 8),
         child: Column(
           children: [
             GlassPanel(
-              padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
-              borderRadius: 15,
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+              borderRadius: 20,
               backgroundColor: Colors.white,
               opacity: 0.08,
               strokeOpacity: 0.22,
               boxShadow: [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 24, offset: const Offset(0, 8)),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
               ],
               child: Column(
                 children: [
                   _GlassTextField(
                     controller: searchCtrl,
                     hint: 'Поиск',
-                    prefixIcon: const Icon(Icons.search_rounded, size: 16, color: Color(0xFF8899AA)),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      size: 18,
+                      color: Color(0xFF8899AA),
+                    ),
                   ),
                   const Gap(8),
                   Row(
                     children: [
                       Expanded(
-                        child: _SortDropdown(value: sortMode.value, onChanged: (mode) => sortMode.value = mode),
+                        child: _SortDropdown(
+                          value: sortMode.value,
+                          onChanged: (mode) => sortMode.value = mode,
+                        ),
                       ),
                       const Gap(6),
                       if (isTesting.value)
@@ -758,19 +898,27 @@ class ServersPanelWidget extends HookConsumerWidget {
                         )
                       else
                         _BenchmarkMenuButton(
-                          enabled: visibleProfiles.isNotEmpty && profileRepo != null,
+                          enabled:
+                              visibleProfiles.isNotEmpty && profileRepo != null,
                           onSingle: runSingleBenchmark,
                           onBatch: runBatchBenchmark,
                         ),
                       if (isRemoteProfile) ...[
                         const Gap(6),
                         _SmallGlassButton(
-                          icon: updateState?.running == true ? Icons.sync_rounded : Icons.refresh_rounded,
+                          icon: updateState?.running == true
+                              ? Icons.sync_rounded
+                              : Icons.refresh_rounded,
                           tooltip: 'Обновить подписки',
                           onTap: updateState?.running == true
                               ? null
                               : () {
-                                  ref.read(foregroundProfilesUpdateNotifierProvider.notifier).trigger();
+                                  ref
+                                      .read(
+                                        foregroundProfilesUpdateNotifierProvider
+                                            .notifier,
+                                      )
+                                      .trigger();
                                 },
                         ),
                       ],
@@ -793,13 +941,23 @@ class ServersPanelWidget extends HookConsumerWidget {
               title: 'Подписки',
               subtitle: subscriptionsSubtitle,
               updateState: updateState,
-              onAdd: () => ref.read(bottomSheetsNotifierProvider.notifier).showAddProfile(),
-              onManage: () => ref.read(bottomSheetsNotifierProvider.notifier).showProfilesOverview(),
+              onAdd: () => ref
+                  .read(bottomSheetsNotifierProvider.notifier)
+                  .showAddProfile(),
+              onManage: () => ref
+                  .read(bottomSheetsNotifierProvider.notifier)
+                  .showProfilesOverview(),
             ),
             Expanded(
               child: () {
-                if (profilesAsync.connectionState == ConnectionState.waiting && !profilesAsync.hasData) {
-                  return const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1EFFAC)));
+                if (profilesAsync.connectionState == ConnectionState.waiting &&
+                    !profilesAsync.hasData) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF1EFFAC),
+                    ),
+                  );
                 }
                 if (allProfiles.isEmpty) {
                   return const Center(child: _EmptyServersCard());
@@ -809,7 +967,9 @@ class ServersPanelWidget extends HookConsumerWidget {
                     padding: const EdgeInsets.only(top: 8, right: 4, bottom: 8),
                     children: [
                       _SubscriptionsHiddenHint(
-                        onManage: () => ref.read(bottomSheetsNotifierProvider.notifier).showProfilesOverview(),
+                        onManage: () => ref
+                            .read(bottomSheetsNotifierProvider.notifier)
+                            .showProfilesOverview(),
                       ),
                     ],
                   );
@@ -828,15 +988,24 @@ class ServersPanelWidget extends HookConsumerWidget {
                         server: autoCardServer,
                         isSelected: autoServerSelectionEnabled,
                         groupName: autoCardDescription,
+                        detailLines: autoCardDetailLines,
                         groupTag: onlineGroup?.tag ?? '',
                         pingOverride: autoCardPing,
                         hasSpeedResult: false,
                         isBenchmarking: false,
                         selectionProgress: autoServerSelectionProgress,
                         onSelect: () async {
-                          ref.read(selectedServerPreviewProvider.notifier).state = null;
-                          ref.read(pendingServerSelectionProvider.notifier).state = null;
-                          await ref.read(Preferences.autoSelectServer.notifier).update(true);
+                          ref
+                                  .read(selectedServerPreviewProvider.notifier)
+                                  .state =
+                              null;
+                          ref
+                                  .read(pendingServerSelectionProvider.notifier)
+                                  .state =
+                              null;
+                          await ref
+                              .read(Preferences.autoSelectServer.notifier)
+                              .update(true);
                         },
                       ),
                     ),
@@ -845,10 +1014,15 @@ class ServersPanelWidget extends HookConsumerWidget {
                       Builder(
                         builder: (context) {
                           final sectionGroup = subscriptionGroup(profile);
-                          final sectionServers = visibleSubscriptionServers(profile);
-                          final isExpanded = expandedSubscriptionIds.value.contains(profile.id);
+                          final sectionServers = visibleSubscriptionServers(
+                            profile,
+                          );
+                          final isExpanded = expandedSubscriptionIds.value
+                              .contains(profile.id);
                           final isActiveProfile =
-                              connectionMode == ProfileConnectionMode.currentProfile && profile.id == activeProfile?.id;
+                              connectionMode ==
+                                  ProfileConnectionMode.currentProfile &&
+                              profile.id == activeProfile?.id;
 
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -859,7 +1033,9 @@ class ServersPanelWidget extends HookConsumerWidget {
                                 isActive: isActiveProfile,
                                 isExpanded: isExpanded,
                                 onTap: () {
-                                  final next = {...expandedSubscriptionIds.value};
+                                  final next = {
+                                    ...expandedSubscriptionIds.value,
+                                  };
                                   if (!next.add(profile.id)) {
                                     next.remove(profile.id);
                                   }
@@ -870,7 +1046,8 @@ class ServersPanelWidget extends HookConsumerWidget {
                                 const Gap(6),
                                 if (sectionGroup == null)
                                   const _SubscriptionServersPlaceholder(
-                                    message: 'Не удалось загрузить серверы для этой подписки.',
+                                    message:
+                                        'Не удалось загрузить серверы для этой подписки.',
                                   )
                                 else if (sectionServers.isEmpty)
                                   _SubscriptionServersPlaceholder(
@@ -879,79 +1056,173 @@ class ServersPanelWidget extends HookConsumerWidget {
                                         : 'В этой подписке пока нет доступных серверов.',
                                   )
                                 else
-                                  for (var index = 0; index < sectionServers.length; index++) ...[
+                                  for (
+                                    var index = 0;
+                                    index < sectionServers.length;
+                                    index++
+                                  ) ...[
                                     Builder(
                                       builder: (context) {
                                         final server = sectionServers[index];
-                                        final isAutoExcluded = isAutoSelectExcluded(profile.id, server);
+                                        final isAutoExcluded =
+                                            isAutoSelectExcluded(
+                                              profile.id,
+                                              server,
+                                            );
                                         return PageReveal(
-                                          key: ValueKey('reveal-${_benchmarkKey(profile.id, server.tag)}'),
-                                          delay: serverCardRevealDelay(index, baseMilliseconds: 90),
-                                          duration: const Duration(milliseconds: 220),
+                                          key: ValueKey(
+                                            'reveal-${_benchmarkKey(profile.id, server.tag)}',
+                                          ),
+                                          delay: serverCardRevealDelay(
+                                            index,
+                                            baseMilliseconds: 90,
+                                          ),
+                                          duration: const Duration(
+                                            milliseconds: 220,
+                                          ),
                                           offset: const Offset(0, 0.045),
                                           child: _ServerCard(
-                                            key: ValueKey(_benchmarkKey(profile.id, server.tag)),
+                                            key: ValueKey(
+                                              _benchmarkKey(
+                                                profile.id,
+                                                server.tag,
+                                              ),
+                                            ),
                                             server: server,
                                             isSelected:
                                                 !autoServerSelectionEnabled &&
-                                                ((pendingSelection?.profileId == profile.id &&
-                                                        pendingSelection?.outboundTag == server.tag) ||
+                                                ((pendingSelection?.profileId ==
+                                                            profile.id &&
+                                                        pendingSelection
+                                                                ?.outboundTag ==
+                                                            server.tag) ||
                                                     (isActiveProfile &&
                                                         (selectedPreview != null
-                                                            ? selectedPreview.tag == server.tag
-                                                            : server.isSelected))),
+                                                            ? selectedPreview
+                                                                      .tag ==
+                                                                  server.tag
+                                                            : server
+                                                                  .isSelected))),
                                             groupName: '',
                                             groupTag: sectionGroup.tag,
-                                            pingOverride: pingResults.value[_benchmarkKey(profile.id, server.tag)],
-                                            speedOverride: speedResults.value[_benchmarkKey(profile.id, server.tag)],
-                                            hasSpeedResult: speedResults.value.containsKey(
-                                              _benchmarkKey(profile.id, server.tag),
-                                            ),
-                                            isBenchmarking: benchmarkingTags.value.contains(
-                                              _benchmarkKey(profile.id, server.tag),
-                                            ),
+                                            pingOverride:
+                                                pingResults.value[_benchmarkKey(
+                                                  profile.id,
+                                                  server.tag,
+                                                )],
+                                            speedOverride:
+                                                speedResults
+                                                    .value[_benchmarkKey(
+                                                  profile.id,
+                                                  server.tag,
+                                                )],
+                                            hasSpeedResult: speedResults.value
+                                                .containsKey(
+                                                  _benchmarkKey(
+                                                    profile.id,
+                                                    server.tag,
+                                                  ),
+                                                ),
+                                            isBenchmarking: benchmarkingTags
+                                                .value
+                                                .contains(
+                                                  _benchmarkKey(
+                                                    profile.id,
+                                                    server.tag,
+                                                  ),
+                                                ),
                                             isAutoExcluded: isAutoExcluded,
-                                            onToggleAutoExclusion: () => toggleAutoSelectExclusion(profile, server),
-                                            onShowDetails: () => showServerSettings(profile, server),
+                                            onToggleAutoExclusion: () =>
+                                                toggleAutoSelectExclusion(
+                                                  profile,
+                                                  server,
+                                                ),
+                                            onShowDetails: () =>
+                                                showServerSettings(
+                                                  profile,
+                                                  server,
+                                                ),
                                             onSelect: isTesting.value
                                                 ? null
                                                 : () async {
-                                                    await ref.read(Preferences.autoSelectServer.notifier).update(false);
-                                                    final selectionRequestId = DateTime.now().microsecondsSinceEpoch;
+                                                    await ref
+                                                        .read(
+                                                          Preferences
+                                                              .autoSelectServer
+                                                              .notifier,
+                                                        )
+                                                        .update(false);
+                                                    final selectionRequestId =
+                                                        DateTime.now()
+                                                            .microsecondsSinceEpoch;
                                                     ref
-                                                        .read(selectedServerPreviewProvider.notifier)
+                                                        .read(
+                                                          selectedServerPreviewProvider
+                                                              .notifier,
+                                                        )
                                                         .state = server.clone()
                                                       ..isSelected = true;
                                                     ref
-                                                        .read(pendingServerSelectionProvider.notifier)
+                                                        .read(
+                                                          pendingServerSelectionProvider
+                                                              .notifier,
+                                                        )
                                                         .state = PendingServerSelection(
-                                                      requestId: selectionRequestId,
+                                                      requestId:
+                                                          selectionRequestId,
                                                       profileId: profile.id,
-                                                      groupTag: connectionMode == ProfileConnectionMode.mergedProfiles
+                                                      groupTag:
+                                                          connectionMode ==
+                                                              ProfileConnectionMode
+                                                                  .mergedProfiles
                                                           ? null
                                                           : sectionGroup.tag,
                                                       outboundTag: server.tag,
                                                     );
                                                     if (!isActiveProfile &&
-                                                        connectionMode == ProfileConnectionMode.currentProfile) {
-                                                      await setActiveSubscription(profile);
+                                                        connectionMode ==
+                                                            ProfileConnectionMode
+                                                                .currentProfile) {
+                                                      await setActiveSubscription(
+                                                        profile,
+                                                      );
                                                       return;
                                                     }
                                                     final liveGroupTag =
-                                                        connectionMode == ProfileConnectionMode.mergedProfiles
+                                                        connectionMode ==
+                                                            ProfileConnectionMode
+                                                                .mergedProfiles
                                                         ? onlineGroup?.tag
                                                         : sectionGroup.tag;
                                                     if (liveGroupTag == null) {
                                                       return;
                                                     }
                                                     final result = await ref
-                                                        .read(proxyRepositoryProvider)
-                                                        .selectProxy(liveGroupTag, server.tag)
+                                                        .read(
+                                                          proxyRepositoryProvider,
+                                                        )
+                                                        .selectProxy(
+                                                          liveGroupTag,
+                                                          server.tag,
+                                                        )
                                                         .run();
-                                                    result.match((_) => null, (_) {
-                                                      final currentPending = ref.read(pendingServerSelectionProvider);
-                                                      if (currentPending?.requestId == selectionRequestId) {
-                                                        ref.read(pendingServerSelectionProvider.notifier).state = null;
+                                                    result.match((_) => null, (
+                                                      _,
+                                                    ) {
+                                                      final currentPending = ref
+                                                          .read(
+                                                            pendingServerSelectionProvider,
+                                                          );
+                                                      if (currentPending
+                                                              ?.requestId ==
+                                                          selectionRequestId) {
+                                                        ref
+                                                                .read(
+                                                                  pendingServerSelectionProvider
+                                                                      .notifier,
+                                                                )
+                                                                .state =
+                                                            null;
                                                       }
                                                     });
                                                   },
@@ -978,21 +1249,33 @@ class ServersPanelWidget extends HookConsumerWidget {
   }
 }
 
-_ParsedOfflineGroup? _parseOfflineGroup(String rawConfig, {required String fallbackGroupName}) {
+_ParsedOfflineGroup? _parseOfflineGroup(
+  String rawConfig, {
+  required String fallbackGroupName,
+}) {
   final decoded = safeDecodeBase64(rawConfig).trim();
   if (decoded.isEmpty) return null;
 
-  return _parseJsonOfflineGroup(decoded, fallbackGroupName: fallbackGroupName) ??
+  return _parseJsonOfflineGroup(
+        decoded,
+        fallbackGroupName: fallbackGroupName,
+      ) ??
       _parseLinkOfflineGroup(decoded, fallbackGroupName: fallbackGroupName);
 }
 
-_ParsedOfflineGroup? _parseJsonOfflineGroup(String content, {required String fallbackGroupName}) {
+_ParsedOfflineGroup? _parseJsonOfflineGroup(
+  String content, {
+  required String fallbackGroupName,
+}) {
   final jsonText = _extractJsonPayload(content);
   if (jsonText == null) return null;
 
   try {
     final decoded = jsonDecode(jsonText);
-    final groups = <({String tag, String type, String? selected, List<String> outbounds})>[];
+    final groups =
+        <
+          ({String tag, String type, String? selected, List<String> outbounds})
+        >[];
     final proxies = <String, OutboundInfo>{};
 
     void visit(dynamic node) {
@@ -1006,7 +1289,10 @@ _ParsedOfflineGroup? _parseJsonOfflineGroup(String content, {required String fal
 
       final map = Map<String, dynamic>.from(node.cast<String, dynamic>());
       final tag = map['tag']?.toString().trim();
-      final type = (map['type'] ?? map['protocol'])?.toString().trim().toLowerCase();
+      final type = (map['type'] ?? map['protocol'])
+          ?.toString()
+          .trim()
+          .toLowerCase();
       final outbounds = map['outbounds'];
 
       if (tag != null && tag.isNotEmpty && type != null && type.isNotEmpty) {
@@ -1017,11 +1303,17 @@ _ParsedOfflineGroup? _parseJsonOfflineGroup(String content, {required String fal
               .where((entry) => entry.isNotEmpty)
               .toList();
           if (tags.isNotEmpty) {
-            groups.add((tag: tag, type: type, selected: map['selected']?.toString(), outbounds: tags));
+            groups.add((
+              tag: tag,
+              type: type,
+              selected: map['selected']?.toString(),
+              outbounds: tags,
+            ));
           }
         } else if (_proxySchemes.contains(type)) {
           final serverHost = map['server']?.toString().trim() ?? '';
-          final serverPort = int.tryParse(map['server_port']?.toString() ?? '') ?? 0;
+          final serverPort =
+              int.tryParse(map['server_port']?.toString() ?? '') ?? 0;
           proxies[tag] = OutboundInfo(
             tag: tag,
             tagDisplay: tag,
@@ -1042,31 +1334,51 @@ _ParsedOfflineGroup? _parseJsonOfflineGroup(String content, {required String fal
     visit(decoded);
 
     for (final group in groups) {
-      final items = group.outbounds.map((tag) => proxies[tag]).whereType<OutboundInfo>().toList();
+      final items = group.outbounds
+          .map((tag) => proxies[tag])
+          .whereType<OutboundInfo>()
+          .toList();
       if (items.isNotEmpty) {
-        return _ParsedOfflineGroup(tag: group.tag, selectedTag: group.selected, items: items);
+        return _ParsedOfflineGroup(
+          tag: group.tag,
+          selectedTag: group.selected,
+          items: items,
+        );
       }
     }
 
     if (proxies.isEmpty) return null;
-    return _ParsedOfflineGroup(tag: fallbackGroupName, selectedTag: null, items: proxies.values.toList());
+    return _ParsedOfflineGroup(
+      tag: fallbackGroupName,
+      selectedTag: null,
+      items: proxies.values.toList(),
+    );
   } catch (_) {
     return null;
   }
 }
 
-_ParsedOfflineGroup? _parseLinkOfflineGroup(String content, {required String fallbackGroupName}) {
+_ParsedOfflineGroup? _parseLinkOfflineGroup(
+  String content, {
+  required String fallbackGroupName,
+}) {
   final lines = safeDecodeBase64(content)
       .split(RegExp(r'\r?\n'))
       .map((line) => line.trim())
-      .where((line) => line.isNotEmpty && !line.startsWith('#') && !line.startsWith('//'));
+      .where(
+        (line) =>
+            line.isNotEmpty && !line.startsWith('#') && !line.startsWith('//'),
+      );
 
   final items = <OutboundInfo>[];
   for (final line in lines) {
     final uri = Uri.tryParse(line);
-    if (uri == null || !_proxySchemes.contains(uri.scheme.toLowerCase())) continue;
+    if (uri == null || !_proxySchemes.contains(uri.scheme.toLowerCase()))
+      continue;
 
-    final name = uri.hasFragment ? Uri.decodeComponent(uri.fragment.split(' -> ').first).trim() : '';
+    final name = uri.hasFragment
+        ? Uri.decodeComponent(uri.fragment.split(' -> ').first).trim()
+        : '';
     final displayName = name.isNotEmpty ? name : uri.scheme.toUpperCase();
     items.add(
       OutboundInfo(
@@ -1082,7 +1394,11 @@ _ParsedOfflineGroup? _parseLinkOfflineGroup(String content, {required String fal
   }
 
   if (items.isEmpty) return null;
-  return _ParsedOfflineGroup(tag: fallbackGroupName, selectedTag: null, items: items);
+  return _ParsedOfflineGroup(
+    tag: fallbackGroupName,
+    selectedTag: null,
+    items: items,
+  );
 }
 
 String? _extractJsonPayload(String content) {
@@ -1115,7 +1431,8 @@ OutboundGroup? _toOutboundGroup(_ParsedOfflineGroup? group) {
     items: [
       for (final item in group.items)
         item.clone()
-          ..isSelected = group.selectedTag != null && item.tag == group.selectedTag
+          ..isSelected =
+              group.selectedTag != null && item.tag == group.selectedTag
           ..isVisible = true
           ..isGroup = false,
     ],
@@ -1123,7 +1440,11 @@ OutboundGroup? _toOutboundGroup(_ParsedOfflineGroup? group) {
 }
 
 class _GlassTextField extends StatelessWidget {
-  const _GlassTextField({required this.controller, required this.hint, this.prefixIcon});
+  const _GlassTextField({
+    required this.controller,
+    required this.hint,
+    this.prefixIcon,
+  });
 
   final TextEditingController controller;
   final String hint;
@@ -1132,22 +1453,44 @@ class _GlassTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassPanel(
-      height: 42,
-      borderRadius: 15,
+      height: ServersPanelWidget.searchFieldHeight,
+      borderRadius: ServersPanelWidget.searchFieldRadius,
       backgroundColor: Colors.white,
-      opacity: 0.05,
-      strokeOpacity: 0.08,
+      opacity: 0.06,
+      strokeOpacity: 0.0,
       child: TextField(
         controller: controller,
-        style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+        textAlignVertical: TextAlignVertical.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          height: 1.1,
+        ),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.92), fontSize: 15, fontWeight: FontWeight.w700),
+          hintStyle: TextStyle(
+            color: Colors.white.withValues(alpha: 0.92),
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+          ),
           prefixIcon: prefixIcon,
-          prefixIconConstraints: prefixIcon == null ? null : const BoxConstraints(minWidth: 36, minHeight: 36),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+          prefixIconConstraints: prefixIcon == null
+              ? null
+              : const BoxConstraints(
+                  minWidth: 42,
+                  minHeight: ServersPanelWidget.searchFieldHeight,
+                ),
+          contentPadding: prefixIcon == null
+              ? const EdgeInsets.symmetric(horizontal: 18)
+              : const EdgeInsets.only(right: 18),
           isDense: true,
           border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          disabledBorder: InputBorder.none,
+          errorBorder: InputBorder.none,
+          focusedErrorBorder: InputBorder.none,
         ),
       ),
     );
@@ -1195,20 +1538,27 @@ class _SortDropdown extends StatelessWidget {
               Icon(
                 Icons.tune_rounded,
                 size: 15,
-                color: isActive ? const Color(0xFF1EFFAC) : Colors.white.withValues(alpha: 0.55),
+                color: isActive
+                    ? const Color(0xFF1EFFAC)
+                    : Colors.white.withValues(alpha: 0.55),
               ),
               const Gap(8),
               Expanded(
                 child: Text(
                   _label,
                   style: TextStyle(
-                    color: isActive ? const Color(0xFF1EFFAC) : Colors.white.withValues(alpha: 0.7),
+                    color: isActive
+                        ? const Color(0xFF1EFFAC)
+                        : Colors.white.withValues(alpha: 0.7),
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
-              Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white.withValues(alpha: 0.5)),
+              Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: Colors.white.withValues(alpha: 0.5),
+              ),
             ],
           ),
         ),
@@ -1216,7 +1566,11 @@ class _SortDropdown extends StatelessWidget {
     );
   }
 
-  PopupMenuItem<_ServerSortMode> _sortMenuItem(_ServerSortMode mode, String label, _ServerSortMode currentValue) {
+  PopupMenuItem<_ServerSortMode> _sortMenuItem(
+    _ServerSortMode mode,
+    String label,
+    _ServerSortMode currentValue,
+  ) {
     final selected = mode == currentValue;
 
     return PopupMenuItem<_ServerSortMode>(
@@ -1226,13 +1580,17 @@ class _SortDropdown extends StatelessWidget {
           Icon(
             selected ? Icons.check_rounded : Icons.circle_outlined,
             size: 16,
-            color: selected ? const Color(0xFF1EFFAC) : Colors.white.withValues(alpha: 0.55),
+            color: selected
+                ? const Color(0xFF1EFFAC)
+                : Colors.white.withValues(alpha: 0.55),
           ),
           const Gap(8),
           Text(
             label,
             style: TextStyle(
-              color: selected ? const Color(0xFF1EFFAC) : Colors.white.withValues(alpha: 0.82),
+              color: selected
+                  ? const Color(0xFF1EFFAC)
+                  : Colors.white.withValues(alpha: 0.82),
               fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
@@ -1243,7 +1601,11 @@ class _SortDropdown extends StatelessWidget {
 }
 
 class _BenchmarkMenuButton extends StatelessWidget {
-  const _BenchmarkMenuButton({required this.enabled, required this.onSingle, required this.onBatch});
+  const _BenchmarkMenuButton({
+    required this.enabled,
+    required this.onSingle,
+    required this.onBatch,
+  });
 
   final bool enabled;
   final VoidCallback onSingle;
@@ -1293,7 +1655,9 @@ class _BenchmarkMenuButton extends StatelessWidget {
             child: Icon(
               Icons.network_check_rounded,
               size: 17,
-              color: enabled ? Colors.white.withValues(alpha: 0.75) : Colors.white.withValues(alpha: 0.28),
+              color: enabled
+                  ? Colors.white.withValues(alpha: 0.75)
+                  : Colors.white.withValues(alpha: 0.28),
             ),
           ),
         ),
@@ -1326,7 +1690,13 @@ class _BenchmarkMenuButton extends StatelessWidget {
                   fontSize: 13,
                 ),
               ),
-              Text(subtitle, style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 11)),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.45),
+                  fontSize: 11,
+                ),
+              ),
             ],
           ),
         ],
@@ -1338,7 +1708,12 @@ class _BenchmarkMenuButton extends StatelessWidget {
 enum _BenchmarkMode { single, batch }
 
 class _SmallGlassButton extends StatelessWidget {
-  const _SmallGlassButton({required this.icon, this.tooltip = '', this.isStop = false, this.onTap});
+  const _SmallGlassButton({
+    required this.icon,
+    this.tooltip = '',
+    this.isStop = false,
+    this.onTap,
+  });
 
   final IconData icon;
   final String tooltip;
@@ -1373,7 +1748,12 @@ class _SmallGlassButton extends StatelessWidget {
 }
 
 class _PingTestProgress extends StatelessWidget {
-  const _PingTestProgress({required this.completed, required this.total, required this.status, required this.elapsed});
+  const _PingTestProgress({
+    required this.completed,
+    required this.total,
+    required this.status,
+    required this.elapsed,
+  });
 
   final int completed;
   final int total;
@@ -1383,7 +1763,11 @@ class _PingTestProgress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = total > 0 ? completed / total : null;
-    final label = status ?? (total > 0 ? 'Проверено $completed из $total' : 'Подготовка benchmark…');
+    final label =
+        status ??
+        (total > 0
+            ? 'Проверено $completed из $total'
+            : 'Подготовка benchmark…');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1408,7 +1792,10 @@ class _PingTestProgress extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 0.7),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  width: 0.7,
+                ),
               ),
               child: Text(
                 _formatElapsed(elapsed),
@@ -1492,7 +1879,11 @@ class _SubscriptionStrip extends StatelessWidget {
                       title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const Gap(2),
                     Text(
@@ -1509,9 +1900,17 @@ class _SubscriptionStrip extends StatelessWidget {
                 ),
               ),
               const Gap(8),
-              _SmallGlassButton(icon: Icons.add_rounded, tooltip: 'Добавить подписку', onTap: onAdd),
+              _SmallGlassButton(
+                icon: Icons.add_rounded,
+                tooltip: 'Добавить подписку',
+                onTap: onAdd,
+              ),
               const Gap(6),
-              _SmallGlassButton(icon: Icons.inventory_2_outlined, tooltip: 'Список подписок', onTap: onManage),
+              _SmallGlassButton(
+                icon: Icons.inventory_2_outlined,
+                tooltip: 'Список подписок',
+                onTap: onManage,
+              ),
             ],
           ),
           if (statusLine != null && statusLine.isNotEmpty) ...[
@@ -1520,7 +1919,11 @@ class _SubscriptionStrip extends StatelessWidget {
               statusLine,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 12, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.7),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
           if (isRunning) ...[
@@ -1558,7 +1961,9 @@ class _SubscriptionCompactRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = isActive ? const Color(0xFF1EFFAC) : Colors.white.withValues(alpha: 0.78);
+    final accent = isActive
+        ? const Color(0xFF1EFFAC)
+        : Colors.white.withValues(alpha: 0.78);
 
     return GestureDetector(
       onTap: onTap,
@@ -1590,13 +1995,21 @@ class _SubscriptionCompactRow extends StatelessWidget {
             ),
             Text(
               '$serverCount',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
             ),
             const Gap(6),
             AnimatedRotation(
               turns: isExpanded ? 0.25 : 0,
               duration: const Duration(milliseconds: 200),
-              child: Icon(Icons.chevron_right_rounded, size: 18, color: Colors.white.withValues(alpha: 0.45)),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: Colors.white.withValues(alpha: 0.45),
+              ),
             ),
           ],
         ),
@@ -1616,14 +2029,22 @@ class _SubscriptionServersPlaceholder extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 0, 0, 2),
       child: Text(
         message,
-        style: TextStyle(color: Colors.white.withValues(alpha: 0.58), fontSize: 12, fontWeight: FontWeight.w500),
+        style: TextStyle(
+          color: Colors.white.withValues(alpha: 0.58),
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }
 }
 
 class _SubscriptionActionChip extends StatelessWidget {
-  const _SubscriptionActionChip({required this.icon, required this.label, this.onTap});
+  const _SubscriptionActionChip({
+    required this.icon,
+    required this.label,
+    this.onTap,
+  });
 
   final IconData icon;
   final String label;
@@ -1648,7 +2069,11 @@ class _SubscriptionActionChip extends StatelessWidget {
             const Gap(6),
             Text(
               label,
-              style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
         ),
@@ -1675,11 +2100,19 @@ class _SubscriptionsHiddenHint extends StatelessWidget {
           Expanded(
             child: Text(
               'Все подписки скрыты. Включите нужные в настройках подписок.',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.68), fontSize: 12, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.68),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           const Gap(10),
-          _SubscriptionActionChip(icon: Icons.tune_rounded, label: 'Открыть', onTap: onManage),
+          _SubscriptionActionChip(
+            icon: Icons.tune_rounded,
+            label: 'Открыть',
+            onTap: onManage,
+          ),
         ],
       ),
     );
@@ -1700,7 +2133,8 @@ String? _formatUpdateSummary(
   })?
   updateState,
 ) {
-  if (updateState == null) return 'Автообновление проверяет подписки каждые 15 минут.';
+  if (updateState == null)
+    return 'Автообновление проверяет подписки каждые 15 минут.';
   if (updateState.message?.isNotEmpty == true && updateState.running == false) {
     return '${updateState.message}${updateState.lastRun != null ? ' · ${_formatLastRun(updateState.lastRun!)}' : ''}';
   }
@@ -1731,11 +2165,19 @@ class _EmptyServersCard extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          FaIcon(FontAwesomeIcons.satellite, size: 26, color: Colors.white.withValues(alpha: 0.22)),
+          FaIcon(
+            FontAwesomeIcons.satellite,
+            size: 26,
+            color: Colors.white.withValues(alpha: 0.22),
+          ),
           const Gap(10),
           Text(
             'Нет серверов',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.72), fontSize: 14, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.72),
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -1751,6 +2193,7 @@ class _ServerCard extends HookConsumerWidget {
     required this.server,
     required this.isSelected,
     required this.groupName,
+    this.detailLines = const [],
     required this.groupTag,
     this.pingOverride,
     this.speedOverride,
@@ -1766,6 +2209,7 @@ class _ServerCard extends HookConsumerWidget {
   final OutboundInfo server;
   final bool isSelected;
   final String groupName;
+  final List<String> detailLines;
   final String groupTag;
   final int? pingOverride;
   final int? speedOverride;
@@ -1780,7 +2224,9 @@ class _ServerCard extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Pulsing glow controller — active only when this card is being benchmarked.
-    final pulseCtrl = useAnimationController(duration: const Duration(milliseconds: 900));
+    final pulseCtrl = useAnimationController(
+      duration: const Duration(milliseconds: 900),
+    );
     final pulseValue = useAnimation(pulseCtrl);
     useEffect(() {
       if (isBenchmarking) {
@@ -1795,7 +2241,9 @@ class _ServerCard extends HookConsumerWidget {
     final name = _displayName(server);
     final cc = _extractCountryCode(name);
     final flag = cc != null ? _flagEmoji(cc) : '';
-    final displayedName = cc != null ? name.replaceFirst(RegExp(r'^\[?[A-Z]{2}\]?\s*'), '') : name;
+    final displayedName = cc != null
+        ? name.replaceFirst(RegExp(r'^\[?[A-Z]{2}\]?\s*'), '')
+        : name;
     final type = server.type.isNotEmpty ? server.type.toUpperCase() : 'PROXY';
     final ping = pingOverride ?? server.urlTestDelay;
     final typeColor = _typeColor(server.type);
@@ -1807,7 +2255,8 @@ class _ServerCard extends HookConsumerWidget {
       < 1024 * 1024 => const Color(0xFF22C55E),
       _ => const Color(0xFF1EFFAC),
     };
-    final hasActionsMenu = onShowDetails != null || onToggleAutoExclusion != null;
+    final hasActionsMenu =
+        onShowDetails != null || onToggleAutoExclusion != null;
 
     return GestureDetector(
       onTap: onSelect,
@@ -1818,7 +2267,9 @@ class _ServerCard extends HookConsumerWidget {
                 borderRadius: BorderRadius.circular(15),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF1EFFAC).withValues(alpha: 0.06 + pulseValue * 0.22),
+                    color: const Color(
+                      0xFF1EFFAC,
+                    ).withValues(alpha: 0.06 + pulseValue * 0.22),
                     blurRadius: 12 + pulseValue * 14,
                     spreadRadius: -2,
                   ),
@@ -1836,17 +2287,23 @@ class _ServerCard extends HookConsumerWidget {
                 borderRadius: BorderRadius.circular(14),
                 color: isBenchmarking
                     ? Colors.white.withValues(alpha: 0.09)
-                    : (isSelected ? Colors.white.withValues(alpha: 0.08) : Colors.white.withValues(alpha: 0.045)),
+                    : (isSelected
+                          ? Colors.white.withValues(alpha: 0.08)
+                          : Colors.white.withValues(alpha: 0.045)),
                 border: Border.all(
                   color: isBenchmarking
                       ? const Color(0xFF1EFFAC).withValues(alpha: 0.55)
-                      : Colors.white.withValues(alpha: isSelected ? 0.14 : 0.08),
+                      : Colors.white.withValues(
+                          alpha: isSelected ? 0.14 : 0.08,
+                        ),
                   width: isBenchmarking ? 1.3 : 0.7,
                 ),
                 boxShadow: (isSelected && !isBenchmarking)
                     ? [
                         BoxShadow(
-                          color: const Color(0xFF1EFFAC).withValues(alpha: 0.08),
+                          color: const Color(
+                            0xFF1EFFAC,
+                          ).withValues(alpha: 0.08),
                           blurRadius: 18,
                           spreadRadius: -2,
                         ),
@@ -1860,7 +2317,10 @@ class _ServerCard extends HookConsumerWidget {
                       left: 0,
                       top: 0,
                       bottom: 0,
-                      child: Container(width: 2.5, color: const Color(0xFF1EFFAC)),
+                      child: Container(
+                        width: 2.5,
+                        color: const Color(0xFF1EFFAC),
+                      ),
                     ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -1874,16 +2334,28 @@ class _ServerCard extends HookConsumerWidget {
                               Row(
                                 children: [
                                   if (flag.isNotEmpty) ...[
-                                    Text(flag, style: const TextStyle(fontSize: 14)),
+                                    Text(
+                                      flag,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontFamily: 'Emoji',
+                                      ),
+                                    ),
                                     const Gap(6),
                                   ],
                                   Expanded(
                                     child: Text(
                                       displayedName,
                                       style: TextStyle(
-                                        color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.9),
+                                        color: isSelected
+                                            ? Colors.white
+                                            : Colors.white.withValues(
+                                                alpha: 0.9,
+                                              ),
                                         fontSize: 14,
-                                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                                        fontWeight: isSelected
+                                            ? FontWeight.w700
+                                            : FontWeight.w600,
                                         letterSpacing: 0.1,
                                       ),
                                       maxLines: 1,
@@ -1896,27 +2368,63 @@ class _ServerCard extends HookConsumerWidget {
                                 const Gap(2),
                                 Text(
                                   groupName,
-                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.44), fontSize: 12),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.44),
+                                    fontSize: 12,
+                                  ),
+                                  maxLines: 3,
+                                  overflow: TextOverflow.fade,
                                 ),
+                              ],
+                              if (detailLines.isNotEmpty) ...[
+                                const Gap(6),
+                                for (
+                                  var index = 0;
+                                  index < detailLines.length;
+                                  index += 1
+                                ) ...[
+                                  Text(
+                                    detailLines[index],
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.58,
+                                      ),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      height: 1.25,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (index != detailLines.length - 1)
+                                    const Gap(2),
+                                ],
                               ],
                               if (isAutoExcluded) ...[
                                 const Gap(6),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                                    color: const Color(
+                                      0xFFEF4444,
+                                    ).withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(999),
                                     border: Border.all(
-                                      color: const Color(0xFFEF4444).withValues(alpha: 0.26),
+                                      color: const Color(
+                                        0xFFEF4444,
+                                      ).withValues(alpha: 0.26),
                                       width: 0.7,
                                     ),
                                   ),
                                   child: Text(
                                     'Исключён из автовыбора',
                                     style: TextStyle(
-                                      color: const Color(0xFFFF8A8A).withValues(alpha: 0.96),
+                                      color: const Color(
+                                        0xFFFF8A8A,
+                                      ).withValues(alpha: 0.96),
                                       fontSize: 10,
                                       fontWeight: FontWeight.w800,
                                       letterSpacing: 0.25,
@@ -1932,8 +2440,13 @@ class _ServerCard extends HookConsumerWidget {
                                     height: 4,
                                     child: LinearProgressIndicator(
                                       value: selectionProgress!.value,
-                                      backgroundColor: Colors.white.withValues(alpha: 0.08),
-                                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF1EFFAC)),
+                                      backgroundColor: Colors.white.withValues(
+                                        alpha: 0.08,
+                                      ),
+                                      valueColor:
+                                          const AlwaysStoppedAnimation<Color>(
+                                            Color(0xFF1EFFAC),
+                                          ),
                                     ),
                                   ),
                                 ),
@@ -1950,12 +2463,19 @@ class _ServerCard extends HookConsumerWidget {
                               children: [
                                 if (isBenchmarking)
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF1EFFAC).withValues(alpha: 0.14),
+                                      color: const Color(
+                                        0xFF1EFFAC,
+                                      ).withValues(alpha: 0.14),
                                       borderRadius: BorderRadius.circular(999),
                                       border: Border.all(
-                                        color: const Color(0xFF1EFFAC).withValues(alpha: 0.38),
+                                        color: const Color(
+                                          0xFF1EFFAC,
+                                        ).withValues(alpha: 0.38),
                                         width: 0.7,
                                       ),
                                     ),
@@ -1971,11 +2491,19 @@ class _ServerCard extends HookConsumerWidget {
                                   )
                                 else
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 7,
+                                      vertical: 2,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: typeColor.withValues(alpha: 0.13),
                                       borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: typeColor.withValues(alpha: 0.35), width: 0.7),
+                                      border: Border.all(
+                                        color: typeColor.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                        width: 0.7,
+                                      ),
                                     ),
                                     child: Text(
                                       type,
@@ -1993,10 +2521,13 @@ class _ServerCard extends HookConsumerWidget {
                                     tooltip: 'Действия',
                                     color: const Color(0xCC09110D),
                                     elevation: 12,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
                                     onSelected: (action) {
                                       switch (action) {
-                                        case _ServerCardMenuAction.toggleAutoExclusion:
+                                        case _ServerCardMenuAction
+                                            .toggleAutoExclusion:
                                           onToggleAutoExclusion?.call();
                                         case _ServerCardMenuAction.details:
                                           onShowDetails?.call();
@@ -2005,12 +2536,14 @@ class _ServerCard extends HookConsumerWidget {
                                     itemBuilder: (context) => [
                                       if (onToggleAutoExclusion != null)
                                         PopupMenuItem<_ServerCardMenuAction>(
-                                          value: _ServerCardMenuAction.toggleAutoExclusion,
+                                          value: _ServerCardMenuAction
+                                              .toggleAutoExclusion,
                                           child: Row(
                                             children: [
                                               Icon(
                                                 isAutoExcluded
-                                                    ? Icons.playlist_add_check_circle_rounded
+                                                    ? Icons
+                                                          .playlist_add_check_circle_rounded
                                                     : Icons.block_rounded,
                                                 size: 18,
                                                 color: isAutoExcluded
@@ -2019,9 +2552,12 @@ class _ServerCard extends HookConsumerWidget {
                                               ),
                                               const Gap(10),
                                               Text(
-                                                isAutoExcluded ? 'Вернуть в автовыбор' : 'Исключить из автовыбора',
+                                                isAutoExcluded
+                                                    ? 'Вернуть в автовыбор'
+                                                    : 'Исключить из автовыбора',
                                                 style: TextStyle(
-                                                  color: Colors.white.withValues(alpha: 0.92),
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.92),
                                                   fontWeight: FontWeight.w700,
                                                 ),
                                               ),
@@ -2036,13 +2572,16 @@ class _ServerCard extends HookConsumerWidget {
                                               Icon(
                                                 Icons.tune_rounded,
                                                 size: 18,
-                                                color: Colors.white.withValues(alpha: 0.72),
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.72,
+                                                ),
                                               ),
                                               const Gap(10),
                                               Text(
                                                 'Параметры сервера',
                                                 style: TextStyle(
-                                                  color: Colors.white.withValues(alpha: 0.92),
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.92),
                                                   fontWeight: FontWeight.w700,
                                                 ),
                                               ),
@@ -2054,21 +2593,33 @@ class _ServerCard extends HookConsumerWidget {
                                       width: 28,
                                       height: 28,
                                       decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.06),
+                                        color: Colors.white.withValues(
+                                          alpha: 0.06,
+                                        ),
                                         borderRadius: BorderRadius.circular(8),
                                         border: Border.all(
                                           color: isAutoExcluded
-                                              ? const Color(0xFFEF4444).withValues(alpha: 0.22)
-                                              : Colors.white.withValues(alpha: 0.08),
+                                              ? const Color(
+                                                  0xFFEF4444,
+                                                ).withValues(alpha: 0.22)
+                                              : Colors.white.withValues(
+                                                  alpha: 0.08,
+                                                ),
                                           width: 0.7,
                                         ),
                                       ),
                                       child: Icon(
-                                        isAutoExcluded ? Icons.block_rounded : Icons.more_horiz_rounded,
+                                        isAutoExcluded
+                                            ? Icons.block_rounded
+                                            : Icons.more_horiz_rounded,
                                         size: 15,
                                         color: isAutoExcluded
-                                            ? const Color(0xFFFF8A8A).withValues(alpha: 0.96)
-                                            : Colors.white.withValues(alpha: 0.72),
+                                            ? const Color(
+                                                0xFFFF8A8A,
+                                              ).withValues(alpha: 0.96)
+                                            : Colors.white.withValues(
+                                                alpha: 0.72,
+                                              ),
                                       ),
                                     ),
                                   ),
@@ -2083,7 +2634,10 @@ class _ServerCard extends HookConsumerWidget {
                                   Container(
                                     width: 5,
                                     height: 5,
-                                    decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFFEF4444)),
+                                    decoration: const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Color(0xFFEF4444),
+                                    ),
                                   ),
                                   const Gap(4),
                                   const Text(
@@ -2105,12 +2659,19 @@ class _ServerCard extends HookConsumerWidget {
                                   Container(
                                     width: 5,
                                     height: 5,
-                                    decoration: BoxDecoration(shape: BoxShape.circle, color: pingColor),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: pingColor,
+                                    ),
                                   ),
                                   const Gap(4),
                                   Text(
                                     '$ping ms',
-                                    style: TextStyle(color: pingColor, fontSize: 12, fontWeight: FontWeight.w600),
+                                    style: TextStyle(
+                                      color: pingColor,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -2129,16 +2690,22 @@ class _ServerCard extends HookConsumerWidget {
                             if (hasSpeedResult) ...[
                               const Gap(4),
                               Text(
-                                throughput != null && throughput > 0 ? _formatRate(throughput) : 'FAIL',
+                                throughput != null && throughput > 0
+                                    ? _formatRate(throughput)
+                                    : 'FAIL',
                                 style: TextStyle(
-                                  color: throughput != null && throughput > 0 ? speedColor : const Color(0xFFEF4444),
+                                  color: throughput != null && throughput > 0
+                                      ? speedColor
+                                      : const Color(0xFFEF4444),
                                   fontSize: 13,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: 0.2,
                                 ),
                               ),
                               Text(
-                                isBenchmarking ? 'live throughput' : 'throughput',
+                                isBenchmarking
+                                    ? 'live throughput'
+                                    : 'throughput',
                                 style: TextStyle(
                                   color: Colors.white.withValues(alpha: 0.46),
                                   fontSize: 10,
@@ -2170,7 +2737,9 @@ class _ServerSettingsDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final prettyJson = outbound == null ? null : const JsonEncoder.withIndent('  ').convert(outbound);
+    final prettyJson = outbound == null
+        ? null
+        : const JsonEncoder.withIndent('  ').convert(outbound);
 
     Widget infoRow(String title, String value) {
       if (value.isEmpty || value == '0') return const SizedBox.shrink();
@@ -2183,12 +2752,18 @@ class _ServerSettingsDialog extends StatelessWidget {
               width: 88,
               child: Text(
                 title,
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.88), fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
             const Gap(8),
             Expanded(
-              child: SelectableText(value, style: TextStyle(color: Colors.white.withValues(alpha: 0.74))),
+              child: SelectableText(
+                value,
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.74)),
+              ),
             ),
           ],
         ),
@@ -2213,9 +2788,10 @@ class _ServerSettingsDialog extends StatelessWidget {
               children: [
                 Text(
                   _displayName(server),
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.w800),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const Gap(16),
                 infoRow('Тип', server.type.toUpperCase()),
@@ -2223,10 +2799,16 @@ class _ServerSettingsDialog extends StatelessWidget {
                 infoRow('Port', server.port.toString()),
                 infoRow('Tag', server.tag),
                 if (prettyJson != null) ...[
-                  Divider(height: 24, color: Colors.white.withValues(alpha: 0.08)),
+                  Divider(
+                    height: 24,
+                    color: Colors.white.withValues(alpha: 0.08),
+                  ),
                   const Text(
                     'Сырые настройки сервера',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const Gap(8),
                   GlassPanel(
@@ -2235,12 +2817,19 @@ class _ServerSettingsDialog extends StatelessWidget {
                     opacity: 0.04,
                     strokeOpacity: 0.08,
                     padding: const EdgeInsets.all(12),
-                    child: SelectableText(prettyJson, style: TextStyle(color: Colors.white.withValues(alpha: 0.78))),
+                    child: SelectableText(
+                      prettyJson,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.78),
+                      ),
+                    ),
                   ),
                 ] else
                   Text(
                     'Полная конфигурация сейчас недоступна, но базовые параметры сервера уже видны.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white.withValues(alpha: 0.7)),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.7),
+                    ),
                   ),
                 const Gap(16),
                 Row(
@@ -2250,12 +2839,17 @@ class _ServerSettingsDialog extends StatelessWidget {
                         child: _DialogActionButton(
                           label: 'Копировать JSON',
                           accent: true,
-                          onTap: () => Clipboard.setData(ClipboardData(text: prettyJson)),
+                          onTap: () => Clipboard.setData(
+                            ClipboardData(text: prettyJson),
+                          ),
                         ),
                       ),
                     if (prettyJson != null) const Gap(10),
                     Expanded(
-                      child: _DialogActionButton(label: 'Закрыть', onTap: () => Navigator.of(context).pop()),
+                      child: _DialogActionButton(
+                        label: 'Закрыть',
+                        onTap: () => Navigator.of(context).pop(),
+                      ),
                     ),
                   ],
                 ),
@@ -2269,7 +2863,11 @@ class _ServerSettingsDialog extends StatelessWidget {
 }
 
 class _DialogActionButton extends StatelessWidget {
-  const _DialogActionButton({required this.label, this.onTap, this.accent = false});
+  const _DialogActionButton({
+    required this.label,
+    this.onTap,
+    this.accent = false,
+  });
 
   final String label;
   final VoidCallback? onTap;
@@ -2283,7 +2881,9 @@ class _DialogActionButton extends StatelessWidget {
       child: Container(
         height: 44,
         decoration: BoxDecoration(
-          color: accent ? const Color(0xFF1EFFAC).withValues(alpha: 0.14) : Colors.white.withValues(alpha: 0.06),
+          color: accent
+              ? const Color(0xFF1EFFAC).withValues(alpha: 0.14)
+              : Colors.white.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: color.withValues(alpha: 0.22), width: 0.8),
         ),
@@ -2297,5 +2897,3 @@ class _DialogActionButton extends StatelessWidget {
     );
   }
 }
-
-

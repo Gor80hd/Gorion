@@ -117,6 +117,7 @@ class DashboardState {
     String? selectedServerTag,
     bool clearSelectedServerTag = false,
     String? activeServerTag,
+    bool clearActiveServerTag = false,
     List<AutoSelectProbeResult>? autoSelectResults,
     AutoSelectActivityState? autoSelectActivity,
     bool clearAutoSelectActivity = false,
@@ -141,7 +142,9 @@ class DashboardState {
       selectedServerTag: clearSelectedServerTag
           ? null
           : selectedServerTag ?? this.selectedServerTag,
-      activeServerTag: activeServerTag ?? this.activeServerTag,
+      activeServerTag: clearActiveServerTag
+          ? null
+          : activeServerTag ?? this.activeServerTag,
       autoSelectResults: autoSelectResults ?? this.autoSelectResults,
       autoSelectActivity: clearAutoSelectActivity
           ? const AutoSelectActivityState()
@@ -183,6 +186,15 @@ class DashboardController extends StateNotifier<DashboardState> {
     if (loadOnInit) {
       unawaited(load());
     }
+  }
+
+  ProxyProfile? _profileById(String profileId) {
+    for (final profile in state.storage.profiles) {
+      if (profile.id == profileId) {
+        return profile;
+      }
+    }
+    return null;
   }
 
   final ProfileRepository _repository;
@@ -1015,8 +1027,8 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
-  Future<void> refreshActiveProfile() async {
-    final profile = state.activeProfile;
+  Future<void> refreshProfile(String profileId) async {
+    final profile = _profileById(profileId);
     if (profile == null) {
       state = state.copyWith(
         errorMessage: 'Select a profile first.',
@@ -1025,9 +1037,17 @@ class DashboardController extends StateNotifier<DashboardState> {
       return;
     }
 
-    final shouldReconnect = state.connectionStage == ConnectionStage.connected;
-    _stopAutoSelectionMonitoring();
-    if (shouldReconnect) {
+    final isActiveProfile = state.activeProfile?.id == profile.id;
+    final shouldReconnect =
+        isActiveProfile && state.connectionStage == ConnectionStage.connected;
+    final shouldDisconnect =
+        isActiveProfile &&
+        (state.connectionStage == ConnectionStage.connected ||
+            state.connectionStage == ConnectionStage.starting);
+    if (isActiveProfile) {
+      _stopAutoSelectionMonitoring();
+    }
+    if (shouldDisconnect) {
       await disconnect();
     }
 
@@ -1038,21 +1058,98 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
     try {
       final storage = await _repository.refreshRemoteSubscription(profile.id);
+      final activeProfile = storage.activeProfile;
       state = state.copyWith(
         busy: false,
         storage: storage,
-        selectedServerTag: storage.activeProfile?.selectedServerTag,
-        activeServerTag: storage.activeProfile?.startupServerTag,
-        delayByTag: const {},
-        autoSelectResults: const [],
-        clearAutoSelectActivity: true,
+        selectedServerTag: isActiveProfile
+            ? activeProfile?.selectedServerTag
+            : state.selectedServerTag,
+        activeServerTag: isActiveProfile
+            ? activeProfile?.startupServerTag
+            : state.activeServerTag,
+        delayByTag: isActiveProfile ? const {} : state.delayByTag,
+        autoSelectResults: isActiveProfile ? const [] : state.autoSelectResults,
+        clearAutoSelectActivity: isActiveProfile,
         statusMessage: shouldReconnect
             ? 'Profile updated. Reconnecting with the refreshed config.'
-            : 'Profile updated from the remote subscription.',
+            : isActiveProfile
+            ? 'Profile updated from the remote subscription.'
+            : 'Subscription updated from the remote source.',
       );
       if (shouldReconnect) {
         await connect();
       }
+    } on Object catch (error) {
+      state = state.copyWith(busy: false, errorMessage: error.toString());
+    }
+  }
+
+  Future<void> refreshActiveProfile() async {
+    final profile = state.activeProfile;
+    if (profile == null) {
+      state = state.copyWith(
+        errorMessage: 'Select a profile first.',
+        clearStatusMessage: true,
+      );
+      return;
+    }
+
+    await refreshProfile(profile.id);
+  }
+
+  Future<void> removeProfile(String profileId) async {
+    final profile = _profileById(profileId);
+    if (profile == null) {
+      state = state.copyWith(
+        errorMessage: 'Select a profile first.',
+        clearStatusMessage: true,
+      );
+      return;
+    }
+
+    final shouldDisconnect =
+        state.activeProfile?.id == profile.id &&
+        (state.connectionStage == ConnectionStage.connected ||
+            state.connectionStage == ConnectionStage.starting);
+    final isActiveProfile = state.activeProfile?.id == profile.id;
+    if (isActiveProfile) {
+      _stopAutoSelectionMonitoring();
+    }
+    if (shouldDisconnect) {
+      await disconnect();
+    }
+
+    state = state.copyWith(
+      busy: true,
+      clearErrorMessage: true,
+      clearStatusMessage: true,
+      clearAutoSelectActivity: true,
+    );
+    try {
+      final storage = await _repository.removeProfile(profile.id);
+      final activeProfile = storage.activeProfile;
+      state = state.copyWith(
+        busy: false,
+        storage: storage,
+        selectedServerTag: isActiveProfile
+            ? activeProfile?.selectedServerTag
+            : state.selectedServerTag,
+        clearSelectedServerTag:
+            isActiveProfile && activeProfile?.selectedServerTag == null,
+        activeServerTag: isActiveProfile
+            ? activeProfile?.startupServerTag
+            : state.activeServerTag,
+        clearActiveServerTag:
+            isActiveProfile && activeProfile?.startupServerTag == null,
+        delayByTag: isActiveProfile ? const {} : state.delayByTag,
+        autoSelectResults: isActiveProfile ? const [] : state.autoSelectResults,
+        clearAutoSelectActivity: isActiveProfile,
+        statusMessage: isActiveProfile
+            ? 'Profile removed from local storage.'
+            : 'Subscription removed from local storage.',
+      );
+      _autoSelectorService.resetProfileState(profile.id);
     } on Object catch (error) {
       state = state.copyWith(busy: false, errorMessage: error.toString());
     }
@@ -1068,36 +1165,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       return;
     }
 
-    final shouldDisconnect =
-        state.connectionStage == ConnectionStage.connected ||
-        state.connectionStage == ConnectionStage.starting;
-    _stopAutoSelectionMonitoring();
-    if (shouldDisconnect) {
-      await disconnect();
-    }
-
-    state = state.copyWith(
-      busy: true,
-      clearErrorMessage: true,
-      clearStatusMessage: true,
-      clearAutoSelectActivity: true,
-    );
-    try {
-      final storage = await _repository.removeProfile(profile.id);
-      state = state.copyWith(
-        busy: false,
-        storage: storage,
-        selectedServerTag: storage.activeProfile?.selectedServerTag,
-        activeServerTag: storage.activeProfile?.startupServerTag,
-        delayByTag: const {},
-        autoSelectResults: const [],
-        clearAutoSelectActivity: true,
-        statusMessage: 'Profile removed from local storage.',
-      );
-      _autoSelectorService.resetProfileState(profile.id);
-    } on Object catch (error) {
-      state = state.copyWith(busy: false, errorMessage: error.toString());
-    }
+    await removeProfile(profile.id);
   }
 
   void _startAutoSelectionMonitoring() {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
@@ -372,6 +373,8 @@ class _AutoSelectProgressCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final title = describeAutoSelectActivityLabel(activity.label);
+    final summary = describeAutoSelectActivityStatus(activity);
     final visibleLines = activity.logLines.length <= 8
         ? activity.logLines.reversed.toList()
         : activity.logLines
@@ -389,7 +392,7 @@ class _AutoSelectProgressCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    activity.label ?? 'Auto-select activity',
+                    title,
                     style: theme.textTheme.titleLarge,
                   ),
                 ),
@@ -404,13 +407,15 @@ class _AutoSelectProgressCard extends StatelessWidget {
                         : const Color(0xFFEDF7F2),
                     borderRadius: BorderRadius.circular(999),
                   ),
-                  child: Text(activity.active ? 'Running' : 'Last pass'),
+                  child: Text(
+                    activity.active ? 'Идёт проверка' : 'Последняя проверка',
+                  ),
                 ),
               ],
             ),
-            if (activity.message != null) ...[
+            if (summary != null && summary != title) ...[
               const SizedBox(height: 8),
-              Text(activity.message!, style: theme.textTheme.bodyMedium),
+              Text(summary, style: theme.textTheme.bodyMedium),
             ],
             if (activity.active || activity.progressValue != null) ...[
               const SizedBox(height: 16),
@@ -429,7 +434,7 @@ class _AutoSelectProgressCard extends StatelessWidget {
             if (activity.progressLabel != null) ...[
               const SizedBox(height: 8),
               Text(
-                'Progress ${activity.progressLabel}',
+                'Шаги ${activity.progressLabel}',
                 style: theme.textTheme.bodySmall,
               ),
             ],
@@ -449,7 +454,7 @@ class _AutoSelectProgressCard extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Text(
-                          line,
+                          describeAutoSelectTraceLine(line),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: const Color(0xFFE8EEE6),
                             fontFamily: 'monospace',

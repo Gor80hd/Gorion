@@ -4,6 +4,7 @@ import 'package:gorion_clean/features/home/notifier/auto_server_selection_progre
 import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
 import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
+import 'package:gorion_clean/features/proxy/notifier/ip_info_notifier.dart';
 
 class HomeStatusCardModel {
   const HomeStatusCardModel({
@@ -30,6 +31,8 @@ final homeStatusCardProvider = Provider<HomeStatusCardModel>((ref) {
   final autoEnabled = state.autoSelectSettings.enabled;
   final selectedPreview = ref.watch(selectedServerPreviewProvider);
   final pendingManualSelection = ref.watch(pendingServerSelectionProvider);
+  final sourceIp = ref.watch(directIpInfoNotifierProvider).asData?.value;
+  final currentIp = ref.watch(ipInfoNotifierProvider).asData?.value;
   final autoStatus = ref.watch(autoServerSelectionStatusProvider);
 
   final isManualPreviewActive =
@@ -70,8 +73,8 @@ final homeStatusCardProvider = Provider<HomeStatusCardModel>((ref) {
     routeName: routeName,
     statusText: statusText,
     displayProxy: displayProxy,
-    currentIp: null,
-    sourceIp: null,
+    currentIp: currentIp,
+    sourceIp: sourceIp,
   );
 });
 
