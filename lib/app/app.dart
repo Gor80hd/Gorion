@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/features/home/presentation/home_screen.dart';
+import 'package:gorion_clean/features/home/widget/home_page.dart';
 
 class GorionApp extends StatelessWidget {
   const GorionApp({super.key});
@@ -11,7 +11,10 @@ class GorionApp extends StatelessWidget {
       title: 'Gorion',
       debugShowCheckedModeBanner: false,
       theme: buildGorionTheme(),
-      home: const HomeScreen(),
+      home: const Scaffold(
+        backgroundColor: Color(0xFF0C1210),
+        body: HomePage(),
+      ),
     );
   }
 }
