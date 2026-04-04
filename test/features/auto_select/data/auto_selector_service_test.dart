@@ -43,6 +43,19 @@ const _servers = [
   ),
 ];
 
+List<ServerEntry> _buildServers(List<String> tags) {
+  return [
+    for (final tag in tags)
+      ServerEntry(
+        tag: tag,
+        displayName: tag,
+        type: 'vless',
+        host: '$tag.example.com',
+        port: 443,
+      ),
+  ];
+}
+
 void main() {
   group('AutoSelectorService', () {
     test(
@@ -437,9 +450,9 @@ void main() {
       () async {
         // 8 servers: server-a (current, healthy), server-b through server-h
         // (all reachable but not better than current so no switch occurs and
-        // no cooldowns are set).  With maxInspectedCandidates=6 the batch
-        // size is 5.  Because the pool has 7 servers, two consecutive
-        // maintenance cycles must cover all 7 distinct candidates together.
+        // no cooldowns are set).  The new plan probes up to 10 contenders per
+        // pass, so with only 7 candidates the first cycle covers the whole
+        // pool and the second cycle restarts from a rotated index.
         const manyServers = [
           ServerEntry(
             tag: 'server-a',
@@ -516,8 +529,7 @@ void main() {
         );
         final service = harness.build();
 
-        // Cycle 1: pool=[b,c,d,e,f,g,h] (7 items), startIdx=0, batch=5
-        // → probes b,c,d,e,f and advances index to 5.
+        // Cycle 1: all 7 contenders are probed in their deterministic order.
         await service.maintainBestServer(
           session: _session,
           servers: manyServers,
@@ -526,8 +538,8 @@ void main() {
         final firstBatch = List<String>.from(harness.detachedProbeTags);
         harness.detachedProbeTags.clear();
 
-        // Cycle 2: startIdx=5, wraps around pool
-        // → probes g,h,b,c,d.
+        // Cycle 2: the same 7 contenders are revisited but from a rotated
+        // starting point, so the first probe changes.
         await service.maintainBestServer(
           session: _session,
           servers: manyServers,
@@ -537,7 +549,7 @@ void main() {
 
         // Rotation must start from different points.
         expect(firstBatch.first, 'server-b');
-        expect(secondBatch.first, 'server-g');
+        expect(secondBatch.first, 'server-e');
 
         // Together, every non-current server is covered.
         expect(
@@ -556,12 +568,90 @@ void main() {
     );
 
     test(
+      'manual selection reaches a later segmented fallback candidate when URLTest is unavailable',
+      () async {
+        final tags = [
+          for (var index = 0; index < 20; index += 1)
+            'server-${index.toString().padLeft(2, '0')}',
+        ];
+        final servers = _buildServers(tags);
+        final harness = _AutoSelectHarness(
+          initialSelectedTag: 'server-00',
+          delays: const {},
+          domainResults: {for (final tag in tags) tag: tag == 'server-15'},
+          ipResults: {for (final tag in tags) tag: tag == 'server-15'},
+          measureGroupDelayError: TimeoutException('timeout'),
+          maxContenderPool: 10,
+        );
+        final service = harness.build();
+
+        final outcome = await service.selectBestServer(
+          session: _session,
+          servers: servers,
+          domainProbeUrl: _domainProbeUrl,
+        );
+
+        expect(outcome.selectedServerTag, 'server-15');
+        expect(harness.detachedProbeTags.take(4).toList(growable: false), [
+          'server-00',
+          'server-05',
+          'server-10',
+          'server-15',
+        ]);
+      },
+    );
+
+    test(
+      'maintenance probes six likely-live contenders plus four segmented fallbacks',
+      () async {
+        final tags = [
+          for (var index = 0; index <= 20; index += 1)
+            'server-${index.toString().padLeft(2, '0')}',
+        ];
+        final servers = _buildServers(tags);
+        final delays = <String, int>{
+          'server-00': 5,
+          for (var index = 1; index <= 20; index += 1)
+            'server-${index.toString().padLeft(2, '0')}': index * 10,
+        };
+        final harness = _AutoSelectHarness(
+          initialSelectedTag: 'server-00',
+          delays: delays,
+          domainResults: {for (final tag in tags) tag: true},
+          ipResults: {for (final tag in tags) tag: true},
+          throughputResults: {for (final tag in tags) tag: 0},
+          maxContenderPool: 10,
+        );
+        final service = harness.build();
+
+        await service.maintainBestServer(
+          session: _session,
+          servers: servers,
+          domainProbeUrl: _domainProbeUrl,
+        );
+
+        expect(harness.detachedProbeTags, [
+          'server-01',
+          'server-02',
+          'server-03',
+          'server-04',
+          'server-05',
+          'server-06',
+          'server-11',
+          'server-16',
+          'server-07',
+          'server-12',
+        ]);
+      },
+    );
+
+    test(
       'contender pool is capped at maxContenderPool even with many servers',
       () async {
         // 10 servers, server-a is current.  Set maxContenderPool=3 so only
-        // server-b, server-c, server-d ever enter the rotation.  The
-        // remaining servers (server-e through server-j) must never appear in
-        // any probe batch.
+        // three contenders enter the diversified fallback pool.  The sampled
+        // pool must remain capped, and all later servers outside that sampled
+        // pool must never appear in any probe batch.
         const bigList = [
           ServerEntry(
             tag: 'server-a',
@@ -658,11 +748,18 @@ void main() {
         final probed = harness.detachedProbeTags.toSet();
         expect(
           probed,
-          containsAll(['server-b', 'server-c', 'server-d']),
+          containsAll(['server-b', 'server-e', 'server-g']),
           reason: 'servers inside the pool cap must be probed',
         );
         expect(
-          probed.intersection({'server-e', 'server-f', 'server-g', 'server-h', 'server-i', 'server-j'}),
+          probed.intersection({
+            'server-c',
+            'server-d',
+            'server-f',
+            'server-h',
+            'server-i',
+            'server-j',
+          }),
           isEmpty,
           reason: 'servers outside the pool cap must never be probed',
         );
@@ -713,7 +810,8 @@ void main() {
         expect(
           harness.detachedProbeTags,
           isEmpty,
-          reason: 'servers on cooldown should be skipped when interval has not elapsed',
+          reason:
+              'servers on cooldown should be skipped when interval has not elapsed',
         );
         harness.detachedProbeTags.clear();
 
@@ -730,7 +828,8 @@ void main() {
         expect(
           harness.detachedProbeTags,
           containsAll(['server-b', 'server-c']),
-          reason: 'deep refresh must clear cooldowns so previously-failed servers are retried',
+          reason:
+              'deep refresh must clear cooldowns so previously-failed servers are retried',
         );
       },
     );

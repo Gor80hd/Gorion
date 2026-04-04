@@ -129,8 +129,9 @@ class AutoSelectorService {
     AutoSelectDetachedServerProbe? probeDetachedServer,
     AutoSelectPause? pause,
     AutoSelectClock? clock,
-    this.maxInspectedCandidates = 6,
+    this.maxInspectedCandidates = 10,
     this.maxContenderPool = 32,
+    this.preferredProbeCandidates = 6,
     this.fastAcceptDelayMs = 250,
     this.betterDelayThresholdMs = 75,
     this.minimumUsableThroughput = 24 * 1024,
@@ -160,13 +161,18 @@ class AutoSelectorService {
   late final AutoSelectDetachedServerProbe _probeDetachedServer;
   final AutoSelectPause _pause;
   final AutoSelectClock _clock;
+  // Maximum number of candidate servers probed during a best-server pass.
+  // Maintenance probes the current server separately, then up to this many
+  // contenders.
   final int maxInspectedCandidates;
-  // Maximum number of servers that enter the rotation pool for maintenance
-  // contender checks.  Servers are ranked by URLTest delay first (best to
-  // worst), so the pool naturally contains the most promising candidates.  A
-  // bounded pool keeps rotation fast: with the default of 32 servers and a
-  // batch size of 5, a full rotation takes ≈7 cycles (≈7 minutes).
+  // Maximum number of servers that enter the diversified fallback pool.  The
+  // pool is built in a pre-connect style segmented order so dead servers at
+  // the head of the sorted list do not monopolize maintenance passes.
   final int maxContenderPool;
+  // On each pass probe up to this many candidates with a fresh positive
+  // URLTest delay first, then fill the remainder from the diversified
+  // fallback pool.
+  final int preferredProbeCandidates;
   final int fastAcceptDelayMs;
   final int betterDelayThresholdMs;
   final int minimumUsableThroughput;
@@ -192,11 +198,11 @@ class AutoSelectorService {
   final Map<String, DateTime> _currentServerSuccessCacheByServer =
       <String, DateTime>{};
 
-  // Tracks where in the eligible contender pool each profile left off so
-  // successive maintenance cycles rotate through all candidate servers rather
-  // than re-probing the same first-N servers every time (especially important
-  // when URLTest is unavailable and sorting falls back to fixed list order).
-  final Map<String, int> _contenderStartIndexByProfile = <String, int>{};
+  // Tracks the next window start separately for the likely-alive and fallback
+  // sources so repeated passes rotate through all candidates instead of
+  // restarting from the same first items.
+  final Map<String, int> _preferredProbeStartIndexByScope = <String, int>{};
+  final Map<String, int> _fallbackProbeStartIndexByScope = <String, int>{};
 
   Future<AutoSelectOutcome> selectBestServer({
     required RuntimeSession session,
@@ -384,10 +390,10 @@ class AutoSelectorService {
                 _isFailedProbeCoolingDown(session.profileId, server.tag),
           )
           .toList(growable: false);
-      final recoveryCandidates = [
-        ...readyCandidates,
-        ...coolingCandidates,
-      ].take(maxInspectedCandidates - 1).toList(growable: false);
+      final recoveryCandidates = _buildRecoveryCandidatePlan(
+        readyCandidates: readyCandidates,
+        coolingCandidates: coolingCandidates,
+      );
 
       AutoSelectProbeResult? replacement;
       for (var index = 0; index < recoveryCandidates.length; index += 1) {
@@ -472,34 +478,16 @@ class AutoSelectorService {
       );
     }
 
-    // Build the eligible contender pool (excludes current server and any
-    // server still cooling down after a recent failure), then cap it to
-    // maxContenderPool.  Candidates are already sorted by URLTest delay so
-    // the cap keeps the most promising servers in the pool.  When URLTest is
-    // unavailable the order falls back to profile list order, which is still
-    // better than an unbounded pool of potentially thousands of dead servers
-    // (1000 servers / batch-5 = 200 cycles × 60s = 3 hours per rotation).
     final contenderPool = candidates
         .where((s) => s.tag != currentServer.tag)
         .where((s) => !_isFailedProbeCoolingDown(session.profileId, s.tag))
-        .take(maxContenderPool)
         .toList(growable: false);
-    final batchSize = maxInspectedCandidates - 1;
-    final startIdx = _getAndAdvanceContenderIndex(
-      session.profileId,
-      contenderPool.length,
-      batchSize,
+    final contenderCandidates = _buildRotatingProbePlan(
+      profileId: session.profileId,
+      scope: 'maintenance',
+      candidates: contenderPool,
+      delayByTag: delayByTag,
     );
-    final contenderCandidates = <ServerEntry>[];
-    for (
-      var i = 0;
-      i < contenderPool.length && contenderCandidates.length < batchSize;
-      i += 1
-    ) {
-      contenderCandidates.add(
-        contenderPool[(startIdx + i) % contenderPool.length],
-      );
-    }
 
     final contenderProbes = <AutoSelectProbeResult>[];
     for (var index = 0; index < contenderCandidates.length; index += 1) {
@@ -608,7 +596,7 @@ class AutoSelectorService {
     _currentServerSuccessCacheByServer.removeWhere(
       (key, _) => key.startsWith('$profileId::'),
     );
-    _contenderStartIndexByProfile.remove(profileId);
+    _clearRotationState(profileId);
     _lastDeepRefreshAtByProfile.remove(profileId);
   }
 
@@ -623,9 +611,12 @@ class AutoSelectorService {
     required int totalSteps,
   }) async {
     final probes = <AutoSelectProbeResult>[];
-    final inspected = candidates
-        .take(maxInspectedCandidates)
-        .toList(growable: false);
+    final inspected = _buildRotatingProbePlan(
+      profileId: session.profileId,
+      scope: 'manual',
+      candidates: candidates,
+      delayByTag: delayByTag,
+    );
     var completedSteps = 1;
     for (var index = 0; index < inspected.length; index += 1) {
       final server = inspected[index];
@@ -891,6 +882,144 @@ class AutoSelectorService {
     return ranked;
   }
 
+  List<ServerEntry> _buildRotatingProbePlan({
+    required String profileId,
+    required String scope,
+    required List<ServerEntry> candidates,
+    required Map<String, int> delayByTag,
+  }) {
+    if (candidates.isEmpty) {
+      return const <ServerEntry>[];
+    }
+
+    final totalTarget = maxInspectedCandidates;
+    final preferredTarget = preferredProbeCandidates < totalTarget
+        ? preferredProbeCandidates
+        : totalTarget;
+    final preferredCandidates = _takeRotatingCandidates(
+      scopeKey: '$profileId::$scope::preferred',
+      source: candidates
+          .where((server) {
+            final delay = delayByTag[server.tag];
+            return delay != null && delay > 0;
+          })
+          .toList(growable: false),
+      batchSize: preferredTarget,
+      indexByScope: _preferredProbeStartIndexByScope,
+    );
+    final fallbackCandidates = _takeRotatingCandidates(
+      scopeKey: '$profileId::$scope::fallback',
+      source: _buildSegmentedCandidatePool(candidates, maxContenderPool),
+      batchSize: totalTarget - preferredCandidates.length,
+      indexByScope: _fallbackProbeStartIndexByScope,
+      excludedTags: {
+        for (final candidate in preferredCandidates) candidate.tag,
+      },
+    );
+
+    return [...preferredCandidates, ...fallbackCandidates];
+  }
+
+  List<ServerEntry> _buildRecoveryCandidatePlan({
+    required List<ServerEntry> readyCandidates,
+    required List<ServerEntry> coolingCandidates,
+  }) {
+    final recoveryCandidates = _buildSegmentedCandidatePool(
+      readyCandidates,
+      maxInspectedCandidates,
+    ).toList(growable: true);
+    if (recoveryCandidates.length >= maxInspectedCandidates) {
+      return recoveryCandidates;
+    }
+
+    recoveryCandidates.addAll(
+      _buildSegmentedCandidatePool(
+        coolingCandidates,
+        maxInspectedCandidates - recoveryCandidates.length,
+      ),
+    );
+    return recoveryCandidates;
+  }
+
+  List<ServerEntry> _buildSegmentedCandidatePool(
+    List<ServerEntry> candidates,
+    int limit,
+  ) {
+    if (candidates.isEmpty || limit <= 0) {
+      return const <ServerEntry>[];
+    }
+    if (candidates.length <= limit) {
+      return candidates;
+    }
+
+    const segmentCount = 4;
+    final segments = <List<ServerEntry>>[];
+    final baseSegmentSize = candidates.length ~/ segmentCount;
+    final remainder = candidates.length % segmentCount;
+    var offset = 0;
+    for (var index = 0; index < segmentCount; index += 1) {
+      final segmentSize = baseSegmentSize + (index < remainder ? 1 : 0);
+      final end = offset + segmentSize;
+      segments.add(candidates.sublist(offset, end));
+      offset = end;
+    }
+
+    final planned = <ServerEntry>[];
+    var cursor = 0;
+    while (planned.length < limit) {
+      var addedAny = false;
+      for (final segment in segments) {
+        if (cursor >= segment.length) {
+          continue;
+        }
+        planned.add(segment[cursor]);
+        addedAny = true;
+        if (planned.length >= limit) {
+          break;
+        }
+      }
+      if (!addedAny) {
+        break;
+      }
+      cursor += 1;
+    }
+
+    return planned;
+  }
+
+  List<ServerEntry> _takeRotatingCandidates({
+    required String scopeKey,
+    required List<ServerEntry> source,
+    required int batchSize,
+    required Map<String, int> indexByScope,
+    Set<String> excludedTags = const <String>{},
+  }) {
+    if (batchSize <= 0 || source.isEmpty) {
+      return const <ServerEntry>[];
+    }
+
+    final startIndex = _getAndAdvanceRotationIndex(
+      scopeKey,
+      source.length,
+      batchSize,
+      indexByScope,
+    );
+    final selected = <ServerEntry>[];
+    final seenTags = <String>{...excludedTags};
+    for (var offset = 0; offset < source.length; offset += 1) {
+      final candidate = source[(startIndex + offset) % source.length];
+      if (!seenTags.add(candidate.tag)) {
+        continue;
+      }
+      selected.add(candidate);
+      if (selected.length >= batchSize) {
+        break;
+      }
+    }
+
+    return selected;
+  }
+
   void _reportProgress(
     AutoSelectProgressReporter? onProgress,
     String message, {
@@ -972,8 +1101,9 @@ class AutoSelectorService {
     return currentDelay - contenderDelay >= betterDelayThresholdMs;
   }
 
-  // Clears failed-probe cooldowns and resets the rotation index for the given
-  // profile if deepRefreshInterval has elapsed since the last deep refresh.
+  // Clears failed-probe cooldowns and resets the rotation windows for the
+  // given profile if deepRefreshInterval has elapsed since the last deep
+  // refresh.
   void _maybeDeepRefresh(
     String profileId, {
     AutoSelectProgressReporter? onProgress,
@@ -985,7 +1115,7 @@ class AutoSelectorService {
     _failedProbeCooldownByServer.removeWhere(
       (key, _) => key.startsWith('$profileId::'),
     );
-    _contenderStartIndexByProfile.remove(profileId);
+    _clearRotationState(profileId);
     _lastDeepRefreshAtByProfile[profileId] = _clock();
     _reportProgress(
       onProgress,
@@ -993,20 +1123,26 @@ class AutoSelectorService {
     );
   }
 
-  // Returns the index within the pool to start picking contenders from, and
-  // advances the stored index by batchSize so the next call starts where this
-  // one left off.  This distributes probing across all candidate servers over
-  // successive maintenance cycles.
-  int _getAndAdvanceContenderIndex(
-    String profileId,
+  int _getAndAdvanceRotationIndex(
+    String scopeKey,
     int poolSize,
     int batchSize,
+    Map<String, int> indexByScope,
   ) {
     if (poolSize == 0) return 0;
-    final current = _contenderStartIndexByProfile[profileId] ?? 0;
+    final current = indexByScope[scopeKey] ?? 0;
     final startIdx = current % poolSize;
-    _contenderStartIndexByProfile[profileId] = (current + batchSize) % poolSize;
+    indexByScope[scopeKey] = (current + batchSize) % poolSize;
     return startIdx;
+  }
+
+  void _clearRotationState(String profileId) {
+    _preferredProbeStartIndexByScope.removeWhere(
+      (key, _) => key.startsWith('$profileId::'),
+    );
+    _fallbackProbeStartIndexByScope.removeWhere(
+      (key, _) => key.startsWith('$profileId::'),
+    );
   }
 
   bool _isSwitchCoolingDown(String profileId) {
