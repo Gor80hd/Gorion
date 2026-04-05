@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
+import 'package:gorion_clean/features/settings/widget/settings_page.dart';
 import 'package:window_manager/window_manager.dart';
 
 const _dockLeftMargin = 10.0;
@@ -14,10 +15,17 @@ const _dockGap = 12.0;
 const _titleBarHeight = 48.0;
 const _dockTopGap = 10.0;
 
-class AppShell extends StatelessWidget {
+class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.child});
 
   final Widget child;
+
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  _DockPage _currentPage = _DockPage.home;
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +62,17 @@ class AppShell extends StatelessWidget {
                 rightInset,
                 bottomInset,
               ),
-              child: child,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeOutCubic,
+                child: KeyedSubtree(
+                  key: ValueKey(_currentPage),
+                  child: _currentPage == _DockPage.home
+                      ? widget.child
+                      : const SettingsPage(),
+                ),
+              ),
             ),
             Positioned(
               top: 0,
@@ -70,7 +88,15 @@ class AppShell extends StatelessWidget {
               left: leftInset,
               top: topInset + _titleBarHeight + _dockTopGap,
               bottom: bottomInset,
-              child: const _Dock(),
+              child: _Dock(
+                current: _currentPage,
+                onSelect: (page) {
+                  if (_currentPage == page) {
+                    return;
+                  }
+                  setState(() => _currentPage = page);
+                },
+              ),
             ),
           ],
         ),
@@ -418,17 +444,13 @@ class _RestorePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-enum _DockPage { home }
+enum _DockPage { home, settings }
 
-class _Dock extends StatefulWidget {
-  const _Dock();
+class _Dock extends StatelessWidget {
+  const _Dock({required this.current, required this.onSelect});
 
-  @override
-  State<_Dock> createState() => _DockState();
-}
-
-class _DockState extends State<_Dock> {
-  _DockPage _current = _DockPage.home;
+  final _DockPage current;
+  final ValueChanged<_DockPage> onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -457,8 +479,8 @@ class _DockState extends State<_Dock> {
             _DockBtn(
               icon: Icons.language_rounded,
               label: 'Главная',
-              selected: _current == _DockPage.home,
-              onTap: () => setState(() => _current = _DockPage.home),
+              selected: current == _DockPage.home,
+              onTap: () => onSelect(_DockPage.home),
             ),
             const SizedBox(height: 12),
             Container(
@@ -470,8 +492,8 @@ class _DockState extends State<_Dock> {
             _DockBtn(
               icon: Icons.settings_outlined,
               label: 'Настройки',
-              selected: false,
-              onTap: () {},
+              selected: current == _DockPage.settings,
+              onTap: () => onSelect(_DockPage.settings),
             ),
             const SizedBox(height: 2),
           ],

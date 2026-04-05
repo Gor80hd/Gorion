@@ -10,6 +10,8 @@ import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart'
 import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion_clean/features/settings/data/connection_tuning_config_overrides.dart';
+import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
@@ -33,6 +35,9 @@ class SingboxRuntimeService {
   Future<RuntimeSession> start({
     required String profileId,
     required String templateConfig,
+    String? originalTemplateConfig,
+    ConnectionTuningSettings connectionTuningSettings =
+        const ConnectionTuningSettings(),
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
@@ -67,6 +72,14 @@ class SingboxRuntimeService {
     _pushLog(
       'Runtime config written to ${configFile.path}. controllerPort=$controllerPort mixedPort=$mixedPort mode=${mode.name} selectedServer=${selectedServerTag ?? '<default>'}.',
     );
+    for (final line in describeConnectionTuningDiagnostics(
+      originalTemplateConfig: originalTemplateConfig ?? templateConfig,
+      effectiveTemplateConfig: templateConfig,
+      settings: connectionTuningSettings,
+      selectedServerTag: selectedServerTag,
+    )) {
+      _pushLog(line);
+    }
     _pushLog(
       'Launching sing-box $singboxVersion: ${binaryFile.path} run -c ${configFile.path}',
     );

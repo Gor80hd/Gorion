@@ -49,7 +49,11 @@ class GorionConsoleLog {
         trimmed.startsWith('STDOUT ') || trimmed.startsWith('STDERR ');
 
     if (!isSingboxRuntimeLine) {
-      _connectNoiseNoticeShown = false;
+      if (trimmed.startsWith('Preparing sing-box runtime for profile ') ||
+          trimmed.startsWith('Stopping sing-box PID ') ||
+          trimmed.startsWith('sing-box exited with code ')) {
+        _connectNoiseNoticeShown = false;
+      }
       _write(
         section: GorionConsoleSection.connect,
         message: _shortenConnectionMessage(trimmed),
@@ -447,6 +451,10 @@ class GorionConsoleLog {
     line = line.replaceFirst(RegExp(r'^STD(?:OUT|ERR)\s+'), '');
     line = line.replaceFirst(RegExp(r'^(INFO|ERROR|WARN|DEBUG)\[\d+\]\s*'), '');
     line = line.replaceFirst(RegExp(r'^\[\d+\s+\d+ms\]\s*'), '');
+    final summarizedConnectionFailure = _summarizeConnectionFailure(line);
+    if (summarizedConnectionFailure != null) {
+      return summarizedConnectionFailure;
+    }
     line = line.replaceAll('outbound connection to ', '-> ');
     line = line.replaceAll('inbound connection from ', 'from ');
     line = line.replaceAll('inbound connection to ', 'to ');
@@ -456,6 +464,38 @@ class GorionConsoleLog {
       'host aborted the connection.',
     );
     return line;
+  }
+
+  static String? _summarizeConnectionFailure(String line) {
+    final match = RegExp(
+      r'^connection: open connection to (.+?) using outbound/[^\[]+\[(.+?)\]: (.+)$',
+    ).firstMatch(line);
+    if (match == null) {
+      return null;
+    }
+
+    final destination = match.group(1)!;
+    final tag = match.group(2)!;
+    final detail = _summarizeConnectionFailureDetail(match.group(3)!);
+    return '$tag -> $destination: $detail';
+  }
+
+  static String _summarizeConnectionFailureDetail(String detail) {
+    final trimmed = detail.trim();
+    if (trimmed == 'remote error: tls: unrecognized name') {
+      return 'remote rejected SNI';
+    }
+    if (trimmed.contains(
+      'initialize vision: vision: not a valid supported TLS connection: *v2raywebsocket.WebsocketConn',
+    )) {
+      return 'Vision incompatible with WebSocket transport';
+    }
+    if (trimmed.startsWith(
+      'initialize vision: vision: not a valid supported TLS connection:',
+    )) {
+      return 'Vision incompatible with current transport';
+    }
+    return trimmed;
   }
 
   static String _runtimeSeverity(String message) {

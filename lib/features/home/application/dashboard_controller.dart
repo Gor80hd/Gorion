@@ -10,6 +10,9 @@ import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dar
 import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion_clean/features/settings/data/connection_tuning_config_overrides.dart';
+import 'package:gorion_clean/features/settings/data/connection_tuning_settings_repository.dart';
+import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
 import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
@@ -31,6 +34,11 @@ final singboxRuntimeServiceProvider = Provider<SingboxRuntimeService>((ref) {
 final autoSelectSettingsRepositoryProvider =
     Provider<AutoSelectSettingsRepository>(
       (ref) => AutoSelectSettingsRepository(),
+    );
+
+final connectionTuningSettingsRepositoryProvider =
+    Provider<ConnectionTuningSettingsRepository>(
+      (ref) => ConnectionTuningSettingsRepository(),
     );
 
 final autoSelectPreconnectServiceProvider =
@@ -61,6 +69,9 @@ final dashboardControllerProvider =
         autoSelectSettingsRepository: ref.read(
           autoSelectSettingsRepositoryProvider,
         ),
+        connectionTuningSettingsRepository: ref.read(
+          connectionTuningSettingsRepositoryProvider,
+        ),
         autoSelectPreconnectService: ref.read(
           autoSelectPreconnectServiceProvider,
         ),
@@ -75,6 +86,7 @@ class DashboardState {
     this.refreshingDelays = false,
     this.runtimeMode = RuntimeMode.mixed,
     this.autoSelectSettings = const AutoSelectSettings(),
+    this.connectionTuningSettings = const ConnectionTuningSettings(),
     this.storage = const StoredProfilesState(),
     this.connectionStage = ConnectionStage.disconnected,
     this.runtimeSession,
@@ -96,6 +108,7 @@ class DashboardState {
   final bool refreshingDelays;
   final RuntimeMode runtimeMode;
   final AutoSelectSettings autoSelectSettings;
+  final ConnectionTuningSettings connectionTuningSettings;
   final StoredProfilesState storage;
   final ConnectionStage connectionStage;
   final RuntimeSession? runtimeSession;
@@ -128,6 +141,7 @@ class DashboardState {
     bool? refreshingDelays,
     RuntimeMode? runtimeMode,
     AutoSelectSettings? autoSelectSettings,
+    ConnectionTuningSettings? connectionTuningSettings,
     StoredProfilesState? storage,
     ConnectionStage? connectionStage,
     RuntimeSession? runtimeSession,
@@ -158,6 +172,8 @@ class DashboardState {
       refreshingDelays: refreshingDelays ?? this.refreshingDelays,
       runtimeMode: runtimeMode ?? this.runtimeMode,
       autoSelectSettings: autoSelectSettings ?? this.autoSelectSettings,
+      connectionTuningSettings:
+          connectionTuningSettings ?? this.connectionTuningSettings,
       storage: storage ?? this.storage,
       connectionStage: connectionStage ?? this.connectionStage,
       runtimeSession: clearRuntimeSession
@@ -204,6 +220,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     required ProfileRepository repository,
     required SingboxRuntimeService runtimeService,
     required AutoSelectSettingsRepository autoSelectSettingsRepository,
+    ConnectionTuningSettingsRepository? connectionTuningSettingsRepository,
     required AutoSelectPreconnectService autoSelectPreconnectService,
     required AutoSelectorService autoSelectorService,
     ClashApiClientFactory? clashApiClientFactory,
@@ -214,6 +231,9 @@ class DashboardController extends StateNotifier<DashboardState> {
   }) : _repository = repository,
        _runtimeService = runtimeService,
        _autoSelectSettingsRepository = autoSelectSettingsRepository,
+       _connectionTuningSettingsRepository =
+           connectionTuningSettingsRepository ??
+           ConnectionTuningSettingsRepository(),
        _autoSelectPreconnectService = autoSelectPreconnectService,
        _autoSelectorService = autoSelectorService,
        _createClashApiClient =
@@ -240,6 +260,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   final ProfileRepository _repository;
   final SingboxRuntimeService _runtimeService;
   final AutoSelectSettingsRepository _autoSelectSettingsRepository;
+  final ConnectionTuningSettingsRepository _connectionTuningSettingsRepository;
   final AutoSelectPreconnectService _autoSelectPreconnectService;
   final AutoSelectorService _autoSelectorService;
   final ClashApiClientFactory _createClashApiClient;
@@ -392,11 +413,15 @@ class DashboardController extends StateNotifier<DashboardState> {
       final storageFuture = _repository.loadState();
       final autoSelectStateFuture = _autoSelectSettingsRepository
           .clearExpiredCaches();
+      final connectionTuningSettingsFuture = _connectionTuningSettingsRepository
+          .load();
       final storage = await storageFuture;
       final autoSelectState = await autoSelectStateFuture;
+      final connectionTuningSettings = await connectionTuningSettingsFuture;
       state = state.copyWith(
         bootstrapping: false,
         autoSelectSettings: autoSelectState.settings,
+        connectionTuningSettings: connectionTuningSettings,
         storage: storage,
         selectedServerTag: storage.activeProfile?.selectedServerTag,
         activeServerTag: storage.activeProfile?.startupServerTag,
@@ -440,6 +465,35 @@ class DashboardController extends StateNotifier<DashboardState> {
         activeServerTag: storage.activeProfile?.startupServerTag,
         autoSelectResults: const [],
         statusMessage: 'Subscription saved. Servers are ready for connection.',
+      );
+    } on Object catch (error) {
+      state = state.copyWith(busy: false, errorMessage: error.toString());
+    }
+  }
+
+  Future<void> saveConnectionTuningSettings(
+    ConnectionTuningSettings settings,
+  ) async {
+    final normalized = settings.copyWith();
+    if (state.busy || state.connectionTuningSettings == normalized) {
+      return;
+    }
+
+    final shouldReconnect = state.connectionStage == ConnectionStage.connected;
+    state = state.copyWith(
+      busy: true,
+      clearErrorMessage: true,
+      clearStatusMessage: true,
+    );
+
+    try {
+      final stored = await _connectionTuningSettingsRepository.save(normalized);
+      state = state.copyWith(
+        busy: false,
+        connectionTuningSettings: stored,
+        statusMessage: shouldReconnect
+            ? 'Connection settings saved. Reconnect to apply the new overrides.'
+            : 'Connection settings saved. The overrides will apply on the next connect.',
       );
     } on Object catch (error) {
       state = state.copyWith(busy: false, errorMessage: error.toString());
@@ -666,7 +720,12 @@ class DashboardController extends StateNotifier<DashboardState> {
 
     try {
       final selectedMode = state.runtimeMode;
-      final templateConfig = await _repository.loadTemplateConfig(profile);
+      final originalTemplateConfig = await _repository.loadTemplateConfig(
+        profile,
+      );
+      final templateConfig = _applyConnectionTuningSettings(
+        originalTemplateConfig,
+      );
       final autoSelectSettings = state.autoSelectSettings;
       PreparedAutoConnectSelection? preparedAutoSelection;
       var startupServerTag = profile.startupServerTag;
@@ -697,6 +756,8 @@ class DashboardController extends StateNotifier<DashboardState> {
       final session = await _runtimeService.start(
         profileId: profile.id,
         templateConfig: templateConfig,
+        originalTemplateConfig: originalTemplateConfig,
+        connectionTuningSettings: state.connectionTuningSettings,
         urlTestUrl: resolveAutoSelectUrlTestUrl(
           autoSelectSettings.domainProbeUrl,
           rotationKey: '${profile.id}::runtime::urltest',
@@ -728,7 +789,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       var effectiveActiveServerTag = connectedTag;
       var effectiveProbes =
           preparedAutoSelection?.probes ?? const <AutoSelectProbeResult>[];
-        final shouldRunLightweightCurrentVerification =
+      final shouldRunLightweightCurrentVerification =
           preparedAutoSelection?.reusedRecentSuccessfulSelection ?? false;
       final shouldVerifyPostConnectInternetAccess =
           preparedAutoSelection == null ||
@@ -1801,14 +1862,17 @@ class DashboardController extends StateNotifier<DashboardState> {
 
     try {
       final resolvedTemplateConfig =
-          templateConfig ?? await _repository.loadTemplateConfig(profile);
-      final candidates = extractAutoSelectConfigCandidates(resolvedTemplateConfig);
+          templateConfig ?? await _loadEffectiveTemplateConfig(profile);
+      final candidates = extractAutoSelectConfigCandidates(
+        resolvedTemplateConfig,
+      );
       if (candidates.isEmpty) {
         return eligibleServers;
       }
 
       final fingerprintByTag = {
-        for (final candidate in candidates) candidate.tag: candidate.configFingerprint,
+        for (final candidate in candidates)
+          candidate.tag: candidate.configFingerprint,
       };
       return _deduplicateExactServers([
         for (final server in eligibleServers)
@@ -1827,6 +1891,18 @@ class DashboardController extends StateNotifier<DashboardState> {
     } on Object {
       return eligibleServers;
     }
+  }
+
+  Future<String> _loadEffectiveTemplateConfig(ProxyProfile profile) async {
+    final templateConfig = await _repository.loadTemplateConfig(profile);
+    return _applyConnectionTuningSettings(templateConfig);
+  }
+
+  String _applyConnectionTuningSettings(String templateConfig) {
+    return applyConnectionTuningSettingsToTemplateConfig(
+      templateConfig: templateConfig,
+      settings: state.connectionTuningSettings,
+    );
   }
 
   List<ServerEntry> _deduplicateExactServers(List<ServerEntry> servers) {

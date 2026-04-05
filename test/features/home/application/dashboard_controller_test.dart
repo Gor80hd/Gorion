@@ -13,6 +13,8 @@ import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion_clean/features/settings/data/connection_tuning_settings_repository.dart';
+import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
 
 final _createdAt = DateTime(2026, 4, 3, 12);
 const _session = RuntimeSession(
@@ -1261,10 +1263,10 @@ void main() {
 
         await controller.runAutoSelect();
 
-        expect(
-          autoSelectorService.selectServerTagsHistory.single,
-          ['server-a', 'server-c'],
-        );
+        expect(autoSelectorService.selectServerTagsHistory.single, [
+          'server-a',
+          'server-c',
+        ]);
       },
     );
 
@@ -1361,6 +1363,99 @@ void main() {
           controller.state.errorMessage,
           'Подключение не удалось: 🇳🇴 Норвегия, Осло недоступен.',
         );
+      },
+    );
+
+    test(
+      'connect applies saved connection tuning overrides before runtime start',
+      () async {
+        final runtimeService = _FakeRuntimeService(startSession: _session);
+        const connectionSettings = ConnectionTuningSettings(
+          forceChromeUtls: true,
+          sniDonor: 'cdn.example.com',
+          forceVisionFlow: true,
+          forceXudpPacketEncoding: true,
+          enableMultiplex: true,
+          enableTlsRecordFragment: true,
+        );
+        final controller = DashboardController(
+          repository: _FakeProfileRepository(
+            initialStorage: _manualStorage,
+            templateConfig: jsonEncode({
+              'outbounds': [
+                {
+                  'type': 'vless',
+                  'tag': 'server-a',
+                  'server': 'a.example.com',
+                  'server_port': 443,
+                  'uuid': '00000000-0000-0000-0000-000000000000',
+                  'tls': {'enabled': true, 'server_name': 'origin.example.com'},
+                },
+              ],
+            }),
+          ),
+          runtimeService: runtimeService,
+          autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(
+            initialState: const StoredAutoSelectState(
+              settings: AutoSelectSettings(enabled: false),
+            ),
+          ),
+          connectionTuningSettingsRepository:
+              _FakeConnectionTuningSettingsRepository(
+                initialSettings: connectionSettings,
+              ),
+          autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+          autoSelectorService: _ScriptedAutoSelectorService(
+            verifyResponses: [
+              Future<AutoSelectProbeResult>.value(
+                const AutoSelectProbeResult(
+                  serverTag: 'server-a',
+                  urlTestDelay: 48,
+                  domainProbeOk: true,
+                  ipProbeOk: true,
+                  throughputBytesPerSecond: 64 * 1024,
+                ),
+              ),
+            ],
+          ),
+          clashApiClientFactory: (_) => _FakeClashApiClient(
+            snapshot: const ClashApiSnapshot(
+              selectedTag: 'server-a',
+              delayByTag: {'server-a': 48},
+            ),
+            delays: const {'server-a': 48},
+          ),
+          initialState: DashboardState(
+            bootstrapping: false,
+            runtimeMode: RuntimeMode.mixed,
+            autoSelectSettings: const AutoSelectSettings(enabled: false),
+            connectionTuningSettings: connectionSettings,
+            storage: _manualStorage,
+            selectedServerTag: 'server-a',
+            activeServerTag: 'server-a',
+          ),
+          loadOnInit: false,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.connect();
+
+        final config =
+            jsonDecode(runtimeService.lastStartedTemplateConfig!)
+                as Map<String, dynamic>;
+        final outbound =
+            (config['outbounds'] as List).single as Map<String, dynamic>;
+        final tls = outbound['tls'] as Map<String, dynamic>;
+
+        expect(outbound['flow'], 'xtls-rprx-vision');
+        expect(outbound['packet_encoding'], 'xudp');
+        expect(
+          (outbound['multiplex'] as Map<String, dynamic>)['enabled'],
+          isTrue,
+        );
+        expect(tls['server_name'], 'cdn.example.com');
+        expect(tls['record_fragment'], isTrue);
+        expect((tls['utls'] as Map<String, dynamic>)['fingerprint'], 'chrome');
       },
     );
   });
@@ -1489,6 +1584,26 @@ class _FakeAutoSelectSettingsRepository extends AutoSelectSettingsRepository {
   }
 }
 
+class _FakeConnectionTuningSettingsRepository
+    extends ConnectionTuningSettingsRepository {
+  _FakeConnectionTuningSettingsRepository({
+    ConnectionTuningSettings? initialSettings,
+  }) : _settings = initialSettings ?? const ConnectionTuningSettings();
+
+  ConnectionTuningSettings _settings;
+
+  @override
+  Future<ConnectionTuningSettings> load() async => _settings;
+
+  @override
+  Future<ConnectionTuningSettings> save(
+    ConnectionTuningSettings settings,
+  ) async {
+    _settings = settings.copyWith();
+    return _settings;
+  }
+}
+
 class _FakeRuntimeService extends SingboxRuntimeService {
   _FakeRuntimeService({RuntimeSession? startSession})
     : _startSession = startSession ?? _session;
@@ -1497,9 +1612,13 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   int startCallCount = 0;
   int stopCallCount = 0;
   final List<String?> selectedServerTags = <String?>[];
+  final List<String> templateConfigs = <String>[];
 
   String? get lastStartedSelectedServerTag =>
       selectedServerTags.isEmpty ? null : selectedServerTags.last;
+
+  String? get lastStartedTemplateConfig =>
+      templateConfigs.isEmpty ? null : templateConfigs.last;
 
   @override
   List<String> get logs => const <String>[];
@@ -1508,12 +1627,16 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   Future<RuntimeSession> start({
     required String profileId,
     required String templateConfig,
+    String? originalTemplateConfig,
+    ConnectionTuningSettings connectionTuningSettings =
+        const ConnectionTuningSettings(),
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
   }) async {
     startCallCount += 1;
     selectedServerTags.add(selectedServerTag);
+    templateConfigs.add(templateConfig);
     return _startSession;
   }
 

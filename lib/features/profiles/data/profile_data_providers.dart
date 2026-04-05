@@ -28,24 +28,33 @@ class ProfileDataSource {
   Stream<List<ProfileDataEntry>> watchAll({
     ProfilesSort sort = ProfilesSort.lastUpdate,
     SortMode sortMode = SortMode.ascending,
-  }) =>
-      _stream;
+  }) => _stream;
 }
 
 final profileDataSourceProvider = Provider<ProfileDataSource>((ref) {
-  final controller = StreamController<List<ProfileDataEntry>>.broadcast();
-
-  ref.listen(
-    dashboardControllerProvider.select((s) => s.storage),
-    (_, storage) {
+  var currentEntries = const <ProfileDataEntry>[];
+  late final StreamController<List<ProfileDataEntry>> controller;
+  controller = StreamController<List<ProfileDataEntry>>.broadcast(
+    onListen: () {
       if (!controller.isClosed) {
-        controller.add(
-          storage.profiles.map((p) => ProfileDataEntry(profileToEntity(p))).toList(),
-        );
+        controller.add(List<ProfileDataEntry>.unmodifiable(currentEntries));
       }
     },
-    fireImmediately: true,
   );
+
+  ref.listen(dashboardControllerProvider.select((s) => s.storage), (
+    _,
+    storage,
+  ) {
+    currentEntries = List<ProfileDataEntry>.unmodifiable(
+      storage.profiles
+          .map((p) => ProfileDataEntry(profileToEntity(p)))
+          .toList(growable: false),
+    );
+    if (!controller.isClosed) {
+      controller.add(currentEntries);
+    }
+  }, fireImmediately: true);
 
   ref.onDispose(controller.close);
   return ProfileDataSource(controller.stream);
@@ -67,31 +76,30 @@ class _ProfileRepoFacade {
   }
 
   TaskEither<dynamic, String> getRawConfig(String profileId) {
-    return TaskEither.fromFuture(
-      () async {
-        final profile = _findProfile(profileId);
-        if (profile == null) throw Exception('Profile not found: $profileId');
-        return _ref.read(profileRepositoryProvider).loadTemplateConfig(profile);
-      },
-      (e) => e,
-    );
+    return TaskEither.fromFuture(() async {
+      final profile = _findProfile(profileId);
+      if (profile == null) throw Exception('Profile not found: $profileId');
+      return _ref.read(profileRepositoryProvider).loadTemplateConfig(profile);
+    }, (e) => e);
   }
 
   /// In gorion_clean the template config IS the full outbound config.
-  TaskEither<dynamic, String> generateConfig(String profileId) => getRawConfig(profileId);
+  TaskEither<dynamic, String> generateConfig(String profileId) =>
+      getRawConfig(profileId);
 
   TaskEither<dynamic, void> setAsActive(String profileId) {
-    return TaskEither.fromFuture(
-      () async {
-        await _ref.read(dashboardControllerProvider.notifier).chooseProfile(profileId);
-      },
-      (e) => e,
-    );
+    return TaskEither.fromFuture(() async {
+      await _ref
+          .read(dashboardControllerProvider.notifier)
+          .chooseProfile(profileId);
+    }, (e) => e);
   }
 }
 
 /// Facade provider that closely matches hiddify's profileRepositoryProvider.
 /// Use `.valueOrNull` on the watched value, or `.future` to await it.
-final profileRepoFacadeProvider = FutureProvider<_ProfileRepoFacade>((ref) async {
+final profileRepoFacadeProvider = FutureProvider<_ProfileRepoFacade>((
+  ref,
+) async {
   return _ProfileRepoFacade(ref);
 });
