@@ -36,6 +36,7 @@ String? describeAutoSelectActivityStatus(
   ConnectionStage? connectionStage,
   String? activeServerTag,
 }) {
+  final label = activity.label?.trim();
   final summary = describeAutoSelectMessage(
     label: activity.label,
     message: activity.message,
@@ -45,7 +46,7 @@ String? describeAutoSelectActivityStatus(
       return summary.replaceFirst('Подключаем ', 'Подключено ');
     }
 
-    if (activity.active && activity.label != 'Pre-connect auto-select') {
+    if (activity.active && label != 'Pre-connect auto-select') {
       if (summary != null && summary.isNotEmpty) {
         return summary;
       }
@@ -53,6 +54,10 @@ String? describeAutoSelectActivityStatus(
 
     final connectedServer = _serverName(activeServerTag ?? '');
     if (connectedServer.isNotEmpty) {
+      if (label == 'Pre-connect auto-select') {
+        return 'Подключено $connectedServer';
+      }
+
       return 'Подключено: $connectedServer';
     }
 
@@ -67,7 +72,6 @@ String? describeAutoSelectActivityStatus(
     return summary;
   }
 
-  final label = activity.label?.trim();
   if (label == null || label.isEmpty) {
     return null;
   }
@@ -93,7 +97,14 @@ String? describeAutoSelectMessage({String? label, String? message}) {
     r'^Reusing recent successful server (.+) before probing new candidates\.$',
   ).firstMatch(trimmed);
   if (match != null) {
-    return 'Берём недавний рабочий сервер: ${_serverName(match.group(1)!)}';
+    return 'Переподключаемся к ${_serverName(match.group(1)!)}';
+  }
+
+  match = RegExp(
+    r'^Auto-selector reused the recent successful server (.+) before starting sing-box\.$',
+  ).firstMatch(trimmed);
+  if (match != null) {
+    return 'Переподключаемся к ${_serverName(match.group(1)!)}';
   }
 
   match = RegExp(
@@ -114,7 +125,7 @@ String? describeAutoSelectMessage({String? label, String? message}) {
     r'^No fully confirmed server passed the detached pre-connect probe\. Using best-effort candidate (.+) and rechecking immediately after connect\.$',
   ).firstMatch(trimmed);
   if (match != null) {
-    return 'Берём ${_serverName(match.group(1)!)} и перепроверим после подключения';
+    return 'Подключаемся и перепроверим сервер после подключения';
   }
 
   if (trimmed ==
@@ -126,14 +137,14 @@ String? describeAutoSelectMessage({String? label, String? message}) {
     r'^Auto-selector chose (.+) before connect after confirming end-to-end proxy traffic\.$',
   ).firstMatch(trimmed);
   if (match != null) {
-    return 'Подключаем ${_serverName(match.group(1)!)}';
+    return 'Сервер проверен, подключаемся';
   }
 
   match = RegExp(
     r'^Auto-selector chose (.+) before connect \((.+)ms, (.+) KB/s\)\.$',
   ).firstMatch(trimmed);
   if (match != null) {
-    return 'Подключаем ${_serverName(match.group(1)!)}';
+    return 'Сервер проверен, подключаемся';
   }
 
   if (trimmed == 'Refreshing URLTest delays and checking the current server.') {

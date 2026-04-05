@@ -553,6 +553,73 @@ void main() {
     );
 
     test(
+      'connect waits for the system proxy startup settle gate before finalizing the session',
+      () async {
+        final runtimeService = _FakeRuntimeService(startSession: _session);
+        final autoSelectorService = _ScriptedAutoSelectorService(
+          verifyResponses: [
+            Future<AutoSelectProbeResult>.value(
+              const AutoSelectProbeResult(
+                serverTag: 'server-a',
+                urlTestDelay: 48,
+                domainProbeOk: true,
+                ipProbeOk: true,
+                throughputBytesPerSecond: 64 * 1024,
+              ),
+            ),
+          ],
+        );
+        final pauseCompleter = Completer<void>();
+        final pauseDurations = <Duration>[];
+        final controller = DashboardController(
+          repository: _FakeProfileRepository(initialStorage: _manualStorage),
+          runtimeService: runtimeService,
+          autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
+          autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+          autoSelectorService: autoSelectorService,
+          clashApiClientFactory: (_) => _FakeClashApiClient(
+            snapshot: const ClashApiSnapshot(
+              selectedTag: 'server-a',
+              delayByTag: {'server-a': 48},
+            ),
+            delays: const {'server-a': 48},
+          ),
+          systemProxyStartupSettleDelay: const Duration(milliseconds: 1500),
+          pause: (duration) {
+            pauseDurations.add(duration);
+            return pauseCompleter.future;
+          },
+          initialState: DashboardState(
+            bootstrapping: false,
+            runtimeMode: RuntimeMode.systemProxy,
+            autoSelectSettings: AutoSelectSettings(enabled: false),
+            storage: _manualStorage,
+            selectedServerTag: 'server-a',
+            activeServerTag: 'server-a',
+          ),
+          loadOnInit: false,
+        );
+        addTearDown(controller.dispose);
+
+        final connectFuture = controller.connect();
+        await _flushAsync();
+
+        expect(runtimeService.startCallCount, 1);
+        expect(pauseDurations, [const Duration(milliseconds: 1500)]);
+        expect(autoSelectorService.verifyCallCount, 0);
+        expect(controller.state.connectionStage, ConnectionStage.starting);
+        expect(controller.state.runtimeSession, isNull);
+
+        pauseCompleter.complete();
+        await connectFuture;
+
+        expect(autoSelectorService.verifyCallCount, 1);
+        expect(controller.state.connectionStage, ConnectionStage.connected);
+        expect(controller.state.runtimeSession, same(_session));
+      },
+    );
+
+    test(
       'connect cancels an auto-selected connection when no fully healthy server is confirmed',
       () async {
         final runtimeService = _FakeRuntimeService(startSession: _session);
@@ -997,7 +1064,11 @@ void main() {
         expect(controller.state.lastBestServerCheckAt, isNull);
         expect(
           controller.state.autoSelectActivity.label,
-          isNot('Pre-connect auto-select'),
+          'Pre-connect auto-select',
+        );
+        expect(
+          controller.state.autoSelectActivity.message,
+          'Auto-selector reused the recent successful server server-a before starting sing-box.',
         );
         expect(
           controller.state.autoSelectActivity.logLines.where(

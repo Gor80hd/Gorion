@@ -3,6 +3,7 @@ import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/home/notifier/home_status_card_provider.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 
 final _createdAt = DateTime(2026, 4, 4, 12);
 final _profile = ProxyProfile(
@@ -131,6 +132,112 @@ void main() {
 
       expect(model.title, '🇳🇴 Норвегия, Осло');
       expect(model.routeName, '🇳🇴 Норвегия, Осло');
+    });
+
+    test('hides auto target summary during uncached pre-connect startup', () {
+      final model = buildHomeStatusCardModel(
+        state: DashboardState(
+          bootstrapping: false,
+          connectionStage: ConnectionStage.starting,
+          autoSelectSettings: AutoSelectSettings(enabled: true),
+          storage: _storage,
+          selectedServerTag: autoSelectServerTag,
+          activeServerTag: 'server-a',
+          autoSelectActivity: const AutoSelectActivityState(
+            label: 'Pre-connect auto-select',
+            message:
+                'Auto-selector chose server-a before connect after confirming end-to-end proxy traffic.',
+          ),
+        ),
+        selectedPreview: null,
+        pendingManualSelection: null,
+        sourceIp: null,
+        currentIp: null,
+        autoStatus: 'Сервер проверен, подключаемся',
+      );
+
+      expect(model.isAutoMode, isTrue);
+      expect(model.showTargetSummary, isFalse);
+      expect(model.routeName, isNull);
+      expect(model.statusText, 'Сервер проверен, подключаемся');
+    });
+
+    test('hides stale auto target summary while disconnected', () {
+      final model = buildHomeStatusCardModel(
+        state: DashboardState(
+          bootstrapping: false,
+          connectionStage: ConnectionStage.disconnected,
+          autoSelectSettings: AutoSelectSettings(enabled: true),
+          storage: _storage,
+          selectedServerTag: autoSelectServerTag,
+          activeServerTag: 'server-a',
+        ),
+        selectedPreview: null,
+        pendingManualSelection: null,
+        sourceIp: null,
+        currentIp: null,
+        autoStatus: 'Автовыбор активен',
+      );
+
+      expect(model.isAutoMode, isTrue);
+      expect(model.showTargetSummary, isFalse);
+      expect(model.routeName, isNull);
+      expect(model.statusText, 'Автовыбор активен');
+    });
+
+    test('shows cached reconnect target while disconnected', () {
+      final model = buildHomeStatusCardModel(
+        state: DashboardState(
+          bootstrapping: false,
+          connectionStage: ConnectionStage.disconnected,
+          autoSelectSettings: AutoSelectSettings(enabled: true),
+          storage: _storage,
+          selectedServerTag: autoSelectServerTag,
+          recentSuccessfulAutoConnect: RecentSuccessfulAutoConnect(
+            profileId: _profile.id,
+            tag: 'server-a',
+            until: DateTime.now().add(const Duration(minutes: 1)),
+          ),
+        ),
+        selectedPreview: null,
+        pendingManualSelection: null,
+        sourceIp: null,
+        currentIp: null,
+        autoStatus: 'Автовыбор активен',
+      );
+
+      expect(model.isAutoMode, isTrue);
+      expect(model.showTargetSummary, isTrue);
+      expect(model.routeName, 'Server A');
+      expect(model.statusText, 'Автовыбор активен');
+    });
+
+    test('keeps auto target summary during cached reconnect startup', () {
+      final model = buildHomeStatusCardModel(
+        state: DashboardState(
+          bootstrapping: false,
+          connectionStage: ConnectionStage.starting,
+          autoSelectSettings: AutoSelectSettings(enabled: true),
+          storage: _storage,
+          selectedServerTag: autoSelectServerTag,
+          activeServerTag: 'server-a',
+          autoSelectActivity: const AutoSelectActivityState(
+            label: 'Pre-connect auto-select',
+            message:
+                'Auto-selector reused the recent successful server server-a before starting sing-box.',
+          ),
+        ),
+        selectedPreview: null,
+        pendingManualSelection: null,
+        sourceIp: null,
+        currentIp: null,
+        autoStatus: 'Переподключаемся к Server A',
+      );
+
+      expect(model.isAutoMode, isTrue);
+      expect(model.showTargetSummary, isTrue);
+      expect(model.routeName, 'Server A');
+      expect(model.statusText, 'Переподключаемся к Server A');
     });
   });
 }

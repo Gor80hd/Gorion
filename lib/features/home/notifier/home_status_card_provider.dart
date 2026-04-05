@@ -6,12 +6,14 @@ import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
 import 'package:gorion_clean/features/proxy/notifier/ip_info_notifier.dart';
+import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 
 class HomeStatusCardModel {
   const HomeStatusCardModel({
     required this.isAutoMode,
     required this.title,
+    this.showTargetSummary = true,
     this.routeName,
     this.statusText,
     this.alertText,
@@ -22,6 +24,7 @@ class HomeStatusCardModel {
 
   final bool isAutoMode;
   final String title;
+  final bool showTargetSummary;
   final String? routeName;
   final String? statusText;
   final String? alertText;
@@ -63,13 +66,20 @@ HomeStatusCardModel buildHomeStatusCardModel({
   final isManualPreviewActive =
       selectedPreview != null || pendingManualSelection != null;
   final isAutoMode = autoModeSelected && !isManualPreviewActive;
+  final hideAutoTargetSummary = _shouldHideAutoTargetSummary(
+    state,
+    isAutoMode: isAutoMode,
+  );
 
   final activeProxy = _resolveActiveProxy(state);
+  final autoTargetProxy = _resolveAutoTargetProxy(state) ?? activeProxy;
 
   final displayProxy = isAutoMode
-      ? activeProxy
+      ? autoTargetProxy
       : (selectedPreview ?? activeProxy);
-  final routeName = activeProxy == null ? null : _proxyName(activeProxy);
+  final routeName = hideAutoTargetSummary || autoTargetProxy == null
+      ? null
+      : _proxyName(autoTargetProxy);
 
   final rawStatusText = switch ((isAutoMode, autoStatus, routeName)) {
     (true, final String s, _) when s.isNotEmpty => s,
@@ -88,6 +98,7 @@ HomeStatusCardModel buildHomeStatusCardModel({
     title: isAutoMode
         ? 'Автоматически'
         : (displayProxy == null ? 'Не выбран' : _proxyName(displayProxy)),
+    showTargetSummary: !hideAutoTargetSummary,
     routeName: routeName,
     statusText: statusText,
     alertText: alertText,
@@ -99,6 +110,30 @@ HomeStatusCardModel buildHomeStatusCardModel({
 
 OutboundInfo? _resolveActiveProxy(DashboardState state) {
   final tag = state.activeServerTag ?? state.selectedServerTag;
+  return _resolveProxyByTag(state, tag);
+}
+
+OutboundInfo? _resolveAutoTargetProxy(DashboardState state) {
+  if (state.connectionStage == ConnectionStage.connected) {
+    return _resolveActiveProxy(state);
+  }
+
+  if (_isCachedAutoReconnectMessage(state.autoSelectActivity.message)) {
+    return _resolveActiveProxy(state);
+  }
+
+  final recentSuccessfulAutoConnect = state.recentSuccessfulAutoConnect;
+  final profileId = state.activeProfile?.id;
+  if (recentSuccessfulAutoConnect != null &&
+      profileId != null &&
+      recentSuccessfulAutoConnect.matchesProfile(profileId)) {
+    return _resolveProxyByTag(state, recentSuccessfulAutoConnect.tag);
+  }
+
+  return null;
+}
+
+OutboundInfo? _resolveProxyByTag(DashboardState state, String? tag) {
   if (tag == null) {
     return null;
   }
@@ -122,6 +157,37 @@ String? _normalizeCardText(String? value) {
     return null;
   }
   return trimmed;
+}
+
+bool _shouldHideAutoTargetSummary(
+  DashboardState state, {
+  required bool isAutoMode,
+}) {
+  if (!isAutoMode) {
+    return false;
+  }
+
+  if (state.connectionStage == ConnectionStage.connected) {
+    return false;
+  }
+
+  if (_resolveAutoTargetProxy(state) != null) {
+    return false;
+  }
+
+  return true;
+}
+
+bool _isCachedAutoReconnectMessage(String? message) {
+  final trimmed = message?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return false;
+  }
+
+  return trimmed.startsWith(
+        'Auto-selector reused the recent successful server ',
+      ) ||
+      trimmed.startsWith('Reusing recent successful server ');
 }
 
 String _proxyName(OutboundInfo info) {

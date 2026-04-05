@@ -20,6 +20,7 @@ import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 
 const automaticAutoSelectInterval = Duration(seconds: 60);
+const systemProxyStartupSettleDelay = Duration(milliseconds: 1500);
 
 final profileRepositoryProvider = Provider<ProfileRepository>(
   (ref) => ProfileRepository(),
@@ -61,6 +62,21 @@ RuntimeMode _defaultRuntimeMode() {
   return RuntimeMode.mixed;
 }
 
+RuntimeMode _normalizeRuntimeMode(RuntimeMode mode) {
+  if (Platform.isWindows && mode == RuntimeMode.mixed) {
+    return RuntimeMode.systemProxy;
+  }
+  return mode;
+}
+
+RuntimeMode _effectiveRuntimeMode(RuntimeMode mode) {
+  return _normalizeRuntimeMode(mode);
+}
+
+DashboardState _normalizeDashboardState(DashboardState state) {
+  return state.copyWith(runtimeMode: _normalizeRuntimeMode(state.runtimeMode));
+}
+
 final dashboardControllerProvider =
     StateNotifierProvider<DashboardController, DashboardState>((ref) {
       return DashboardController(
@@ -76,6 +92,9 @@ final dashboardControllerProvider =
           autoSelectPreconnectServiceProvider,
         ),
         autoSelectorService: ref.read(autoSelectorServiceProvider),
+        systemProxyStartupSettleDelay: Platform.isWindows
+            ? systemProxyStartupSettleDelay
+            : Duration.zero,
       );
     });
 
@@ -170,7 +189,7 @@ class DashboardState {
       bootstrapping: bootstrapping ?? this.bootstrapping,
       busy: busy ?? this.busy,
       refreshingDelays: refreshingDelays ?? this.refreshingDelays,
-      runtimeMode: runtimeMode ?? this.runtimeMode,
+      runtimeMode: _normalizeRuntimeMode(runtimeMode ?? this.runtimeMode),
       autoSelectSettings: autoSelectSettings ?? this.autoSelectSettings,
       connectionTuningSettings:
           connectionTuningSettings ?? this.connectionTuningSettings,
@@ -225,7 +244,9 @@ class DashboardController extends StateNotifier<DashboardState> {
     required AutoSelectorService autoSelectorService,
     ClashApiClientFactory? clashApiClientFactory,
     Duration autoSelectionInterval = automaticAutoSelectInterval,
+    Duration systemProxyStartupSettleDelay = Duration.zero,
     Timer Function(Duration duration, void Function() callback)? createTimer,
+    Future<void> Function(Duration duration)? pause,
     DashboardState? initialState,
     bool loadOnInit = true,
   }) : _repository = repository,
@@ -239,9 +260,13 @@ class DashboardController extends StateNotifier<DashboardState> {
        _createClashApiClient =
            clashApiClientFactory ?? ClashApiClient.fromSession,
        _autoSelectionInterval = autoSelectionInterval,
+       _systemProxyStartupSettleDelay = systemProxyStartupSettleDelay,
        _createTimer = createTimer ?? _defaultCreateTimer,
+       _pause = pause ?? _defaultPause,
        super(
-         initialState ?? DashboardState(runtimeMode: _defaultRuntimeMode()),
+         _normalizeDashboardState(
+           initialState ?? DashboardState(runtimeMode: _defaultRuntimeMode()),
+         ),
        ) {
     if (loadOnInit) {
       unawaited(load());
@@ -265,8 +290,10 @@ class DashboardController extends StateNotifier<DashboardState> {
   final AutoSelectorService _autoSelectorService;
   final ClashApiClientFactory _createClashApiClient;
   final Duration _autoSelectionInterval;
+  final Duration _systemProxyStartupSettleDelay;
   final Timer Function(Duration duration, void Function() callback)
   _createTimer;
+  final Future<void> Function(Duration duration) _pause;
   Timer? _autoSelectionTimer;
   bool _autoSelectionInFlight = false;
 
@@ -735,7 +762,14 @@ class DashboardController extends StateNotifier<DashboardState> {
               profile: profile,
               templateConfig: templateConfig,
             );
-        if (preparedAutoSelection == null) {
+        if (preparedAutoSelection?.reusedRecentSuccessfulSelection ?? false) {
+          state = state.copyWith(
+            autoSelectActivity: AutoSelectActivityState(
+              label: 'Pre-connect auto-select',
+              message: preparedAutoSelection!.summary,
+            ),
+          );
+        } else {
           _startAutoSelectActivity(
             'Pre-connect auto-select',
             message:
@@ -765,6 +799,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         mode: selectedMode,
         selectedServerTag: startupServerTag,
       );
+      await _waitForSystemProxyStartupSettle(mode: selectedMode);
       final client = _createClashApiClient(session);
       final snapshot = await client.fetchSnapshot(
         selectorTag: session.manualSelectorTag,
@@ -1176,8 +1211,7 @@ class DashboardController extends StateNotifier<DashboardState> {
               await _updateRecentAutoSelectCachesAfterBestServerCompleted(
                 profileId: profile.id,
                 serverTag: outcome.selectedServerTag,
-                currentRecentSuccessfulAutoConnect:
-                    recentSuccessfulAutoConnect,
+                currentRecentSuccessfulAutoConnect: recentSuccessfulAutoConnect,
               ),
         );
       }
@@ -1255,17 +1289,20 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   Future<void> setRuntimeMode(RuntimeMode mode) async {
-    if (state.busy || state.refreshingDelays || state.runtimeMode == mode) {
+    final normalizedMode = _normalizeRuntimeMode(mode);
+    if (state.busy ||
+        state.refreshingDelays ||
+        state.runtimeMode == normalizedMode) {
       return;
     }
 
     final shouldReconnect = state.connectionStage == ConnectionStage.connected;
     state = state.copyWith(
-      runtimeMode: mode,
+      runtimeMode: normalizedMode,
       clearErrorMessage: true,
       statusMessage: shouldReconnect
-          ? 'Reconnecting with ${mode.label.toLowerCase()} mode.'
-          : _modeSelectionStatus(mode),
+          ? 'Reconnecting with ${normalizedMode.label.toLowerCase()} mode.'
+          : _modeSelectionStatus(normalizedMode),
     );
 
     if (shouldReconnect) {
@@ -1698,10 +1735,28 @@ class DashboardController extends StateNotifier<DashboardState> {
     return Timer(duration, callback);
   }
 
+  static Future<void> _defaultPause(Duration duration) {
+    return Future<void>.delayed(duration);
+  }
+
   bool _isCurrentConnectedSession(RuntimeSession session, String profileId) {
     return state.connectionStage == ConnectionStage.connected &&
         identical(state.runtimeSession, session) &&
         state.activeProfile?.id == profileId;
+  }
+
+  Future<void> _waitForSystemProxyStartupSettle({
+    required RuntimeMode mode,
+  }) async {
+    if (!mode.usesSystemProxy ||
+        _systemProxyStartupSettleDelay <= Duration.zero) {
+      return;
+    }
+
+    // The local mixed inbound is ready before Windows finishes propagating the
+    // updated system proxy settings to other apps, so gate "connected" until
+    // that handoff has had a short chance to settle.
+    await _pause(_systemProxyStartupSettleDelay);
   }
 
   Future<Map<String, int>> _safeLoadDelays(
@@ -2025,7 +2080,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   String _connectedStatus(RuntimeSession session) {
-    return switch (session.mode) {
+    return switch (_effectiveRuntimeMode(session.mode)) {
       RuntimeMode.mixed =>
         'Connected in local proxy mode on ${session.mixedProxyAddress}. Apps must use the proxy explicitly or switch to System proxy/TUN.',
       RuntimeMode.systemProxy =>
@@ -2036,7 +2091,9 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   String _disconnectedStatus(RuntimeSession? previousSession) {
-    return switch (previousSession?.mode) {
+    return switch (previousSession == null
+        ? null
+        : _effectiveRuntimeMode(previousSession.mode)) {
       RuntimeMode.systemProxy =>
         'Local sing-box runtime stopped and the previous Windows system proxy settings were restored.',
       RuntimeMode.tun ||
@@ -2046,7 +2103,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   String _modeSelectionStatus(RuntimeMode mode) {
-    return switch (mode) {
+    return switch (_effectiveRuntimeMode(mode)) {
       RuntimeMode.mixed =>
         'Local proxy mode selected. Connect and point apps at the mixed inbound manually.',
       RuntimeMode.systemProxy =>
@@ -2058,7 +2115,7 @@ class DashboardController extends StateNotifier<DashboardState> {
 
   String _connectionError(Object error, RuntimeMode mode) {
     final message = error.toString();
-    return switch (mode) {
+    return switch (_effectiveRuntimeMode(mode)) {
       RuntimeMode.tun =>
         '$message TUN mode may require elevated privileges on this platform.',
       RuntimeMode.systemProxy when !Platform.isWindows =>

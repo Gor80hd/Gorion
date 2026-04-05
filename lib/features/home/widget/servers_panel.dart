@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -17,6 +16,7 @@ import 'package:gorion_clean/core/widget/emoji_flag_text.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/home/model/server_sort_mode.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
 import 'package:gorion_clean/features/home/utils/auto_select_probe_utils.dart'
     as probe_utils;
@@ -33,6 +33,7 @@ import 'package:gorion_clean/features/profiles/notifier/profiles_update_notifier
 import 'package:gorion_clean/features/profiles/utils/profile_display_order.dart';
 import 'package:gorion_clean/features/proxy/data/proxy_data_providers.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
+import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
 import 'package:gorion_clean/features/runtime/notifier/core_restart_signal.dart';
 import 'package:gorion_clean/utils/link_parsers.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
@@ -50,7 +51,7 @@ List<OutboundInfo> _visibleServers(OutboundGroup group) =>
     group.items.where(_isLeafServer).toList();
 
 // ---------------------------------------------------------------------------
-// Parallel speed-test helpers (v2rayN-style: temp srun per server)
+// Benchmark helpers for detached multi-port batch runtimes.
 // ---------------------------------------------------------------------------
 
 /// Extracts a single outbound definition by [tag] from a generated sing-box
@@ -69,27 +70,34 @@ Map<String, dynamic>? _extractOutbound(String generatedConfig, String tag) {
   return null;
 }
 
-/// Builds a minimal sing-box config suitable for `HiddifyCli srun` that
-/// routes all traffic through [outbound] via a mixed inbound on [port].
-String _buildSpeedtestSingboxConfig(Map<String, dynamic> outbound, int port) {
-  final inboundTag = 'socks$port';
+String _buildBatchSpeedtestSingboxConfig(
+  List<_BenchmarkRuntimePort> runtimePorts,
+) {
   return jsonEncode({
-    // Keep temp core logs visible so the VS Code debug console shows
-    // per-port connection activity during the batch speed test.
     'log': {'level': 'info'},
     'inbounds': [
-      {
-        'type': 'mixed',
-        'listen': '127.0.0.1',
-        'listen_port': port,
-        'tag': inboundTag,
-      },
+      for (final runtimePort in runtimePorts)
+        {
+          'type': 'mixed',
+          'listen': '127.0.0.1',
+          'listen_port': runtimePort.port,
+          'tag': runtimePort.inboundTag,
+        },
     ],
     'outbounds': [
-      outbound,
+      for (final runtimePort in runtimePorts) runtimePort.outbound,
       {'type': 'direct', 'tag': 'direct'},
     ],
-    'route': {'final': outbound['tag']},
+    'route': {
+      'rules': [
+        for (final runtimePort in runtimePorts)
+          {
+            'inbound': [runtimePort.inboundTag],
+            'outbound': runtimePort.outboundTag,
+          },
+      ],
+      'final': 'direct',
+    },
   });
 }
 
@@ -257,8 +265,6 @@ String _formatElapsed(Duration value) {
   return '${two(minutes)}:${two(seconds)}';
 }
 
-enum _ServerSortMode { none, ping, alpha }
-
 const _throughputBenchmarkUrl =
     'https://speed.cloudflare.com/__down?bytes=2097152';
 const _throughputBenchmarkBytes = 2 * 1024 * 1024;
@@ -314,6 +320,22 @@ class _BenchmarkTarget {
   final String generatedConfig;
 }
 
+class _BenchmarkRuntimePort {
+  const _BenchmarkRuntimePort({
+    required this.target,
+    required this.outbound,
+    required this.port,
+    required this.inboundTag,
+  });
+
+  final _BenchmarkTarget target;
+  final Map<String, dynamic> outbound;
+  final int port;
+  final String inboundTag;
+
+  String get outboundTag => outbound['tag']?.toString() ?? target.server.tag;
+}
+
 String _benchmarkKey(String profileId, String serverTag) =>
     '$profileId::$serverTag';
 
@@ -329,7 +351,7 @@ class ServersPanelWidget extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final searchCtrl = useTextEditingController();
     final searchQuery = useState('');
-    final sortMode = useState(_ServerSortMode.none);
+    final sortMode = ref.watch(Preferences.serverSortMode);
     final isTesting = useState(false);
     final pingResults = useState<Map<String, int>>({});
     final speedResults = useState<Map<String, int>>({});
@@ -341,8 +363,6 @@ class ServersPanelWidget extends HookConsumerWidget {
     final benchmarkingTags = useState<Set<String>>({});
     final expandedSubscriptionIds = useState<Set<String>>({});
     final stopRequested = useState(false);
-    final cancelRef = useRef<CancelToken?>(null);
-
     final selectedPreview = ref.watch(selectedServerPreviewProvider);
     final pendingSelection = ref.watch(pendingServerSelectionProvider);
     final activeProfile = ref.watch(activeProfileProvider).asData?.value;
@@ -545,6 +565,9 @@ class ServersPanelWidget extends HookConsumerWidget {
         pingResults.value[_benchmarkKey(profileId, server.tag)] ??
         server.urlTestDelay;
 
+    int effectiveSpeed(String profileId, OutboundInfo server) =>
+        speedResults.value[_benchmarkKey(profileId, server.tag)] ?? 0;
+
     String autoSelectExclusionKey(String profileId, OutboundInfo server) {
       return buildAutoSelectServerExclusionKey(
         profileId: profileId,
@@ -586,25 +609,55 @@ class ServersPanelWidget extends HookConsumerWidget {
             .toList();
       }
 
-      switch (sortMode.value) {
-        case _ServerSortMode.ping:
+      final originalOrder = <String, int>{
+        for (var index = 0; index < sectionServers.length; index += 1)
+          sectionServers[index].tag: index,
+      };
+      int compareOriginalOrder(OutboundInfo a, OutboundInfo b) =>
+          (originalOrder[a.tag] ?? 0).compareTo(originalOrder[b.tag] ?? 0);
+
+      switch (sortMode) {
+        case ServerSortMode.ping:
           sectionServers = [...sectionServers]
             ..sort((a, b) {
               final da = effectivePing(profile.id, a);
               final db = effectivePing(profile.id, b);
-              if (da == 0 && db == 0) return 0;
+              if (da == 0 && db == 0) {
+                return compareOriginalOrder(a, b);
+              }
               if (da == 0) return 1;
               if (db == 0) return -1;
-              return da.compareTo(db);
+              final compare = da.compareTo(db);
+              if (compare != 0) return compare;
+              return compareOriginalOrder(a, b);
             });
-        case _ServerSortMode.alpha:
+        case ServerSortMode.speed:
           sectionServers = [...sectionServers]
-            ..sort(
-              (a, b) => _displayName(
+            ..sort((a, b) {
+              final sa = effectiveSpeed(profile.id, a);
+              final sb = effectiveSpeed(profile.id, b);
+              final aHasSpeed = sa > 0;
+              final bHasSpeed = sb > 0;
+
+              if (aHasSpeed && bHasSpeed) {
+                final compare = sb.compareTo(sa);
+                if (compare != 0) return compare;
+              } else if (aHasSpeed != bHasSpeed) {
+                return aHasSpeed ? -1 : 1;
+              }
+
+              return compareOriginalOrder(a, b);
+            });
+        case ServerSortMode.alpha:
+          sectionServers = [...sectionServers]
+            ..sort((a, b) {
+              final compare = _displayName(
                 a,
-              ).toLowerCase().compareTo(_displayName(b).toLowerCase()),
-            );
-        case _ServerSortMode.none:
+              ).toLowerCase().compareTo(_displayName(b).toLowerCase());
+              if (compare != 0) return compare;
+              return compareOriginalOrder(a, b);
+            });
+        case ServerSortMode.none:
           break;
       }
 
@@ -657,34 +710,33 @@ class ServersPanelWidget extends HookConsumerWidget {
 
     void stopBenchmark() {
       stopRequested.value = true;
-      cancelRef.value?.cancel('Пользователь остановил тест');
     }
 
-    Future<List<_BenchmarkTarget>> loadBenchmarkTargets() async {
+    Future<List<_BenchmarkTarget>> loadBenchmarkTargets({
+      bool activeOnly = false,
+    }) async {
       if (profileRepo == null) return const <_BenchmarkTarget>[];
 
+      final currentActiveProfile = activeProfile;
+      final profiles = activeOnly
+          ? currentActiveProfile == null
+                ? const <ProfileEntity>[]
+                : <ProfileEntity>[currentActiveProfile]
+          : visibleProfiles;
+
       final targets = <_BenchmarkTarget>[];
-      for (final profile in visibleProfiles) {
+      for (final profile in profiles) {
         final generatedConfig = await profileRepo
             .generateConfig(profile.id)
             .getOrElse((_) => '')
             .run();
         if (generatedConfig.isEmpty) continue;
 
-        var sectionGroup = subscriptionGroup(profile);
-        if (sectionGroup == null) {
-          final rawConfig = await profileRepo
-              .getRawConfig(profile.id)
-              .getOrElse((_) => '')
-              .run();
-          if (rawConfig.isNotEmpty) {
-            final parsed = _parseOfflineGroup(
-              rawConfig,
-              fallbackGroupName: profile.name,
-            );
-            sectionGroup = parsed == null ? null : _toOutboundGroup(parsed);
-          }
-        }
+        final parsed = _parseOfflineGroup(
+          generatedConfig,
+          fallbackGroupName: profile.name,
+        );
+        final sectionGroup = parsed == null ? null : _toOutboundGroup(parsed);
         if (sectionGroup == null) continue;
 
         for (final server in _visibleServers(sectionGroup)) {
@@ -701,105 +753,98 @@ class ServersPanelWidget extends HookConsumerWidget {
       return targets;
     }
 
-    Future<({int ping, int speed})> runDetachedBenchmark(
-      _BenchmarkTarget target, {
-      void Function(int value)? onProgress,
+    Future<({Directory runtimeDir, Process process})>
+    startDetachedBenchmarkRuntime(
+      String configJson, {
+      required String scope,
     }) async {
-      final outbound = _extractOutbound(
-        target.generatedConfig,
-        target.server.tag,
+      final runtimeDir = await ensureGorionRuntimeDirectory(
+        subdirectory: p.join(
+          'benchmark',
+          scope,
+          DateTime.now().microsecondsSinceEpoch.toString(),
+        ),
       );
-      if (outbound == null) {
-        return (ping: -1, speed: 0);
-      }
-
-      final httpClient = ref.read(httpClientProvider);
-      final displayName =
-          '${target.profile.name} / ${_displayName(target.server)}';
-      final testPort = await probe_utils.allocateFreePort();
-      final configJson = _buildSpeedtestSingboxConfig(outbound, testPort.port);
-
-      Directory? tempDir;
-      Process? process;
       try {
-        tempDir = await Directory.systemTemp.createTemp('gorion_st_');
-        final tempFile = File(p.join(tempDir.path, 'config.json'));
-        await tempFile.writeAsString(configJson);
+        final binaryFile = await prepareSingboxBinary(runtimeDir);
+        final configFile = File(p.join(runtimeDir.path, 'config.json'));
+        await configFile.writeAsString(configJson);
 
-        _devConsoleLog('start $displayName on socks${testPort.port}');
-        // Close the reserved socket immediately before starting the subprocess.
-        await testPort.socket.close();
-        process = await Process.start(probe_utils.hiddifyCliPath(), [
-          'srun',
-          '-c',
-          tempFile.path,
-        ]);
+        final process = await Process.start(
+          binaryFile.path,
+          ['run', '-c', configFile.path],
+          workingDirectory: runtimeDir.path,
+          mode: ProcessStartMode.normal,
+        );
         unawaited(process.stdout.drain<void>());
         unawaited(process.stderr.drain<void>());
 
-        final portReady = await _waitForLocalPortReady(testPort.port);
-        if (!portReady || stopRequested.value) {
-          return (ping: -1, speed: 0);
-        }
-
-        final testClient = DioHttpClient(
-          timeout: const Duration(seconds: 15),
-          userAgent: httpClient.userAgent,
-          debug: false,
-        );
-        testClient.setProxyPort(testPort.port);
-
-        final pingSamples = <int>[];
-        for (var attempt = 0; attempt < 2; attempt++) {
-          if (stopRequested.value) break;
-          final ping = await testClient.pingTest(
-            _pingBenchmarkUrl,
-            requestMode: NetworkRequestMode.proxy,
-            timeout: const Duration(seconds: 10),
-          );
-          if (ping > 0) {
-            pingSamples.add(ping);
-          }
-          if (attempt == 0) {
-            await Future.delayed(const Duration(milliseconds: 100));
-          }
-        }
-
-        final ping = pingSamples.isEmpty ? -1 : (pingSamples..sort()).first;
-        if (ping <= 0 || stopRequested.value) {
-          return (ping: ping, speed: 0);
-        }
-
-        final speed = await testClient
-            .benchmarkDownload(
-              _throughputBenchmarkUrl,
-              requestMode: NetworkRequestMode.proxy,
-              maxBytes: _throughputBenchmarkBytes,
-              maxDuration: const Duration(seconds: 10),
-              onProgress: onProgress,
-            )
-            .timeout(_batchSpeedTimeout, onTimeout: () => 0);
-
-        return (ping: ping, speed: speed);
-      } catch (error) {
-        _devConsoleLog('$displayName failed: $error', level: 'Warning');
-        return (ping: -1, speed: 0);
-      } finally {
+        return (runtimeDir: runtimeDir, process: process);
+      } catch (_) {
         try {
-          process?.kill();
+          await runtimeDir.delete(recursive: true);
         } catch (_) {}
-        if (tempDir != null) {
-          try {
-            await tempDir.delete(recursive: true);
-          } catch (_) {}
-        }
+        rethrow;
       }
     }
 
-    Future<void> runSingleBenchmark() async {
-      if (isTesting.value || visibleProfiles.isEmpty || profileRepo == null) {
+    Future<({int ping, int speed})> runProxyBenchmark(
+      int proxyPort, {
+      void Function(int value)? onProgress,
+    }) async {
+      final httpClient = ref.read(httpClientProvider);
+      final testClient = DioHttpClient(
+        timeout: const Duration(seconds: 15),
+        userAgent: httpClient.userAgent,
+        debug: false,
+      );
+      testClient.setProxyPort(proxyPort);
+
+      final pingSamples = <int>[];
+      for (var attempt = 0; attempt < 2; attempt++) {
+        if (stopRequested.value) break;
+        final ping = await testClient.pingTest(
+          _pingBenchmarkUrl,
+          requestMode: NetworkRequestMode.proxy,
+          timeout: const Duration(seconds: 10),
+        );
+        if (ping > 0) {
+          pingSamples.add(ping);
+        }
+        if (attempt == 0) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+      }
+
+      final ping = pingSamples.isEmpty ? -1 : (pingSamples..sort()).first;
+      if (ping <= 0 || stopRequested.value) {
+        return (ping: ping, speed: 0);
+      }
+
+      final speed = await testClient
+          .benchmarkDownload(
+            _throughputBenchmarkUrl,
+            requestMode: NetworkRequestMode.proxy,
+            maxBytes: _throughputBenchmarkBytes,
+            maxDuration: const Duration(seconds: 10),
+            onProgress: onProgress,
+          )
+          .timeout(_batchSpeedTimeout, onTimeout: () => 0);
+
+      return (ping: ping, speed: speed);
+    }
+
+    Future<void> runBatchBenchmark() async {
+      final currentActiveProfile = activeProfile;
+      if (isTesting.value ||
+          currentActiveProfile == null ||
+          profileRepo == null) {
         return;
       }
+
+      final reservedPorts = <({ServerSocket socket, int port})>[];
+      Directory? runtimeDir;
+      Process? process;
 
       try {
         isTesting.value = true;
@@ -814,80 +859,87 @@ class ServersPanelWidget extends HookConsumerWidget {
         benchmarkElapsed.value = Duration.zero;
         benchmarkingTags.value = {};
 
-        final targets = await loadBenchmarkTargets();
+        final targets = await loadBenchmarkTargets(activeOnly: true);
         pingTotal.value = targets.length;
         if (targets.isEmpty) {
           pingStatus.value = 'Нет серверов для теста';
           return;
         }
 
-        var completed = 0;
-        for (final target in targets) {
-          if (stopRequested.value) break;
+        final runtimePorts = <_BenchmarkRuntimePort>[];
+        var completedCount = 0;
 
+        for (var index = 0; index < targets.length; index += 1) {
+          final target = targets[index];
           final key = _benchmarkKey(target.profile.id, target.server.tag);
-          benchmarkingTags.value = {key};
-          pingStatus.value =
-              '${target.profile.name} · ${_displayName(target.server)}';
+          final outbound = _extractOutbound(
+            target.generatedConfig,
+            target.server.tag,
+          );
+          if (outbound == null) {
+            pingResults.value = {...pingResults.value, key: -1};
+            speedResults.value = {...speedResults.value, key: 0};
+            completedCount += 1;
+            continue;
+          }
 
-          final result = await runDetachedBenchmark(target);
-          pingResults.value = {...pingResults.value, key: result.ping};
-          speedResults.value = {...speedResults.value, key: result.speed};
-
-          completed += 1;
-          pingCompleted.value = completed;
+          final reservedPort = await probe_utils.allocateFreePort();
+          reservedPorts.add(reservedPort);
+          runtimePorts.add(
+            _BenchmarkRuntimePort(
+              target: target,
+              outbound: Map<String, dynamic>.from(outbound),
+              port: reservedPort.port,
+              inboundTag: 'bench-${index + 1}',
+            ),
+          );
         }
 
-        pingStatus.value = stopRequested.value ? 'Остановлено' : 'Готово';
-      } finally {
-        benchmarkingTags.value = {};
-        ref.read(selectedServerPreviewProvider.notifier).state = null;
-        if (context.mounted) {
-          isTesting.value = false;
-          ref.read(benchmarkActiveProvider.notifier).state = false;
-          if (pingStatus.value != 'Остановлено') pingStatus.value = null;
+        pingCompleted.value = completedCount;
+        if (runtimePorts.isEmpty) {
+          pingStatus.value = stopRequested.value ? 'Остановлено' : 'Готово';
+          return;
         }
-      }
-    }
 
-    Future<void> runBatchBenchmark() async {
-      if (isTesting.value || visibleProfiles.isEmpty || profileRepo == null) {
-        return;
-      }
+        _devConsoleLog(
+          'start active-profile batch ${currentActiveProfile.name} on ${runtimePorts.length} ports',
+        );
+        for (final reservedPort in reservedPorts) {
+          await reservedPort.socket.close();
+        }
 
-      try {
-        isTesting.value = true;
-        stopRequested.value = false;
-        ref.read(benchmarkActiveProvider.notifier).state = true;
-        pingResults.value = {};
-        speedResults.value = {};
-        pingCompleted.value = 0;
-        pingTotal.value = 0;
-        pingStatus.value = 'Подготовка…';
-        benchmarkStartedAt.value = DateTime.now();
-        benchmarkElapsed.value = Duration.zero;
-        benchmarkingTags.value = {};
+        final runtime = await startDetachedBenchmarkRuntime(
+          _buildBatchSpeedtestSingboxConfig(runtimePorts),
+          scope: 'batch',
+        );
+        runtimeDir = runtime.runtimeDir;
+        process = runtime.process;
 
-        final targets = await loadBenchmarkTargets();
-        pingTotal.value = targets.length;
-        if (targets.isEmpty) {
-          pingStatus.value = 'Нет серверов для теста';
+        final readiness = await Future.wait(
+          runtimePorts.map(
+            (runtimePort) => _waitForLocalPortReady(runtimePort.port),
+          ),
+        );
+        if (stopRequested.value || readiness.any((isReady) => !isReady)) {
+          pingStatus.value = stopRequested.value
+              ? 'Остановлено'
+              : 'Не удалось запустить тест';
           return;
         }
 
         final semaphore = _Semaphore(_batchSpeedMaxConcurrentServers);
-        var completedCount = 0;
 
-        final tasks = targets.map((target) async {
+        final tasks = runtimePorts.map((runtimePort) async {
           if (stopRequested.value) return;
           await semaphore.acquire();
+          final target = runtimePort.target;
           final key = _benchmarkKey(target.profile.id, target.server.tag);
           try {
             if (stopRequested.value) return;
             benchmarkingTags.value = {...benchmarkingTags.value, key};
 
-            final result = await runDetachedBenchmark(
-              target,
+            final result = await runProxyBenchmark(
+              runtimePort.port,
               onProgress: (value) {
                 speedResults.value = {...speedResults.value, key: value};
               },
@@ -908,7 +960,30 @@ class ServersPanelWidget extends HookConsumerWidget {
 
         await Future.wait(tasks);
         pingStatus.value = stopRequested.value ? 'Остановлено' : 'Готово';
+      } catch (error) {
+        _devConsoleLog('batch benchmark failed: $error', level: 'Warning');
+        if (context.mounted) {
+          ref
+              .read(dialogNotifierProvider.notifier)
+              .showCustomAlert(
+                title: 'Не удалось запустить пакетный тест',
+                message: error.toString(),
+              );
+        }
       } finally {
+        for (final reservedPort in reservedPorts) {
+          try {
+            await reservedPort.socket.close();
+          } catch (_) {}
+        }
+        try {
+          process?.kill();
+        } catch (_) {}
+        if (runtimeDir != null) {
+          try {
+            await runtimeDir.delete(recursive: true);
+          } catch (_) {}
+        }
         benchmarkingTags.value = {};
         ref.read(selectedServerPreviewProvider.notifier).state = null;
         if (context.mounted) {
@@ -954,8 +1029,12 @@ class ServersPanelWidget extends HookConsumerWidget {
                     children: [
                       Expanded(
                         child: _SortDropdown(
-                          value: sortMode.value,
-                          onChanged: (mode) => sortMode.value = mode,
+                          value: sortMode,
+                          onChanged: (mode) {
+                            ref
+                                .read(Preferences.serverSortMode.notifier)
+                                .update(mode);
+                          },
                         ),
                       ),
                       const Gap(6),
@@ -967,11 +1046,12 @@ class ServersPanelWidget extends HookConsumerWidget {
                           onTap: stopBenchmark,
                         )
                       else
-                        _BenchmarkMenuButton(
-                          enabled:
-                              visibleProfiles.isNotEmpty && profileRepo != null,
-                          onSingle: runSingleBenchmark,
-                          onBatch: runBatchBenchmark,
+                        _SmallGlassButton(
+                          icon: Icons.network_check_rounded,
+                          tooltip: 'Параллельный тест серверов',
+                          onTap: activeProfile != null && profileRepo != null
+                              ? runBatchBenchmark
+                              : null,
                         ),
                       if (isRemoteProfile) ...[
                         const Gap(6),
@@ -1623,18 +1703,19 @@ class _GlassTextField extends StatelessWidget {
 class _SortDropdown extends StatelessWidget {
   const _SortDropdown({required this.value, required this.onChanged});
 
-  final _ServerSortMode value;
-  final ValueChanged<_ServerSortMode> onChanged;
+  final ServerSortMode value;
+  final ValueChanged<ServerSortMode> onChanged;
 
   String get _label => switch (value) {
-    _ServerSortMode.none => 'Без сортировки',
-    _ServerSortMode.ping => 'По пингу',
-    _ServerSortMode.alpha => 'По алфавиту',
+    ServerSortMode.none => 'Без сортировки',
+    ServerSortMode.ping => 'По пингу',
+    ServerSortMode.speed => 'По скорости',
+    ServerSortMode.alpha => 'По алфавиту',
   };
 
   @override
   Widget build(BuildContext context) {
-    final isActive = value != _ServerSortMode.none;
+    final isActive = value != ServerSortMode.none;
 
     return GlassPanel(
       height: 42,
@@ -1642,7 +1723,7 @@ class _SortDropdown extends StatelessWidget {
       backgroundColor: Colors.white,
       opacity: isActive ? 0.09 : 0.05,
       strokeOpacity: isActive ? 0.2 : 0.08,
-      child: PopupMenuButton<_ServerSortMode>(
+      child: PopupMenuButton<ServerSortMode>(
         initialValue: value,
         tooltip: 'Сортировка',
         onSelected: onChanged,
@@ -1650,9 +1731,10 @@ class _SortDropdown extends StatelessWidget {
         elevation: 12,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         itemBuilder: (context) => [
-          _sortMenuItem(_ServerSortMode.none, 'Без сортировки', value),
-          _sortMenuItem(_ServerSortMode.ping, 'По пингу', value),
-          _sortMenuItem(_ServerSortMode.alpha, 'По алфавиту', value),
+          _sortMenuItem(ServerSortMode.none, 'Без сортировки', value),
+          _sortMenuItem(ServerSortMode.ping, 'По пингу', value),
+          _sortMenuItem(ServerSortMode.speed, 'По скорости', value),
+          _sortMenuItem(ServerSortMode.alpha, 'По алфавиту', value),
         ],
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1689,14 +1771,14 @@ class _SortDropdown extends StatelessWidget {
     );
   }
 
-  PopupMenuItem<_ServerSortMode> _sortMenuItem(
-    _ServerSortMode mode,
+  PopupMenuItem<ServerSortMode> _sortMenuItem(
+    ServerSortMode mode,
     String label,
-    _ServerSortMode currentValue,
+    ServerSortMode currentValue,
   ) {
     final selected = mode == currentValue;
 
-    return PopupMenuItem<_ServerSortMode>(
+    return PopupMenuItem<ServerSortMode>(
       value: mode,
       child: Row(
         children: [
@@ -1722,113 +1804,6 @@ class _SortDropdown extends StatelessWidget {
     );
   }
 }
-
-class _BenchmarkMenuButton extends StatelessWidget {
-  const _BenchmarkMenuButton({
-    required this.enabled,
-    required this.onSingle,
-    required this.onBatch,
-  });
-
-  final bool enabled;
-  final VoidCallback onSingle;
-  final VoidCallback onBatch;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'Тест серверов',
-      child: PopupMenuButton<_BenchmarkMode>(
-        enabled: enabled,
-        tooltip: '',
-        color: const Color(0xCC09110D),
-        elevation: 12,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        onSelected: (mode) {
-          if (mode == _BenchmarkMode.single) {
-            onSingle();
-          } else {
-            onBatch();
-          }
-        },
-        itemBuilder: (context) => [
-          _benchmarkMenuItem(
-            _BenchmarkMode.batch,
-            Icons.bolt_rounded,
-            'Пакетный тест',
-            'Пинг быстро, скорость через сервер',
-            const Color(0xFF1EFFAC),
-          ),
-          _benchmarkMenuItem(
-            _BenchmarkMode.single,
-            Icons.network_check_rounded,
-            'Одиночный тест',
-            'Полный тест по очереди (точнее)',
-            const Color(0xFFF59E0B),
-          ),
-        ],
-        child: GlassPanel(
-          width: 42,
-          height: 42,
-          borderRadius: 15,
-          backgroundColor: Colors.white,
-          opacity: enabled ? 0.07 : 0.03,
-          strokeOpacity: enabled ? 0.14 : 0.06,
-          child: Center(
-            child: Icon(
-              Icons.network_check_rounded,
-              size: 17,
-              color: enabled
-                  ? Colors.white.withValues(alpha: 0.75)
-                  : Colors.white.withValues(alpha: 0.28),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  PopupMenuItem<_BenchmarkMode> _benchmarkMenuItem(
-    _BenchmarkMode mode,
-    IconData icon,
-    String title,
-    String subtitle,
-    Color color,
-  ) {
-    return PopupMenuItem<_BenchmarkMode>(
-      value: mode,
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: color),
-          const Gap(10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.92),
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
-              ),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.45),
-                  fontSize: 11,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-enum _BenchmarkMode { single, batch }
 
 class _SmallGlassButton extends StatelessWidget {
   const _SmallGlassButton({

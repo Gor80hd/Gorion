@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -18,7 +19,6 @@ import 'package:gorion_clean/features/home/notifier/auto_server_selection_progre
 import 'package:gorion_clean/features/home/notifier/home_status_card_provider.dart';
 import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
 import 'package:gorion_clean/features/intro/utils/region_detector.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
 import 'package:gorion_clean/features/proxy/notifier/ip_info_notifier.dart';
 import 'package:gorion_clean/features/proxy/utils/ip_info_display.dart';
@@ -721,6 +721,21 @@ String _formatSpeed(int bytesPerSec) {
   return '${(bytesPerSec / 1024).toStringAsFixed(0)} KB/S';
 }
 
+List<ServiceMode> _visibleServiceModes() {
+  if (defaultTargetPlatform == TargetPlatform.windows) {
+    return const [ServiceMode.systemProxy, ServiceMode.tun];
+  }
+  return const [ServiceMode.mixed, ServiceMode.tun];
+}
+
+String _serviceModeLabel(ServiceMode mode) {
+  return switch (mode) {
+    ServiceMode.mixed => 'Proxy',
+    ServiceMode.systemProxy => 'Системный прокси',
+    ServiceMode.tun => 'TUN',
+  };
+}
+
 class _ServerInfoPopup extends HookConsumerWidget {
   const _ServerInfoPopup({
     required this.model,
@@ -747,6 +762,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dashboardState = ref.watch(dashboardControllerProvider);
+    final visibleServiceModes = _visibleServiceModes();
     final isBenchmarking = ref.watch(benchmarkActiveProvider);
     final autoSelectionProgress = ref.watch(
       autoServerSelectionProgressProvider,
@@ -768,14 +784,16 @@ class _ServerInfoPopup extends HookConsumerWidget {
         showSessionTimerTag ||
         showBestServerCheck;
     final timerNow = useState(DateTime.now());
-    final ping = proxyInfo?.urlTestDelay ?? 0;
+    final ping = model.showTargetSummary ? proxyInfo?.urlTestDelay ?? 0 : 0;
     final currentIpInfo = isConnected ? model.currentIp : null;
     final shouldAnimateProgressStroke =
         isBenchmarking || isSwitching || autoSelectionProgress != null;
     final progressStrokeColor = isSwitching
         ? const Color(0xFFFFB457)
         : const Color(0xFF1EFFAC);
-    final routeName = model.isAutoMode ? model.routeName : null;
+    final routeName = model.isAutoMode && model.showTargetSummary
+        ? model.routeName
+        : null;
     final headerSummary = <String>[
       if (routeName != null && routeName.isNotEmpty) routeName,
       if (ping > 0) '$ping мс',
@@ -980,7 +998,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
                                               title: 'Сессия',
                                               value: _formatElapsed(
                                                 _elapsedSince(
-                                                  connectedAt!,
+                                                  connectedAt,
                                                   timerNow.value,
                                                 ),
                                               ),
@@ -1079,14 +1097,10 @@ class _ServerInfoPopup extends HookConsumerWidget {
                               alignment: WrapAlignment.center,
                               spacing: 18,
                               runSpacing: 8,
-                              children: ServiceMode.values.map((mode) {
+                              children: visibleServiceModes.map((mode) {
                                 final selected = mode == serviceMode;
                                 return _ModeTextButton(
-                                  label: switch (mode) {
-                                    ServiceMode.mixed => 'Proxy',
-                                    ServiceMode.systemProxy => 'System',
-                                    ServiceMode.tun => 'TUN',
-                                  },
+                                  label: _serviceModeLabel(mode),
                                   selected: selected,
                                   onTap: selected
                                       ? null

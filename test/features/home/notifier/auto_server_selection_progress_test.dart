@@ -50,6 +50,32 @@ void main() {
       );
     });
 
+    test('hides the chosen server before pre-connect runtime finishes', () {
+      const activity = AutoSelectActivityState(
+        label: 'Pre-connect auto-select',
+        message:
+            'Auto-selector chose [NL] Amsterdam before connect after confirming end-to-end proxy traffic.',
+      );
+
+      expect(
+        describeAutoSelectActivityStatus(activity),
+        'Сервер проверен, подключаемся',
+      );
+    });
+
+    test('describes cached fast reconnect before runtime starts', () {
+      const activity = AutoSelectActivityState(
+        label: 'Pre-connect auto-select',
+        message:
+            'Auto-selector reused the recent successful server [NL] Amsterdam before starting sing-box.',
+      );
+
+      expect(
+        describeAutoSelectActivityStatus(activity),
+        'Переподключаемся к 🇳🇱 Amsterdam',
+      );
+    });
+
     test('promotes connecting summary to connected after runtime connects', () {
       const activity = AutoSelectActivityState(
         label: 'Pre-connect auto-select',
