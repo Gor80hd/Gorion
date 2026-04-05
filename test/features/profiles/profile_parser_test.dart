@@ -212,5 +212,42 @@ void main() {
 
       expect(parsed.servers.single.displayName, '🇳🇴 Норвегия, Осло');
     });
+
+    test(
+      'parseContent assigns the same fingerprint to exact duplicate outbounds',
+      () {
+        final parser = ProfileParser();
+        final config = jsonEncode({
+          'outbounds': [
+            {
+              'type': 'vless',
+              'tag': 'server-a',
+              'server': 'dup.example.com',
+              'server_port': 443,
+              'uuid': '11111111-1111-1111-1111-111111111111',
+            },
+            {
+              'server_port': 443,
+              'server': 'dup.example.com',
+              'uuid': '11111111-1111-1111-1111-111111111111',
+              'tag': 'server-b',
+              'type': 'vless',
+            },
+          ],
+        });
+
+        final parsed = parser.parseContent(
+          rawContent: config,
+          source: Uri.parse('https://example.com/subscription.json'),
+        );
+
+        expect(parsed.servers, hasLength(2));
+        expect(parsed.servers.first.configFingerprint, isNotEmpty);
+        expect(
+          parsed.servers.first.configFingerprint,
+          parsed.servers.last.configFingerprint,
+        );
+      },
+    );
   });
 }

@@ -1,6 +1,12 @@
 import 'dart:convert';
 
-typedef AutoSelectConfigCandidate = ({String tag, String type, String? host, int? port});
+typedef AutoSelectConfigCandidate = ({
+  String tag,
+  String type,
+  String? host,
+  int? port,
+  String configFingerprint,
+});
 
 const selectableOutboundTypes = {
   'http',
@@ -50,7 +56,13 @@ List<AutoSelectConfigCandidate> extractAutoSelectConfigCandidates(String generat
 
     final host = _extractCandidateHost(map);
     final port = _extractCandidatePort(map);
-    candidates.add((tag: tag, type: type, host: host, port: port));
+    candidates.add((
+      tag: tag,
+      type: type,
+      host: host,
+      port: port,
+      configFingerprint: _buildCandidateFingerprint(map),
+    ));
   }
 
   return candidates;
@@ -138,6 +150,37 @@ int? _extractCandidatePort(Map<String, dynamic> outbound) {
   final port = int.tryParse(rawPort.toString());
   if (port == null || port <= 0) return null;
   return port;
+}
+
+String _buildCandidateFingerprint(Map<String, dynamic> outbound) {
+  final sanitized = Map<String, dynamic>.from(outbound)..remove('tag');
+  final canonicalJson = jsonEncode(_normalizeFingerprintValue(sanitized));
+  return _fnv1a64Hex(canonicalJson);
+}
+
+dynamic _normalizeFingerprintValue(dynamic value) {
+  if (value is List) {
+    return [for (final item in value) _normalizeFingerprintValue(item)];
+  }
+
+  if (value is Map) {
+    final entries = [
+      for (final entry in value.entries)
+        MapEntry(entry.key.toString(), _normalizeFingerprintValue(entry.value)),
+    ]..sort((left, right) => left.key.compareTo(right.key));
+    return {for (final entry in entries) entry.key: entry.value};
+  }
+
+  return value;
+}
+
+String _fnv1a64Hex(String value) {
+  var hash = 0xcbf29ce484222325;
+  for (final byte in utf8.encode(value)) {
+    hash ^= byte;
+    hash = (hash * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF;
+  }
+  return hash.toUnsigned(64).toRadixString(16).padLeft(16, '0');
 }
 
 dynamic _rewriteSelectedOutbound(dynamic node, String serverTag) {

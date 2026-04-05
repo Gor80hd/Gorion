@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
@@ -671,7 +672,7 @@ void main() {
     );
 
     test(
-      'recent successful cache skips immediate recheck and stays reusable across a quick reconnect',
+      'recent successful cache uses lightweight verification and stays reusable across a quick reconnect',
       () async {
         final recentSuccessfulState = StoredAutoSelectState(
           settings: const AutoSelectSettings(enabled: true),
@@ -714,7 +715,28 @@ void main() {
               },
         );
         final runtimeService = _FakeRuntimeService(startSession: _session);
-        final autoSelectorService = _ScriptedAutoSelectorService();
+        final autoSelectorService = _ScriptedAutoSelectorService(
+          verifyResponses: [
+            Future<AutoSelectProbeResult>.value(
+              const AutoSelectProbeResult(
+                serverTag: 'server-a',
+                urlTestDelay: 90,
+                domainProbeOk: true,
+                ipProbeOk: true,
+                throughputBytesPerSecond: 64 * 1024,
+              ),
+            ),
+            Future<AutoSelectProbeResult>.value(
+              const AutoSelectProbeResult(
+                serverTag: 'server-a',
+                urlTestDelay: 90,
+                domainProbeOk: true,
+                ipProbeOk: true,
+                throughputBytesPerSecond: 64 * 1024,
+              ),
+            ),
+          ],
+        );
         final controller = DashboardController(
           repository: _FakeProfileRepository(
             initialStorage: _storage,
@@ -747,6 +769,7 @@ void main() {
 
         expect(preconnectProbedTags, isEmpty);
         expect(autoSelectorService.maintainCallCount, 0);
+        expect(autoSelectorService.verifyCallCount, 1);
         expect(settingsRepository.clearRecentSuccessfulAutoConnectCallCount, 0);
         expect(runtimeService.selectedServerTags, ['server-a']);
         expect(controller.state.connectionStage, ConnectionStage.connected);
@@ -760,6 +783,7 @@ void main() {
 
         expect(preconnectProbedTags, isEmpty);
         expect(autoSelectorService.maintainCallCount, 0);
+        expect(autoSelectorService.verifyCallCount, 2);
         expect(settingsRepository.clearRecentSuccessfulAutoConnectCallCount, 0);
         expect(runtimeService.selectedServerTags, ['server-a', 'server-a']);
         expect(controller.state.connectionStage, ConnectionStage.connected);
@@ -807,25 +831,14 @@ void main() {
         );
         final runtimeService = _FakeRuntimeService(startSession: _session);
         final autoSelectorService = _ScriptedAutoSelectorService(
-          maintainResponses: [
-            Future<AutoSelectOutcome>.value(
-              const AutoSelectOutcome(
-                selectedServerTag: 'server-a',
-                previousServerTag: 'server-a',
-                delayByTag: {'server-a': 42},
-                probes: [
-                  AutoSelectProbeResult(
-                    serverTag: 'server-a',
-                    urlTestDelay: 42,
-                    domainProbeOk: true,
-                    ipProbeOk: true,
-                    throughputBytesPerSecond: 64 * 1024,
-                  ),
-                ],
-                summary:
-                    'Current server server-a stayed selected after the latest URLTest and proxy probe check.',
-                didSwitch: false,
-                hasReachableCandidate: true,
+          verifyResponses: [
+            Future<AutoSelectProbeResult>.value(
+              const AutoSelectProbeResult(
+                serverTag: 'server-a',
+                urlTestDelay: 42,
+                domainProbeOk: true,
+                ipProbeOk: true,
+                throughputBytesPerSecond: 64 * 1024,
               ),
             ),
           ],
@@ -865,7 +878,7 @@ void main() {
         expect(runtimeService.stopCallCount, 0);
         expect(preconnectProbedTags, isEmpty);
         expect(autoSelectorService.maintainCallCount, 0);
-        expect(autoSelectorService.verifyCallCount, 0);
+        expect(autoSelectorService.verifyCallCount, 1);
         expect(controller.state.connectionStage, ConnectionStage.connected);
         expect(controller.state.lastBestServerCheckAt, isNull);
         expect(
@@ -883,6 +896,96 @@ void main() {
           contains(
             'Auto-selector reused the recent successful server server-a before starting sing-box.',
           ),
+        );
+      },
+    );
+
+    test(
+      'connect clears the recent successful cache when lightweight fast-path verification fails',
+      () async {
+        final cachedAutoConnect = RecentSuccessfulAutoConnect(
+          profileId: _profile.id,
+          tag: 'server-a',
+          until: DateTime.now().add(const Duration(minutes: 1)),
+        );
+        final settingsRepository = _FakeAutoSelectSettingsRepository(
+          initialState: StoredAutoSelectState(
+            settings: const AutoSelectSettings(enabled: true),
+            recentSuccessfulAutoConnect: cachedAutoConnect,
+          ),
+        );
+        final preconnectService = AutoSelectPreconnectService(
+          settingsRepository: settingsRepository,
+          probeCandidate:
+              ({
+                required profileId,
+                required templateConfig,
+                required candidate,
+                required settings,
+              }) async {
+                return const AutoSelectPreconnectProbeResult(
+                  serverTag: 'server-a',
+                  urlTestDelay: 42,
+                  domainProbeOk: true,
+                  ipProbeOk: true,
+                  throughputBytesPerSecond: 64 * 1024,
+                );
+              },
+        );
+        final runtimeService = _FakeRuntimeService(startSession: _session);
+        final autoSelectorService = _ScriptedAutoSelectorService(
+          verifyResponses: [
+            Future<AutoSelectProbeResult>.value(
+              const AutoSelectProbeResult(
+                serverTag: 'server-a',
+                urlTestDelay: 42,
+                domainProbeOk: true,
+                ipProbeOk: false,
+                throughputBytesPerSecond: 64 * 1024,
+              ),
+            ),
+          ],
+        );
+        final controller = DashboardController(
+          repository: _FakeProfileRepository(
+            initialStorage: _storage,
+            templateConfig: _autoSelectTemplateConfig,
+          ),
+          runtimeService: runtimeService,
+          autoSelectSettingsRepository: settingsRepository,
+          autoSelectPreconnectService: preconnectService,
+          autoSelectorService: autoSelectorService,
+          clashApiClientFactory: (_) => _FakeClashApiClient(
+            snapshot: const ClashApiSnapshot(
+              selectedTag: 'server-a',
+              delayByTag: {'server-a': 42},
+            ),
+            delays: const {'server-a': 42},
+          ),
+          initialState: DashboardState(
+            bootstrapping: false,
+            runtimeMode: RuntimeMode.mixed,
+            autoSelectSettings: const AutoSelectSettings(enabled: true),
+            storage: _storage,
+            selectedServerTag: autoSelectServerTag,
+            activeServerTag: 'server-a',
+            recentSuccessfulAutoConnect: cachedAutoConnect,
+          ),
+          loadOnInit: false,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.connect();
+
+        expect(runtimeService.startCallCount, 1);
+        expect(runtimeService.stopCallCount, 1);
+        expect(autoSelectorService.maintainCallCount, 0);
+        expect(autoSelectorService.verifyCallCount, 1);
+        expect(settingsRepository.clearRecentSuccessfulAutoConnectCallCount, 1);
+        expect(controller.state.connectionStage, ConnectionStage.disconnected);
+        expect(
+          controller.state.errorMessage,
+          'Подключение не удалось: Server A недоступен.',
         );
       },
     );
@@ -1041,6 +1144,127 @@ void main() {
         expect(autoSelectorService.selectCallCount, 1);
         expect(controller.state.activeServerTag, 'server-b');
         expect(controller.state.lastBestServerCheckAt, isNotNull);
+      },
+    );
+
+    test(
+      'manual auto-select deduplicates exact duplicate candidates from template config',
+      () async {
+        final duplicateProfile = ProxyProfile(
+          id: 'profile-1',
+          name: 'Profile 1',
+          subscriptionUrl: 'https://example.com/sub',
+          templateFileName: 'profile-1.json',
+          createdAt: _createdAt,
+          updatedAt: _createdAt,
+          servers: const [
+            ServerEntry(
+              tag: 'server-a',
+              displayName: 'Server A',
+              type: 'vless',
+              host: 'dup.example.com',
+              port: 443,
+            ),
+            ServerEntry(
+              tag: 'server-b',
+              displayName: 'Server B',
+              type: 'vless',
+              host: 'dup.example.com',
+              port: 443,
+            ),
+            ServerEntry(
+              tag: 'server-c',
+              displayName: 'Server C',
+              type: 'vless',
+              host: 'unique.example.com',
+              port: 443,
+            ),
+          ],
+          lastSelectedServerTag: autoSelectServerTag,
+          lastAutoSelectedServerTag: 'server-a',
+        );
+        final duplicateStorage = StoredProfilesState(
+          activeProfileId: duplicateProfile.id,
+          profiles: [duplicateProfile],
+        );
+        final autoSelectorService = _ScriptedAutoSelectorService(
+          selectResponses: [
+            Future<AutoSelectOutcome>.value(
+              const AutoSelectOutcome(
+                selectedServerTag: 'server-c',
+                previousServerTag: 'server-a',
+                delayByTag: {'server-c': 42},
+                probes: [
+                  AutoSelectProbeResult(
+                    serverTag: 'server-c',
+                    urlTestDelay: 42,
+                    domainProbeOk: true,
+                    ipProbeOk: true,
+                    throughputBytesPerSecond: 64 * 1024,
+                  ),
+                ],
+                summary:
+                    'Auto-selector switched from server-a to server-c after confirming better end-to-end health and latency.',
+                didSwitch: true,
+                hasReachableCandidate: true,
+              ),
+            ),
+          ],
+        );
+        final controller = DashboardController(
+          repository: _FakeProfileRepository(
+            initialStorage: duplicateStorage,
+            templateConfig: jsonEncode({
+              'outbounds': [
+                {
+                  'type': 'vless',
+                  'tag': 'server-a',
+                  'server': 'dup.example.com',
+                  'server_port': 443,
+                  'uuid': '11111111-1111-1111-1111-111111111111',
+                },
+                {
+                  'server_port': 443,
+                  'server': 'dup.example.com',
+                  'uuid': '11111111-1111-1111-1111-111111111111',
+                  'tag': 'server-b',
+                  'type': 'vless',
+                },
+                {
+                  'type': 'vless',
+                  'tag': 'server-c',
+                  'server': 'unique.example.com',
+                  'server_port': 443,
+                  'uuid': '22222222-2222-2222-2222-222222222222',
+                },
+              ],
+            }),
+          ),
+          runtimeService: _FakeRuntimeService(),
+          autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
+          autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+          autoSelectorService: autoSelectorService,
+          initialState: DashboardState(
+            bootstrapping: false,
+            runtimeMode: RuntimeMode.mixed,
+            autoSelectSettings: const AutoSelectSettings(enabled: true),
+            storage: duplicateStorage,
+            connectionStage: ConnectionStage.connected,
+            runtimeSession: _session,
+            connectedAt: DateTime(2026, 4, 4, 10),
+            selectedServerTag: autoSelectServerTag,
+            activeServerTag: 'server-a',
+          ),
+          loadOnInit: false,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.runAutoSelect();
+
+        expect(
+          autoSelectorService.selectServerTagsHistory.single,
+          ['server-a', 'server-c'],
+        );
       },
     );
 
@@ -1311,6 +1535,8 @@ class _ScriptedAutoSelectorService extends AutoSelectorService {
   final List<Future<AutoSelectOutcome>> _selectResponses;
   final List<Future<AutoSelectOutcome>> _maintainResponses;
   final List<Future<AutoSelectProbeResult>> _verifyResponses;
+  final List<List<String>> selectServerTagsHistory = <List<String>>[];
+  final List<List<String>> maintainServerTagsHistory = <List<String>>[];
   int selectCallCount = 0;
   int maintainCallCount = 0;
   int verifyCallCount = 0;
@@ -1321,9 +1547,11 @@ class _ScriptedAutoSelectorService extends AutoSelectorService {
     required List<ServerEntry> servers,
     required String domainProbeUrl,
     String ipProbeUrl = 'http://1.1.1.1',
+    bool checkIp = true,
     AutoSelectProgressReporter? onProgress,
   }) {
     selectCallCount += 1;
+    selectServerTagsHistory.add([for (final server in servers) server.tag]);
     return _selectResponses.removeAt(0);
   }
 
@@ -1333,10 +1561,12 @@ class _ScriptedAutoSelectorService extends AutoSelectorService {
     required List<ServerEntry> servers,
     required String domainProbeUrl,
     String ipProbeUrl = 'http://1.1.1.1',
+    bool checkIp = true,
     bool allowSwitchDuringCooldown = false,
     AutoSelectProgressReporter? onProgress,
   }) {
     maintainCallCount += 1;
+    maintainServerTagsHistory.add([for (final server in servers) server.tag]);
     return _maintainResponses.removeAt(0);
   }
 
@@ -1346,6 +1576,7 @@ class _ScriptedAutoSelectorService extends AutoSelectorService {
     required ServerEntry server,
     required String domainProbeUrl,
     String ipProbeUrl = 'http://1.1.1.1',
+    bool checkIp = true,
     int? urlTestDelay,
     bool ensureSelected = false,
   }) {

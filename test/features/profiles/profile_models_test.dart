@@ -8,6 +8,7 @@ const _servers = [
     type: 'vless',
     host: 'a.example.com',
     port: 443,
+    configFingerprint: 'fp-a',
   ),
   ServerEntry(
     tag: 'server-b',
@@ -15,6 +16,7 @@ const _servers = [
     type: 'trojan',
     host: 'b.example.com',
     port: 8443,
+    configFingerprint: 'fp-b',
   ),
 ];
 
@@ -90,6 +92,7 @@ void main() {
       expect(decoded.selectedServerTag, autoSelectServerTag);
       expect(decoded.lastAutoSelectedServerTag, 'server-b');
       expect(decoded.startupServerTag, 'server-b');
+      expect(decoded.servers.first.configFingerprint, 'fp-a');
     });
   });
 }

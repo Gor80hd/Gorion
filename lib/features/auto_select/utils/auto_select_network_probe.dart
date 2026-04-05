@@ -40,26 +40,41 @@ Future<bool> probeHttpViaLocalProxy({
 }) async {
   final client = HttpClient()
     ..connectionTimeout = timeout
-    ..findProxy = (_) => 'PROXY 127.0.0.1:$mixedPort';
+    ..findProxy = ((_) => 'PROXY 127.0.0.1:$mixedPort')
+    ..userAgent = null;
 
   try {
     final request = await client.getUrl(url);
-    request.headers.set(HttpHeaders.userAgentHeader, 'GorionClean/1.0');
     final response = await request.close().timeout(timeout);
-    final bytes = await response.fold<int>(
-      0,
-      (sum, chunk) => sum + chunk.length,
-    );
+    await response.drain();
     final acceptedStatus =
         response.statusCode == HttpStatus.noContent ||
         (response.statusCode >= HttpStatus.ok &&
             response.statusCode < HttpStatus.multipleChoices);
-    return acceptedStatus || bytes > 0;
+    return acceptedStatus;
   } on Object {
     return false;
   } finally {
     client.close(force: true);
   }
+}
+
+Future<bool> probeHttpViaLocalProxyTargets({
+  required int mixedPort,
+  required Iterable<Uri> urls,
+  Duration timeout = const Duration(seconds: 6),
+}) async {
+  for (final url in urls) {
+    final ok = await probeHttpViaLocalProxy(
+      mixedPort: mixedPort,
+      url: url,
+      timeout: timeout,
+    );
+    if (ok) {
+      return true;
+    }
+  }
+  return false;
 }
 
 Future<int> measureDownloadThroughputViaLocalProxy({
@@ -69,12 +84,12 @@ Future<int> measureDownloadThroughputViaLocalProxy({
 }) async {
   final client = HttpClient()
     ..connectionTimeout = timeout
-    ..findProxy = (_) => 'PROXY 127.0.0.1:$mixedPort';
+    ..findProxy = ((_) => 'PROXY 127.0.0.1:$mixedPort')
+    ..userAgent = null;
 
   final stopwatch = Stopwatch()..start();
   try {
     final request = await client.getUrl(url);
-    request.headers.set(HttpHeaders.userAgentHeader, 'GorionClean/1.0');
     final response = await request.close().timeout(timeout);
     if (response.statusCode < HttpStatus.ok ||
         response.statusCode >= HttpStatus.multipleChoices) {
@@ -98,4 +113,22 @@ Future<int> measureDownloadThroughputViaLocalProxy({
     stopwatch.stop();
     client.close(force: true);
   }
+}
+
+Future<int> measureDownloadThroughputViaLocalProxyTargets({
+  required int mixedPort,
+  required Iterable<Uri> urls,
+  Duration timeout = const Duration(seconds: 3),
+}) async {
+  for (final url in urls) {
+    final throughput = await measureDownloadThroughputViaLocalProxy(
+      mixedPort: mixedPort,
+      url: url,
+      timeout: timeout,
+    );
+    if (throughput > 0) {
+      return throughput;
+    }
+  }
+  return 0;
 }

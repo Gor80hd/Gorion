@@ -7,6 +7,7 @@ import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_se
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
 import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
+import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
@@ -696,7 +697,10 @@ class DashboardController extends StateNotifier<DashboardState> {
       final session = await _runtimeService.start(
         profileId: profile.id,
         templateConfig: templateConfig,
-        urlTestUrl: autoSelectSettings.domainProbeUrl,
+        urlTestUrl: resolveAutoSelectUrlTestUrl(
+          autoSelectSettings.domainProbeUrl,
+          rotationKey: '${profile.id}::runtime::urltest',
+        ),
         mode: selectedMode,
         selectedServerTag: startupServerTag,
       );
@@ -724,9 +728,12 @@ class DashboardController extends StateNotifier<DashboardState> {
       var effectiveActiveServerTag = connectedTag;
       var effectiveProbes =
           preparedAutoSelection?.probes ?? const <AutoSelectProbeResult>[];
+        final shouldRunLightweightCurrentVerification =
+          preparedAutoSelection?.reusedRecentSuccessfulSelection ?? false;
       final shouldVerifyPostConnectInternetAccess =
           preparedAutoSelection == null ||
-          preparedAutoSelection.requiresImmediatePostConnectCheck;
+          preparedAutoSelection.requiresImmediatePostConnectCheck ||
+          shouldRunLightweightCurrentVerification;
 
       final verification = shouldVerifyPostConnectInternetAccess
           ? await _verifyPostConnectInternetAccess(
@@ -735,6 +742,8 @@ class DashboardController extends StateNotifier<DashboardState> {
               storage: persistedStorage,
               activeServerTag: effectiveActiveServerTag,
               delayByTag: effectiveDelayByTag,
+              templateConfig: templateConfig,
+              forceCurrentServerOnly: shouldRunLightweightCurrentVerification,
             )
           : (
               storage: persistedStorage,
@@ -1056,7 +1065,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
 
     try {
-      final eligibleServers = _eligibleAutoSelectServers(profile);
+      final eligibleServers = await _resolveEligibleAutoSelectServers(profile);
       if (eligibleServers.isEmpty) {
         state = state.copyWith(
           busy: false,
@@ -1076,6 +1085,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         servers: eligibleServers,
         domainProbeUrl: state.autoSelectSettings.domainProbeUrl,
         ipProbeUrl: state.autoSelectSettings.ipProbeUrl,
+        checkIp: state.autoSelectSettings.checkIp,
         onProgress: (event) {
           _reportAutoSelectProgress('Manual auto-select', event);
         },
@@ -1353,7 +1363,9 @@ class DashboardController extends StateNotifier<DashboardState> {
     try {
       await _autoSelectSettingsRepository.clearRecentSuccessfulAutoConnect();
       state = state.copyWith(clearRecentSuccessfulAutoConnect: true);
-    } on Object {}
+    } on Object {
+      return;
+    }
   }
 
   Future<RecentSuccessfulAutoConnect?> _updateRecentAutoSelectCaches({
@@ -1455,7 +1467,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       return;
     }
 
-    final eligibleServers = _eligibleAutoSelectServers(profile);
+    final eligibleServers = await _resolveEligibleAutoSelectServers(profile);
     if (eligibleServers.isEmpty) {
       _stopAutoSelectionMonitoring();
       if (surfaceFailures) {
@@ -1475,6 +1487,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         servers: eligibleServers,
         domainProbeUrl: state.autoSelectSettings.domainProbeUrl,
         ipProbeUrl: state.autoSelectSettings.ipProbeUrl,
+        checkIp: state.autoSelectSettings.checkIp,
         allowSwitchDuringCooldown: allowSwitchDuringCooldown,
         onProgress: (event) {
           _reportAutoSelectProgress(
@@ -1587,7 +1600,10 @@ class DashboardController extends StateNotifier<DashboardState> {
     try {
       final measured = await client.measureGroupDelay(
         groupTag: session.autoGroupTag,
-        testUrl: state.autoSelectSettings.domainProbeUrl,
+        testUrl: resolveAutoSelectUrlTestUrl(
+          state.autoSelectSettings.domainProbeUrl,
+          rotationKey: '${session.profileId}::refresh::urltest',
+        ),
       );
       return {...snapshot.delayByTag, ...measured};
     } on Object {
@@ -1611,9 +1627,15 @@ class DashboardController extends StateNotifier<DashboardState> {
     required StoredProfilesState storage,
     required String? activeServerTag,
     required Map<String, int> delayByTag,
+    String? templateConfig,
+    bool forceCurrentServerOnly = false,
   }) async {
-    final eligibleServers = _eligibleAutoSelectServers(profile);
+    final eligibleServers = await _resolveEligibleAutoSelectServers(
+      profile,
+      templateConfig: templateConfig,
+    );
     final shouldUseAutoVerification =
+        !forceCurrentServerOnly &&
         profile.prefersAutoSelection &&
         state.autoSelectSettings.enabled &&
         eligibleServers.isNotEmpty;
@@ -1626,6 +1648,7 @@ class DashboardController extends StateNotifier<DashboardState> {
           servers: eligibleServers,
           domainProbeUrl: state.autoSelectSettings.domainProbeUrl,
           ipProbeUrl: state.autoSelectSettings.ipProbeUrl,
+          checkIp: state.autoSelectSettings.checkIp,
           allowSwitchDuringCooldown: true,
           onProgress: (event) {
             _reportAutoSelectProgress('Automatic maintenance', event);
@@ -1715,6 +1738,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         server: currentServer,
         domainProbeUrl: state.autoSelectSettings.domainProbeUrl,
         ipProbeUrl: state.autoSelectSettings.ipProbeUrl,
+        checkIp: state.autoSelectSettings.checkIp,
         urlTestDelay: delayByTag[currentServer.tag],
       );
       return (
@@ -1753,10 +1777,75 @@ class DashboardController extends StateNotifier<DashboardState> {
     AutoSelectSettings? settings,
   }) {
     final effectiveSettings = settings ?? state.autoSelectSettings;
-    return [
+    return _deduplicateExactServers([
       for (final server in profile.servers)
         if (!effectiveSettings.isExcluded(profile.id, server.tag)) server,
-    ];
+    ]);
+  }
+
+  Future<List<ServerEntry>> _resolveEligibleAutoSelectServers(
+    ProxyProfile profile, {
+    AutoSelectSettings? settings,
+    String? templateConfig,
+  }) async {
+    final eligibleServers = _eligibleAutoSelectServers(
+      profile,
+      settings: settings,
+    );
+    if (eligibleServers.length <= 1 ||
+        eligibleServers.every(
+          (server) => (server.configFingerprint ?? '').isNotEmpty,
+        )) {
+      return eligibleServers;
+    }
+
+    try {
+      final resolvedTemplateConfig =
+          templateConfig ?? await _repository.loadTemplateConfig(profile);
+      final candidates = extractAutoSelectConfigCandidates(resolvedTemplateConfig);
+      if (candidates.isEmpty) {
+        return eligibleServers;
+      }
+
+      final fingerprintByTag = {
+        for (final candidate in candidates) candidate.tag: candidate.configFingerprint,
+      };
+      return _deduplicateExactServers([
+        for (final server in eligibleServers)
+          if ((server.configFingerprint ?? '').isNotEmpty)
+            server
+          else
+            ServerEntry(
+              tag: server.tag,
+              displayName: server.displayName,
+              type: server.type,
+              host: server.host,
+              port: server.port,
+              configFingerprint: fingerprintByTag[server.tag],
+            ),
+      ]);
+    } on Object {
+      return eligibleServers;
+    }
+  }
+
+  List<ServerEntry> _deduplicateExactServers(List<ServerEntry> servers) {
+    final deduplicated = <ServerEntry>[];
+    final seenFingerprints = <String>{};
+
+    for (final server in servers) {
+      final fingerprint = server.configFingerprint;
+      if (fingerprint == null || fingerprint.isEmpty) {
+        deduplicated.add(server);
+        continue;
+      }
+      if (!seenFingerprints.add(fingerprint)) {
+        continue;
+      }
+      deduplicated.add(server);
+    }
+
+    return deduplicated;
   }
 
   ServerEntry? _findServerByTag(List<ServerEntry> servers, String? serverTag) {

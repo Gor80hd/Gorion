@@ -40,6 +40,7 @@ typedef AutoSelectDetachedServerProbe =
     Future<AutoSelectDetachedProbeResult> Function({
       required RuntimeSession session,
       required ServerEntry server,
+      required bool checkIp,
       required String domainProbeUrl,
       required String ipProbeUrl,
       required String throughputProbeUrl,
@@ -194,7 +195,8 @@ class AutoSelectorService {
   // Caches the last time the active server passed a full live-proxy health
   // check.  Valid for _currentServeSuccessCacheTtl so the probe is not
   // repeated on every 60-second maintenance tick for a healthy setup.
-  static const _currentServerSuccessCacheTtl = Duration(minutes: 5);
+  static const _currentServerSuccessCacheTtl =
+      defaultRecentSuccessfulAutoConnectTtl;
   final Map<String, DateTime> _currentServerSuccessCacheByServer =
       <String, DateTime>{};
 
@@ -209,6 +211,7 @@ class AutoSelectorService {
     required List<ServerEntry> servers,
     required String domainProbeUrl,
     String ipProbeUrl = 'http://1.1.1.1',
+    bool checkIp = true,
     AutoSelectProgressReporter? onProgress,
   }) async {
     if (servers.isEmpty) {
@@ -228,7 +231,10 @@ class AutoSelectorService {
 
     final delayByTag = await _refreshDelaysOrFallback(
       session: session,
-      testUrl: domainProbeUrl,
+      testUrl: resolveAutoSelectUrlTestUrl(
+        domainProbeUrl,
+        rotationKey: '${session.profileId}::manual::urltest',
+      ),
       onProgress: onProgress,
       totalSteps: totalSteps,
     );
@@ -248,6 +254,7 @@ class AutoSelectorService {
       currentTag: currentTag,
       domainProbeUrl: domainProbeUrl,
       ipProbeUrl: ipProbeUrl,
+      checkIp: checkIp,
       onProgress: onProgress,
       totalSteps: totalSteps,
     );
@@ -258,6 +265,7 @@ class AutoSelectorService {
     required List<ServerEntry> servers,
     required String domainProbeUrl,
     String ipProbeUrl = 'http://1.1.1.1',
+    bool checkIp = true,
     bool allowSwitchDuringCooldown = false,
     AutoSelectProgressReporter? onProgress,
   }) async {
@@ -278,7 +286,10 @@ class AutoSelectorService {
 
     final delayByTag = await _refreshDelaysOrFallback(
       session: session,
-      testUrl: domainProbeUrl,
+      testUrl: resolveAutoSelectUrlTestUrl(
+        domainProbeUrl,
+        rotationKey: '${session.profileId}::maintenance::urltest',
+      ),
       onProgress: onProgress,
       totalSteps: totalSteps,
     );
@@ -303,6 +314,7 @@ class AutoSelectorService {
         currentTag: currentTag,
         domainProbeUrl: domainProbeUrl,
         ipProbeUrl: ipProbeUrl,
+        checkIp: checkIp,
         onProgress: onProgress,
         totalSteps: totalSteps,
       );
@@ -348,6 +360,7 @@ class AutoSelectorService {
         delayByTag: delayByTag,
         domainProbeUrl: domainProbeUrl,
         ipProbeUrl: ipProbeUrl,
+        checkIp: checkIp,
         ensureSelected: false,
       );
       if (currentProbe.hasEndToEndConnectivity) {
@@ -410,6 +423,7 @@ class AutoSelectorService {
           delayByTag: delayByTag,
           domainProbeUrl: domainProbeUrl,
           ipProbeUrl: ipProbeUrl,
+          checkIp: checkIp,
         );
         probes.add(probe);
         completedSteps += 1;
@@ -505,6 +519,7 @@ class AutoSelectorService {
         delayByTag: delayByTag,
         domainProbeUrl: domainProbeUrl,
         ipProbeUrl: ipProbeUrl,
+        checkIp: checkIp,
       );
       probes.add(probe);
       contenderProbes.add(probe);
@@ -567,6 +582,7 @@ class AutoSelectorService {
     required ServerEntry server,
     required String domainProbeUrl,
     String ipProbeUrl = 'http://1.1.1.1',
+    bool checkIp = true,
     int? urlTestDelay,
     bool ensureSelected = false,
   }) {
@@ -580,6 +596,7 @@ class AutoSelectorService {
       delayByTag: delayByTag,
       domainProbeUrl: domainProbeUrl,
       ipProbeUrl: ipProbeUrl,
+      checkIp: checkIp,
       ensureSelected: ensureSelected,
     );
   }
@@ -607,6 +624,7 @@ class AutoSelectorService {
     required String? currentTag,
     required String domainProbeUrl,
     required String ipProbeUrl,
+    required bool checkIp,
     required AutoSelectProgressReporter? onProgress,
     required int totalSteps,
   }) async {
@@ -632,6 +650,7 @@ class AutoSelectorService {
         delayByTag: delayByTag,
         domainProbeUrl: domainProbeUrl,
         ipProbeUrl: ipProbeUrl,
+        checkIp: checkIp,
       );
       probes.add(probe);
       completedSteps += 1;
@@ -704,6 +723,7 @@ class AutoSelectorService {
     required Map<String, int> delayByTag,
     required String domainProbeUrl,
     required String ipProbeUrl,
+    required bool checkIp,
     bool ensureSelected = true,
   }) async {
     if (ensureSelected) {
@@ -715,17 +735,29 @@ class AutoSelectorService {
       await _pause(proxySettleDelay);
     }
 
-    final domainProbeOk = await _probeViaLocalProxy(
+    final domainProbeOk = await _probeViaLocalProxyWithFallback(
       mixedPort: session.mixedPort,
-      url: Uri.parse(domainProbeUrl),
+      urls: resolveAutoSelectDomainProbeUrls(
+        domainProbeUrl,
+        rotationKey: '${session.profileId}::${server.tag}::live::domain',
+      ),
     );
-    final ipProbeOk = await _probeViaLocalProxy(
+    final ipProbeOk = checkIp
+        ? await _probeViaLocalProxyWithFallback(
+            mixedPort: session.mixedPort,
+            urls: resolveAutoSelectIpProbeUrls(
+              ipProbeUrl,
+              rotationKey: '${session.profileId}::${server.tag}::live::ip',
+            ),
+          )
+        : true;
+    final measuredThroughput = await _measureThroughputViaLocalProxyWithFallback(
       mixedPort: session.mixedPort,
-      url: Uri.parse(ipProbeUrl),
-    );
-    final measuredThroughput = await _measureThroughputViaLocalProxy(
-      mixedPort: session.mixedPort,
-      url: Uri.parse(throughputProbeUrl),
+      urls: resolveAutoSelectThroughputProbeUrls(
+        throughputProbeUrl,
+        rotationKey:
+            '${session.profileId}::${server.tag}::live::throughput',
+      ),
     );
     final usableThroughput = measuredThroughput >= minimumUsableThroughput
         ? measuredThroughput
@@ -748,11 +780,13 @@ class AutoSelectorService {
     required Map<String, int> delayByTag,
     required String domainProbeUrl,
     required String ipProbeUrl,
+    required bool checkIp,
   }) async {
     try {
       final detachedProbe = await _probeDetachedServer(
         session: session,
         server: server,
+        checkIp: checkIp,
         domainProbeUrl: domainProbeUrl,
         ipProbeUrl: ipProbeUrl,
         throughputProbeUrl: throughputProbeUrl,
@@ -765,7 +799,7 @@ class AutoSelectorService {
         serverTag: server.tag,
         urlTestDelay: delayByTag[server.tag],
         domainProbeOk: detachedProbe.domainProbeOk,
-        ipProbeOk: detachedProbe.ipProbeOk,
+        ipProbeOk: checkIp ? detachedProbe.ipProbeOk : true,
         throughputBytesPerSecond: usableThroughput,
       );
       _rememberProbeResult(session.profileId, probe);
@@ -1020,6 +1054,38 @@ class AutoSelectorService {
     return selected;
   }
 
+  Future<bool> _probeViaLocalProxyWithFallback({
+    required int mixedPort,
+    required List<String> urls,
+  }) async {
+    for (final candidate in urls) {
+      final ok = await _probeViaLocalProxy(
+        mixedPort: mixedPort,
+        url: Uri.parse(candidate),
+      );
+      if (ok) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<int> _measureThroughputViaLocalProxyWithFallback({
+    required int mixedPort,
+    required List<String> urls,
+  }) async {
+    for (final candidate in urls) {
+      final throughput = await _measureThroughputViaLocalProxy(
+        mixedPort: mixedPort,
+        url: Uri.parse(candidate),
+      );
+      if (throughput > 0) {
+        return throughput;
+      }
+    }
+    return 0;
+  }
+
   void _reportProgress(
     AutoSelectProgressReporter? onProgress,
     String message, {
@@ -1217,6 +1283,7 @@ class AutoSelectorService {
   Future<AutoSelectDetachedProbeResult> _defaultProbeDetachedServer({
     required RuntimeSession session,
     required ServerEntry server,
+    required bool checkIp,
     required String domainProbeUrl,
     required String ipProbeUrl,
     required String throughputProbeUrl,
@@ -1226,6 +1293,7 @@ class AutoSelectorService {
       profileId: session.profileId,
       templateConfig: templateConfig,
       serverTag: server.tag,
+      checkIp: checkIp,
       domainProbeUrl: domainProbeUrl,
       ipProbeUrl: ipProbeUrl,
       throughputProbeUrl: throughputProbeUrl,
@@ -1295,6 +1363,7 @@ class _DetachedAutoSelectProbe {
     required String profileId,
     required String templateConfig,
     required String serverTag,
+    required bool checkIp,
     required String domainProbeUrl,
     required String ipProbeUrl,
     required String throughputProbeUrl,
@@ -1369,28 +1438,69 @@ class _DetachedAutoSelectProbe {
           );
         }
 
-        final probeResults = await Future.wait<bool>([
-          probeHttpViaLocalProxy(
-            mixedPort: mixedPort,
-            url: Uri.parse(domainProbeUrl),
-            timeout: _httpProbeTimeout,
-          ),
-          probeHttpViaLocalProxy(
-            mixedPort: mixedPort,
-            url: Uri.parse(ipProbeUrl),
-            timeout: _httpProbeTimeout,
-          ),
-        ]);
-        final throughputBytesPerSecond =
-            await measureDownloadThroughputViaLocalProxy(
+        final domainProbeTargets = [
+          for (
+            final candidateUrl in resolveAutoSelectDomainProbeUrls(
+              domainProbeUrl,
+              rotationKey: '$profileId::$serverTag::detached::domain',
+            )
+          )
+            Uri.parse(candidateUrl),
+        ];
+        final ipProbeTargets = [
+          for (
+            final candidateUrl in resolveAutoSelectIpProbeUrls(
+              ipProbeUrl,
+              rotationKey: '$profileId::$serverTag::detached::ip',
+            )
+          )
+            Uri.parse(candidateUrl),
+        ];
+        final throughputProbeTargets = [
+          for (
+            final candidateUrl in resolveAutoSelectThroughputProbeUrls(
+              throughputProbeUrl,
+              rotationKey: '$profileId::$serverTag::detached::throughput',
+            )
+          )
+            Uri.parse(candidateUrl),
+        ];
+
+        late final bool domainProbeOk;
+        late final bool ipProbeOk;
+        if (checkIp) {
+          final probeResults = await Future.wait<bool>([
+            probeHttpViaLocalProxyTargets(
               mixedPort: mixedPort,
-              url: Uri.parse(throughputProbeUrl),
+              urls: domainProbeTargets,
+              timeout: _httpProbeTimeout,
+            ),
+            probeHttpViaLocalProxyTargets(
+              mixedPort: mixedPort,
+              urls: ipProbeTargets,
+              timeout: _httpProbeTimeout,
+            ),
+          ]);
+          domainProbeOk = probeResults[0];
+          ipProbeOk = probeResults[1];
+        } else {
+          domainProbeOk = await probeHttpViaLocalProxyTargets(
+            mixedPort: mixedPort,
+            urls: domainProbeTargets,
+            timeout: _httpProbeTimeout,
+          );
+          ipProbeOk = true;
+        }
+        final throughputBytesPerSecond =
+            await measureDownloadThroughputViaLocalProxyTargets(
+              mixedPort: mixedPort,
+              urls: throughputProbeTargets,
               timeout: _throughputTimeout,
             );
 
         return AutoSelectDetachedProbeResult(
-          domainProbeOk: probeResults[0],
-          ipProbeOk: probeResults[1],
+          domainProbeOk: domainProbeOk,
+          ipProbeOk: ipProbeOk,
           throughputBytesPerSecond: throughputBytesPerSecond,
         );
       })().timeout(_probeTimeout);

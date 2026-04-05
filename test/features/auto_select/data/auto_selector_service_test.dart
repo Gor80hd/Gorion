@@ -375,7 +375,7 @@ void main() {
         final liveProbeCountAfterFirst = harness.liveProbeUrls.length;
         expect(liveProbeCountAfterFirst, greaterThan(0));
 
-        // Advance only 30 seconds — well within the 5-minute success cache TTL.
+        // Advance only 30 seconds — well within the shortened success cache TTL.
         harness.now = harness.now.add(const Duration(seconds: 30));
 
         // Second pass — current server should reuse the cached health result
@@ -393,6 +393,73 @@ void main() {
         );
       },
     );
+
+    test(
+      'automatic maintenance re-probes the current server after the live-pass cache expires',
+      () async {
+        final harness = _AutoSelectHarness(
+          initialSelectedTag: 'server-a',
+          delays: const {'server-a': 100, 'server-b': 70, 'server-c': 220},
+          domainResults: const {
+            'server-a': true,
+            'server-b': true,
+            'server-c': false,
+          },
+          ipResults: const {
+            'server-a': true,
+            'server-b': true,
+            'server-c': false,
+          },
+        );
+        final service = harness.build();
+
+        await service.maintainBestServer(
+          session: _session,
+          servers: _servers,
+          domainProbeUrl: _domainProbeUrl,
+        );
+        final liveProbeCountAfterFirst = harness.liveProbeUrls.length;
+
+        harness.now = harness.now.add(const Duration(seconds: 120));
+
+        await service.maintainBestServer(
+          session: _session,
+          servers: _servers,
+          domainProbeUrl: _domainProbeUrl,
+        );
+
+        expect(
+          harness.liveProbeUrls.length,
+          greaterThan(liveProbeCountAfterFirst),
+          reason: 'the current server should be probed again once the cache TTL elapses',
+        );
+      },
+    );
+
+    test('verify current server can skip the IP probe when checkIp is disabled', () async {
+      final harness = _AutoSelectHarness(
+        initialSelectedTag: 'server-a',
+        delays: const {'server-a': 48},
+        domainResults: const {'server-a': true},
+        ipResults: const {'server-a': false},
+      );
+      final service = harness.build();
+
+      final probe = await service.verifyCurrentServer(
+        session: _session,
+        server: _servers.first,
+        domainProbeUrl: _domainProbeUrl,
+        checkIp: false,
+      );
+
+      expect(probe.domainProbeOk, isTrue);
+      expect(probe.ipProbeOk, isTrue);
+      expect(probe.fullyHealthy, isTrue);
+      expect(
+        harness.liveProbeUrls.where((url) => url.contains('1.1.1.1')),
+        isEmpty,
+      );
+    });
 
     test(
       'automatic maintenance probes cooling-down servers as last-resort recovery',
@@ -918,6 +985,7 @@ class _AutoSelectHarness {
           ({
             required RuntimeSession session,
             required ServerEntry server,
+            required bool checkIp,
             required String domainProbeUrl,
             required String ipProbeUrl,
             required String throughputProbeUrl,

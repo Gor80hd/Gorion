@@ -241,6 +241,67 @@ void main() {
     },
   );
 
+  test(
+    'deduplicates exact duplicate preconnect candidates while preserving priority',
+    () async {
+      await settingsRepository.setRecentAutoSelectedServer(
+        profileId: 'profile-1',
+        serverTag: 'server-b',
+      );
+      final probedTags = <String>[];
+      final service = AutoSelectPreconnectService(
+        settingsRepository: settingsRepository,
+        probeCandidate:
+            ({
+              required profileId,
+              required templateConfig,
+              required candidate,
+              required settings,
+            }) async {
+              probedTags.add(candidate.tag);
+              return AutoSelectPreconnectProbeResult(
+                serverTag: candidate.tag,
+                urlTestDelay: null,
+                domainProbeOk: false,
+                ipProbeOk: false,
+                throughputBytesPerSecond: 0,
+              );
+            },
+      );
+
+      await service.prepare(
+        profile: _buildProfile(serverTags: ['server-a', 'server-b', 'server-c']),
+        templateConfig: jsonEncode({
+          'outbounds': [
+            {
+              'type': 'vless',
+              'tag': 'server-a',
+              'server': 'dup.example.com',
+              'server_port': 443,
+              'uuid': '11111111-1111-1111-1111-111111111111',
+            },
+            {
+              'server_port': 443,
+              'server': 'dup.example.com',
+              'uuid': '11111111-1111-1111-1111-111111111111',
+              'tag': 'server-b',
+              'type': 'vless',
+            },
+            {
+              'type': 'vless',
+              'tag': 'server-c',
+              'server': 'unique.example.com',
+              'server_port': 443,
+              'uuid': '22222222-2222-2222-2222-222222222222',
+            },
+          ],
+        }),
+      );
+
+      expect(probedTags, ['server-b', 'server-c']);
+    },
+  );
+
   test('caps the preconnect probe plan at sixteen candidates', () async {
     final probedTags = <String>[];
     final tags = [for (var index = 0; index < 20; index += 1) 'server-$index'];

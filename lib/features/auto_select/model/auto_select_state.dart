@@ -6,8 +6,111 @@ const defaultAutoSelectDomainProbeUrl = 'https://www.gstatic.com/generate_204';
 const defaultAutoSelectIpProbeUrl = 'http://1.1.1.1';
 const defaultAutoSelectThroughputProbeUrl =
     'https://speed.cloudflare.com/__down?bytes=131072';
+const defaultAutoSelectDomainProbeUrls = <String>[
+  defaultAutoSelectDomainProbeUrl,
+  'https://cp.cloudflare.com/generate_204',
+  'https://www.msftconnecttest.com/connecttest.txt',
+];
+const defaultAutoSelectIpProbeUrls = <String>[
+  defaultAutoSelectIpProbeUrl,
+  'http://1.0.0.1',
+  'http://1.1.1.1/cdn-cgi/trace',
+];
+const defaultAutoSelectThroughputProbeUrls = <String>[
+  defaultAutoSelectThroughputProbeUrl,
+  'https://httpbingo.org/bytes/131072',
+  'https://httpbin.org/bytes/131072',
+];
 const defaultRecentAutoSelectedServerTtl = Duration(seconds: 75);
 const defaultRecentSuccessfulAutoConnectTtl = Duration(seconds: 90);
+
+List<String> resolveAutoSelectDomainProbeUrls(
+  String configuredUrl, {
+  required String rotationKey,
+}) {
+  return _resolveAutoSelectProbeUrls(
+    configuredUrl: configuredUrl,
+    defaultUrl: defaultAutoSelectDomainProbeUrl,
+    defaultUrls: defaultAutoSelectDomainProbeUrls,
+    rotationKey: rotationKey,
+  );
+}
+
+List<String> resolveAutoSelectIpProbeUrls(
+  String configuredUrl, {
+  required String rotationKey,
+}) {
+  return _resolveAutoSelectProbeUrls(
+    configuredUrl: configuredUrl,
+    defaultUrl: defaultAutoSelectIpProbeUrl,
+    defaultUrls: defaultAutoSelectIpProbeUrls,
+    rotationKey: rotationKey,
+  );
+}
+
+List<String> resolveAutoSelectThroughputProbeUrls(
+  String configuredUrl, {
+  required String rotationKey,
+}) {
+  return _resolveAutoSelectProbeUrls(
+    configuredUrl: configuredUrl,
+    defaultUrl: defaultAutoSelectThroughputProbeUrl,
+    defaultUrls: defaultAutoSelectThroughputProbeUrls,
+    rotationKey: rotationKey,
+  );
+}
+
+String resolveAutoSelectUrlTestUrl(
+  String configuredUrl, {
+  required String rotationKey,
+}) {
+  return resolveAutoSelectDomainProbeUrls(
+    configuredUrl,
+    rotationKey: rotationKey,
+  ).first;
+}
+
+List<String> _resolveAutoSelectProbeUrls({
+  required String configuredUrl,
+  required String defaultUrl,
+  required List<String> defaultUrls,
+  required String rotationKey,
+}) {
+  final normalizedUrl = configuredUrl.trim().isEmpty ? defaultUrl : configuredUrl.trim();
+  final baseUrls = normalizedUrl == defaultUrl ? defaultUrls : <String>[normalizedUrl];
+  final dedupedUrls = <String>[];
+  final seenUrls = <String>{};
+  for (final candidate in baseUrls) {
+    final normalizedCandidate = candidate.trim();
+    if (normalizedCandidate.isEmpty || !seenUrls.add(normalizedCandidate)) {
+      continue;
+    }
+    dedupedUrls.add(normalizedCandidate);
+  }
+
+  if (dedupedUrls.length <= 1) {
+    return dedupedUrls;
+  }
+
+  final startIndex = _stableProbeRotationIndex(rotationKey, dedupedUrls.length);
+  return [
+    for (var offset = 0; offset < dedupedUrls.length; offset += 1)
+      dedupedUrls[(startIndex + offset) % dedupedUrls.length],
+  ];
+}
+
+int _stableProbeRotationIndex(String key, int length) {
+  if (length <= 1) {
+    return 0;
+  }
+
+  var hash = 0x811C9DC5;
+  for (final codeUnit in key.codeUnits) {
+    hash ^= codeUnit;
+    hash = (hash * 0x01000193) & 0x7fffffff;
+  }
+  return hash % length;
+}
 
 class AutoSelectProgressEvent {
   const AutoSelectProgressEvent({

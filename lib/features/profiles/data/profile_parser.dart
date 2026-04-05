@@ -69,6 +69,7 @@ class ProfileParser {
           type: candidate.type,
           host: candidate.host,
           port: candidate.port,
+          configFingerprint: candidate.configFingerprint,
         ),
     ];
 

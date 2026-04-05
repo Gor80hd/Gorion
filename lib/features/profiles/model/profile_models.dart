@@ -69,6 +69,7 @@ class ServerEntry {
     required this.type,
     this.host,
     this.port,
+    this.configFingerprint,
   });
 
   final String tag;
@@ -76,6 +77,7 @@ class ServerEntry {
   final String type;
   final String? host;
   final int? port;
+  final String? configFingerprint;
 
   Map<String, dynamic> toJson() {
     return {
@@ -84,6 +86,7 @@ class ServerEntry {
       'type': type,
       'host': host,
       'port': port,
+      'configFingerprint': configFingerprint,
     };
   }
 
@@ -94,6 +97,7 @@ class ServerEntry {
       type: json['type']?.toString() ?? '',
       host: json['host']?.toString(),
       port: (json['port'] as num?)?.toInt(),
+      configFingerprint: json['configFingerprint']?.toString(),
     );
   }
 }

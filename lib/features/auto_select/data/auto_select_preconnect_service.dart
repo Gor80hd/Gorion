@@ -67,10 +67,10 @@ class AutoSelectPreconnectService {
   AutoSelectPreconnectService({
     required AutoSelectSettingsRepository settingsRepository,
     AutoSelectPreconnectCandidateProbe? probeCandidate,
-    this.preconnectProbeBatchSize = 4,
+    this.preconnectProbeBatchSize = 6,
     this.maxPreconnectProbeCandidates = 16,
     this.preconnectProbeSuccessTarget = 3,
-    this.preconnectProbeTimeout = const Duration(seconds: 14),
+    this.preconnectProbeTimeout = const Duration(seconds: 10),
     this.fastAcceptPingThresholdMs = 250,
     this.pingEquivalenceThresholdMs = 30,
     this.throughputPreferenceWindowMs = 90,
@@ -172,7 +172,9 @@ class AutoSelectPreconnectService {
       profile: profile,
       storedState: storedState,
     );
-    final probePlan = _buildPreconnectProbePlan(prioritizedCandidates);
+    final probePlan = _buildPreconnectProbePlan(
+      _deduplicateExactCandidates(prioritizedCandidates),
+    );
     final totalSteps = probePlan.length + 2;
     onProgress?.call(
       AutoSelectProgressEvent(
@@ -588,12 +590,28 @@ class AutoSelectPreconnectService {
     }
     return planned;
   }
+
+  List<AutoSelectConfigCandidate> _deduplicateExactCandidates(
+    List<AutoSelectConfigCandidate> candidates,
+  ) {
+    final deduplicated = <AutoSelectConfigCandidate>[];
+    final seenFingerprints = <String>{};
+
+    for (final candidate in candidates) {
+      if (!seenFingerprints.add(candidate.configFingerprint)) {
+        continue;
+      }
+      deduplicated.add(candidate);
+    }
+
+    return deduplicated;
+  }
 }
 
 class _DetachedAutoSelectPreconnectProbe {
-  static const _probeTimeout = Duration(seconds: 14);
-  static const _startupTimeout = Duration(seconds: 8);
-  static const _httpProbeTimeout = Duration(seconds: 3);
+  static const _probeTimeout = Duration(seconds: 10);
+  static const _startupTimeout = Duration(seconds: 6);
+  static const _httpProbeTimeout = Duration(seconds: 2);
   static const _throughputTimeout = Duration(seconds: 2);
 
   static Future<AutoSelectPreconnectProbeResult> run({
@@ -681,36 +699,79 @@ class _DetachedAutoSelectPreconnectProbe {
           );
         }
 
-        final domainProbeFuture = probeHttpViaLocalProxy(
-          mixedPort: mixedPort,
-          url: Uri.parse(settings.domainProbeUrl),
-          timeout: _httpProbeTimeout,
-        );
-        final throughputFuture = measureDownloadThroughputViaLocalProxy(
-          mixedPort: mixedPort,
-          url: Uri.parse(defaultAutoSelectThroughputProbeUrl),
-          timeout: _throughputTimeout,
-        );
+        final domainProbeTargets = [
+          for (
+            final candidateUrl in resolveAutoSelectDomainProbeUrls(
+              settings.domainProbeUrl,
+              rotationKey: '$profileId::${candidate.tag}::preconnect::domain',
+            )
+          )
+            Uri.parse(candidateUrl),
+        ];
+        final ipProbeTargets = [
+          for (
+            final candidateUrl in resolveAutoSelectIpProbeUrls(
+              settings.ipProbeUrl,
+              rotationKey: '$profileId::${candidate.tag}::preconnect::ip',
+            )
+          )
+            Uri.parse(candidateUrl),
+        ];
+        final throughputProbeTargets = [
+          for (
+            final candidateUrl in resolveAutoSelectThroughputProbeUrls(
+              defaultAutoSelectThroughputProbeUrl,
+              rotationKey:
+                  '$profileId::${candidate.tag}::preconnect::throughput',
+            )
+          )
+            Uri.parse(candidateUrl),
+        ];
 
         late final bool domainProbeOk;
         late final bool ipProbeOk;
         if (settings.checkIp) {
           final probeResults = await Future.wait<bool>([
-            domainProbeFuture,
-            probeHttpViaLocalProxy(
+            probeHttpViaLocalProxyTargets(
               mixedPort: mixedPort,
-              url: Uri.parse(settings.ipProbeUrl),
+              urls: domainProbeTargets,
+              timeout: _httpProbeTimeout,
+            ),
+            probeHttpViaLocalProxyTargets(
+              mixedPort: mixedPort,
+              urls: ipProbeTargets,
               timeout: _httpProbeTimeout,
             ),
           ]);
           domainProbeOk = probeResults[0];
           ipProbeOk = probeResults[1];
         } else {
-          domainProbeOk = await domainProbeFuture;
+          domainProbeOk = await probeHttpViaLocalProxyTargets(
+            mixedPort: mixedPort,
+            urls: domainProbeTargets,
+            timeout: _httpProbeTimeout,
+          );
           ipProbeOk = true;
         }
 
-        final throughputBytesPerSecond = await throughputFuture;
+        final hasConnectivitySignal =
+            domainProbeOk || (settings.checkIp && ipProbeOk);
+        if (!hasConnectivitySignal) {
+          return AutoSelectPreconnectProbeResult(
+            serverTag: candidate.tag,
+            urlTestDelay: null,
+            domainProbeOk: domainProbeOk,
+            ipProbeOk: ipProbeOk,
+            throughputBytesPerSecond: 0,
+          );
+        }
+
+        final throughputBytesPerSecond =
+            await measureDownloadThroughputViaLocalProxyTargets(
+              mixedPort: mixedPort,
+              urls: throughputProbeTargets,
+              timeout: _throughputTimeout,
+            );
 
         // urlTestDelay is not available from a minimal config (no Clash API /
         // URLtest group).  The preconnect ranking falls back to throughput when
