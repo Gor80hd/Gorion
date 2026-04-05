@@ -304,6 +304,59 @@ void main() {
     );
 
     test(
+      'runAutoSelect keeps the quick reconnect cache unchanged when best-server keeps the same server',
+      () async {
+        final cachedAutoConnect = RecentSuccessfulAutoConnect(
+          profileId: _profile.id,
+          tag: 'server-a',
+          until: DateTime.now().add(const Duration(minutes: 1)),
+        );
+        final settingsRepository = _FakeAutoSelectSettingsRepository(
+          initialState: StoredAutoSelectState(
+            settings: const AutoSelectSettings(enabled: true),
+            recentSuccessfulAutoConnect: cachedAutoConnect,
+          ),
+        );
+        final autoSelectorService = _ScriptedAutoSelectorService(
+          selectResponses: [
+            Future<AutoSelectOutcome>.value(_keepCurrentOutcome),
+          ],
+        );
+        final controller = DashboardController(
+          repository: _FakeProfileRepository(initialStorage: _storage),
+          runtimeService: _FakeRuntimeService(),
+          autoSelectSettingsRepository: settingsRepository,
+          autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+          autoSelectorService: autoSelectorService,
+          initialState: DashboardState(
+            bootstrapping: false,
+            runtimeMode: RuntimeMode.mixed,
+            autoSelectSettings: const AutoSelectSettings(enabled: true),
+            storage: _storage,
+            connectionStage: ConnectionStage.connected,
+            runtimeSession: _session,
+            selectedServerTag: autoSelectServerTag,
+            activeServerTag: 'server-a',
+            recentSuccessfulAutoConnect: cachedAutoConnect,
+          ),
+          loadOnInit: false,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.runAutoSelect();
+
+        expect(autoSelectorService.selectCallCount, 1);
+        expect(controller.state.activeServerTag, 'server-a');
+        expect(settingsRepository.recentSuccessfulAutoConnectCalls, isEmpty);
+        expect(controller.state.recentSuccessfulAutoConnect?.tag, 'server-a');
+        expect(
+          controller.state.recentSuccessfulAutoConnect?.until,
+          cachedAutoConnect.until,
+        );
+      },
+    );
+
+    test(
       'automatic maintenance refreshes the quick reconnect cache to the maintained server',
       () async {
         final cachedAutoConnect = RecentSuccessfulAutoConnect(
@@ -379,6 +432,65 @@ void main() {
           'profile-1::server-b',
         ]);
         expect(controller.state.recentSuccessfulAutoConnect?.tag, 'server-b');
+      },
+    );
+
+    test(
+      'automatic maintenance keeps the quick reconnect cache unchanged when best-server keeps the same server',
+      () async {
+        final cachedAutoConnect = RecentSuccessfulAutoConnect(
+          profileId: _profile.id,
+          tag: 'server-a',
+          until: DateTime.now().add(const Duration(minutes: 1)),
+        );
+        final timerFactory = _ControlledTimerFactory();
+        final settingsRepository = _FakeAutoSelectSettingsRepository(
+          initialState: StoredAutoSelectState(
+            settings: const AutoSelectSettings(enabled: false),
+            recentSuccessfulAutoConnect: cachedAutoConnect,
+          ),
+        );
+        final autoSelectorService = _ScriptedAutoSelectorService(
+          maintainResponses: [
+            Future<AutoSelectOutcome>.value(_keepCurrentOutcome),
+          ],
+        );
+        final controller = DashboardController(
+          repository: _FakeProfileRepository(initialStorage: _storage),
+          runtimeService: _FakeRuntimeService(),
+          autoSelectSettingsRepository: settingsRepository,
+          autoSelectPreconnectService: AutoSelectPreconnectService(
+            settingsRepository: settingsRepository,
+          ),
+          autoSelectorService: autoSelectorService,
+          autoSelectionInterval: const Duration(minutes: 1),
+          createTimer: timerFactory.create,
+          initialState: DashboardState(
+            bootstrapping: false,
+            runtimeMode: RuntimeMode.mixed,
+            autoSelectSettings: const AutoSelectSettings(enabled: false),
+            storage: _storage,
+            connectionStage: ConnectionStage.connected,
+            runtimeSession: _session,
+            selectedServerTag: autoSelectServerTag,
+            activeServerTag: 'server-a',
+            recentSuccessfulAutoConnect: cachedAutoConnect,
+          ),
+          loadOnInit: false,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.setAutoSelectEnabled(true);
+        await _flushAsync();
+
+        expect(autoSelectorService.maintainCallCount, 1);
+        expect(controller.state.activeServerTag, 'server-a');
+        expect(settingsRepository.recentSuccessfulAutoConnectCalls, isEmpty);
+        expect(controller.state.recentSuccessfulAutoConnect?.tag, 'server-a');
+        expect(
+          controller.state.recentSuccessfulAutoConnect?.until,
+          cachedAutoConnect.until,
+        );
       },
     );
 

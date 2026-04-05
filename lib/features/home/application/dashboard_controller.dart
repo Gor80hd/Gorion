@@ -1155,12 +1155,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         profile.id,
         outcome.selectedServerTag,
       );
-      final recentSuccessfulAutoConnect = outcome.hasReachableCandidate
-          ? await _updateRecentAutoSelectCaches(
-              profileId: profile.id,
-              serverTag: outcome.selectedServerTag,
-            )
-          : state.recentSuccessfulAutoConnect;
+      final recentSuccessfulAutoConnect = state.recentSuccessfulAutoConnect;
       state = state.copyWith(
         busy: false,
         storage: updatedStorage,
@@ -1175,6 +1170,17 @@ class DashboardController extends StateNotifier<DashboardState> {
         logs: _runtimeService.logs,
       );
       _finishAutoSelectActivity('Manual auto-select');
+      if (outcome.hasReachableCandidate) {
+        state = state.copyWith(
+          recentSuccessfulAutoConnect:
+              await _updateRecentAutoSelectCachesAfterBestServerCompleted(
+                profileId: profile.id,
+                serverTag: outcome.selectedServerTag,
+                currentRecentSuccessfulAutoConnect:
+                    recentSuccessfulAutoConnect,
+              ),
+        );
+      }
     } on Object catch (error) {
       if (state.autoSelectActivity.active &&
           state.autoSelectActivity.label == 'Manual auto-select') {
@@ -1445,6 +1451,45 @@ class DashboardController extends StateNotifier<DashboardState> {
     return autoSelectState.recentSuccessfulAutoConnect;
   }
 
+  Future<RecentSuccessfulAutoConnect?>
+  _updateRecentAutoSelectCachesAfterBestServerCompleted({
+    required String profileId,
+    required String serverTag,
+    required RecentSuccessfulAutoConnect? currentRecentSuccessfulAutoConnect,
+  }) async {
+    await _autoSelectSettingsRepository.setRecentAutoSelectedServer(
+      profileId: profileId,
+      serverTag: serverTag,
+    );
+    if (!_shouldRefreshRecentSuccessfulAutoConnect(
+      profileId: profileId,
+      serverTag: serverTag,
+      currentRecentSuccessfulAutoConnect: currentRecentSuccessfulAutoConnect,
+    )) {
+      return currentRecentSuccessfulAutoConnect;
+    }
+
+    final autoSelectState = await _autoSelectSettingsRepository
+        .setRecentSuccessfulAutoConnect(
+          profileId: profileId,
+          serverTag: serverTag,
+        );
+    return autoSelectState.recentSuccessfulAutoConnect;
+  }
+
+  bool _shouldRefreshRecentSuccessfulAutoConnect({
+    required String profileId,
+    required String serverTag,
+    required RecentSuccessfulAutoConnect? currentRecentSuccessfulAutoConnect,
+  }) {
+    if (currentRecentSuccessfulAutoConnect == null ||
+        !currentRecentSuccessfulAutoConnect.matchesProfile(profileId)) {
+      return true;
+    }
+
+    return currentRecentSuccessfulAutoConnect.tag != serverTag;
+  }
+
   void _startAutoSelectionMonitoring() {
     _scheduleNextAutoSelectionPass();
   }
@@ -1574,12 +1619,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         }
       }
 
-      final recentSuccessfulAutoConnect = outcome.hasReachableCandidate
-          ? await _updateRecentAutoSelectCaches(
-              profileId: profile.id,
-              serverTag: outcome.selectedServerTag,
-            )
-          : state.recentSuccessfulAutoConnect;
+      final recentSuccessfulAutoConnect = state.recentSuccessfulAutoConnect;
       if (!_isCurrentConnectedSession(session, profile.id)) {
         return;
       }
@@ -1608,6 +1648,19 @@ class DashboardController extends StateNotifier<DashboardState> {
         'Automatic maintenance',
         session: session,
         profileId: profile.id,
+      );
+      if (!outcome.hasReachableCandidate ||
+          !_isCurrentConnectedSession(session, profile.id)) {
+        return;
+      }
+
+      state = state.copyWith(
+        recentSuccessfulAutoConnect:
+            await _updateRecentAutoSelectCachesAfterBestServerCompleted(
+              profileId: profile.id,
+              serverTag: outcome.selectedServerTag,
+              currentRecentSuccessfulAutoConnect: recentSuccessfulAutoConnect,
+            ),
       );
     } on Object catch (error) {
       final isCurrentSession = _isCurrentConnectedSession(session, profile.id);
