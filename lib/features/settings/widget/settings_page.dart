@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/app/theme.dart';
+import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion_clean/features/settings/widget/split_tunnel_section.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -37,6 +39,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     _syncDraft(dashboardState.connectionTuningSettings);
 
     final theme = Theme.of(context);
+    final bestServerCheckIntervalMinutes =
+        dashboardState.autoSelectSettings.bestServerCheckIntervalMinutes;
     final hasChanges = _draft != dashboardState.connectionTuningSettings;
     final isConnected =
         dashboardState.connectionStage == ConnectionStage.connected;
@@ -191,7 +195,36 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         ),
                       ),
                     ),
+                    SizedBox(
+                      width: cardWidth,
+                      child: _SettingsSection(
+                        title: 'Автовыбор сервера',
+                        description:
+                            'Частота фоновой проверки best server сохраняется отдельно от transport overrides и начинает действовать сразу, без переподключения.',
+                        child: _AutoSelectBestServerCheckIntervalTile(
+                          minutes: bestServerCheckIntervalMinutes,
+                          busy: dashboardState.busy,
+                          onConfigure: () =>
+                              _showAutoSelectBestServerCheckIntervalDialog(
+                                dashboardState,
+                              ),
+                        ),
+                      ),
+                    ),
                   ],
+                ),
+                const SizedBox(height: 18),
+                SplitTunnelSection(
+                  settings: _draft.splitTunnel,
+                  busy: dashboardState.busy,
+                  isConnected: isConnected,
+                  onChanged: (nextSplitTunnel) {
+                    setState(() {
+                      _draft = _draft.copyWith(splitTunnel: nextSplitTunnel);
+                    });
+                  },
+                  onRefreshRequested: () =>
+                      _refreshSplitTunnelSources(dashboardState),
                 ),
                 const SizedBox(height: 18),
                 GlassPanel(
@@ -216,8 +249,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       const SizedBox(height: 8),
                       Text(
                         isConnected
-                            ? 'Изменения сохраняются сразу, а затем приложение переподключит текущую сессию, чтобы overrides действительно попали в sing-box runtime.'
-                            : 'Изменения сохраняются сразу и применяются на следующий connect. Уже пришедшие из подписки параметры не стираются, пока вы явно не заменяете их этим override.',
+                            ? 'Изменения сохраняются сразу, а затем приложение переподключит текущую сессию, чтобы transport overrides и split tunneling действительно попали в sing-box runtime. Частота проверки best server сохраняется отдельно и применяется без переподключения.'
+                            : 'Изменения сохраняются сразу и применяются на следующий connect. Уже пришедшие из подписки параметры и route rules не стираются, пока вы явно не добавляете новый override или split tunneling правило. Частота проверки best server сохраняется отдельно и применяется без переподключения.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: gorionOnSurfaceMuted,
                           height: 1.45,
@@ -269,6 +302,102 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
+  Future<void> _showAutoSelectBestServerCheckIntervalDialog(
+    DashboardState state,
+  ) async {
+    FocusScope.of(context).unfocus();
+
+    final currentMinutes =
+        state.autoSelectSettings.bestServerCheckIntervalMinutes;
+    final selectedMinutes = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) {
+        var draftMinutes = currentMinutes.toDouble();
+        return StatefulBuilder(
+          builder: (context, setState) {
+            final effectiveMinutes = draftMinutes.round();
+            return AlertDialog(
+              title: const Text('Частота проверки best server'),
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Фоновая проверка лучшего сервера сейчас запускается каждые '
+                      '${_formatBestServerCheckIntervalLabel(effectiveMinutes)}.',
+                    ),
+                    const SizedBox(height: 14),
+                    Slider(
+                      value: draftMinutes,
+                      min: autoSelectBestServerCheckIntervalMinMinutes
+                          .toDouble(),
+                      max: autoSelectBestServerCheckIntervalMaxMinutes
+                          .toDouble(),
+                      divisions:
+                          autoSelectBestServerCheckIntervalMaxMinutes -
+                          autoSelectBestServerCheckIntervalMinMinutes,
+                      label: _formatBestServerCheckIntervalLabel(
+                        effectiveMinutes,
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          draftMinutes = value;
+                        });
+                      },
+                    ),
+                    Row(
+                      children: [
+                        Text(
+                          '${autoSelectBestServerCheckIntervalMinMinutes} мин',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const Spacer(),
+                        Text(
+                          _formatBestServerCheckIntervalLabel(
+                            autoSelectBestServerCheckIntervalMaxMinutes,
+                          ),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Минимум 15 минут, максимум 3 часа. По умолчанию 40 минут.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Отмена'),
+                ),
+                FilledButton(
+                  onPressed: () =>
+                      Navigator.of(dialogContext).pop(effectiveMinutes),
+                  child: const Text('Сохранить'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (!mounted ||
+        selectedMinutes == null ||
+        selectedMinutes == currentMinutes) {
+      return;
+    }
+
+    await ref
+        .read(dashboardControllerProvider.notifier)
+        .setAutoSelectBestServerCheckIntervalMinutes(selectedMinutes);
+  }
+
   Future<void> _saveSettings(
     DashboardState state, {
     required bool reconnectAfterSave,
@@ -284,6 +413,41 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         updatedState.connectionTuningSettings != requestedSettings) {
       return;
     }
+    await controller.reconnect();
+  }
+
+  Future<void> _refreshSplitTunnelSources(DashboardState state) async {
+    FocusScope.of(context).unfocus();
+
+    var effectiveState = state;
+    final controller = ref.read(dashboardControllerProvider.notifier);
+    final requestedSettings = _draft.copyWith();
+    if (requestedSettings != state.connectionTuningSettings) {
+      await controller.saveConnectionTuningSettings(requestedSettings);
+      effectiveState = ref.read(dashboardControllerProvider);
+      if (!mounted ||
+          effectiveState.errorMessage != null ||
+          effectiveState.connectionTuningSettings != requestedSettings) {
+        return;
+      }
+    }
+
+    final previousRevision =
+        effectiveState.connectionTuningSettings.splitTunnel.remoteRevision;
+    await controller.refreshSplitTunnelSources();
+    final refreshedState = ref.read(dashboardControllerProvider);
+    if (!mounted || refreshedState.errorMessage != null) {
+      return;
+    }
+
+    final revisionChanged =
+        refreshedState.connectionTuningSettings.splitTunnel.remoteRevision !=
+        previousRevision;
+    if (!revisionChanged ||
+        refreshedState.connectionStage != ConnectionStage.connected) {
+      return;
+    }
+
     await controller.reconnect();
   }
 
@@ -312,6 +476,31 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       ),
     );
   }
+}
+
+String _formatBestServerCheckIntervalLabel(int minutes) {
+  final hours = minutes ~/ 60;
+  final remainingMinutes = minutes % 60;
+  final parts = <String>[];
+  if (hours > 0) {
+    parts.add('$hours ч');
+  }
+  if (remainingMinutes > 0 || parts.isEmpty) {
+    parts.add('$remainingMinutes мин');
+  }
+  return parts.join(' ');
+}
+
+String _formatBestServerCheckIntervalBadge(int minutes) {
+  final hours = minutes ~/ 60;
+  final remainingMinutes = minutes % 60;
+  if (hours <= 0) {
+    return '$minutes мин';
+  }
+  if (remainingMinutes == 0) {
+    return '$hours ч';
+  }
+  return '$hours ч $remainingMinutes мин';
 }
 
 class _HeroPanel extends StatelessWidget {
@@ -384,7 +573,7 @@ class _HeroPanel extends StatelessWidget {
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 900),
             child: Text(
-              'Здесь собраны transport и TLS overrides для сложных сетей. Они накладываются поверх активного профиля только там, где формат узла это поддерживает.',
+              'Здесь собраны transport overrides, TLS tweaks, split tunneling правила и параметры фоновой проверки best server. Overrides накладываются поверх активного профиля только там, где формат узла это поддерживает.',
               style: theme.textTheme.bodyLarge?.copyWith(
                 color: gorionOnSurfaceMuted,
                 height: 1.5,
@@ -559,6 +748,95 @@ class _ToggleTile extends StatelessWidget {
           ),
           const SizedBox(width: 14),
           Switch.adaptive(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
+}
+
+class _AutoSelectBestServerCheckIntervalTile extends StatelessWidget {
+  const _AutoSelectBestServerCheckIntervalTile({
+    required this.minutes,
+    required this.busy,
+    required this.onConfigure,
+  });
+
+  final int minutes;
+  final bool busy;
+  final VoidCallback onConfigure;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Частота проверки best server',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: gorionOnSurface,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Maintenance-проверка текущего сервера и поиск замены будут идти с этим интервалом.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: gorionOnSurfaceMuted,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              _Badge(
+                label: _formatBestServerCheckIntervalBadge(minutes),
+                backgroundColor: const Color(
+                  0xFF6DD3FF,
+                ).withValues(alpha: 0.14),
+                foregroundColor: const Color(0xFF6DD3FF),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Text(
+                  'Диапазон: 15 минут - 3 часа. Значение по умолчанию: 40 минут.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: gorionOnSurfaceMuted,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: busy ? null : onConfigure,
+                icon: const Icon(Icons.schedule_rounded),
+                label: const Text('Изменить'),
+              ),
+            ],
+          ),
         ],
       ),
     );

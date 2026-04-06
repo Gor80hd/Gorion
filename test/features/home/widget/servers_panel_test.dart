@@ -61,13 +61,9 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
 
     final initialLoadCount = repository.loadTemplateConfigCallCount;
-    expect(find.byTooltip('Тест серверов'), findsOneWidget);
+    expect(find.byTooltip('Параллельный тест серверов'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Тест серверов'));
-    await tester.pumpAndSettle();
-    expect(find.text('Пакетный тест'), findsOneWidget);
-
-    await tester.tap(find.text('Пакетный тест'));
+    await tester.tap(find.byTooltip('Параллельный тест серверов'));
     await tester.pump();
 
     expect(repository.loadTemplateConfigCallCount, initialLoadCount + 1);
@@ -81,7 +77,7 @@ void main() {
 
     expect(container.read(benchmarkActiveProvider), isFalse);
     expect(find.byTooltip('Остановить тест'), findsNothing);
-    expect(find.byTooltip('Тест серверов'), findsOneWidget);
+    expect(find.byTooltip('Параллельный тест серверов'), findsOneWidget);
     expect(find.text('Подготовка…'), findsNothing);
   });
 
@@ -133,9 +129,7 @@ void main() {
 
     repository.loadedProfileIds.clear();
 
-    await tester.tap(find.byTooltip('Тест серверов'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Пакетный тест'));
+    await tester.tap(find.byTooltip('Параллельный тест серверов'));
     await tester.pumpAndSettle();
 
     expect(repository.loadedProfileIds, ['profile-2']);

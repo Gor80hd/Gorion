@@ -1,3 +1,5 @@
+import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
+
 class ConnectionTuningSettings {
   const ConnectionTuningSettings({
     this.forceChromeUtls = false,
@@ -6,6 +8,7 @@ class ConnectionTuningSettings {
     this.forceXudpPacketEncoding = false,
     this.enableMultiplex = false,
     this.enableTlsRecordFragment = false,
+    this.splitTunnel = const SplitTunnelSettings(),
   });
 
   final bool forceChromeUtls;
@@ -14,6 +17,7 @@ class ConnectionTuningSettings {
   final bool forceXudpPacketEncoding;
   final bool enableMultiplex;
   final bool enableTlsRecordFragment;
+  final SplitTunnelSettings splitTunnel;
 
   String get normalizedSniDonor => sniDonor.trim();
 
@@ -23,7 +27,8 @@ class ConnectionTuningSettings {
         forceVisionFlow ||
         forceXudpPacketEncoding ||
         enableMultiplex ||
-        enableTlsRecordFragment;
+        enableTlsRecordFragment ||
+        splitTunnel.hasOverrides;
   }
 
   ConnectionTuningSettings copyWith({
@@ -33,6 +38,7 @@ class ConnectionTuningSettings {
     bool? forceXudpPacketEncoding,
     bool? enableMultiplex,
     bool? enableTlsRecordFragment,
+    SplitTunnelSettings? splitTunnel,
   }) {
     return ConnectionTuningSettings(
       forceChromeUtls: forceChromeUtls ?? this.forceChromeUtls,
@@ -43,6 +49,7 @@ class ConnectionTuningSettings {
       enableMultiplex: enableMultiplex ?? this.enableMultiplex,
       enableTlsRecordFragment:
           enableTlsRecordFragment ?? this.enableTlsRecordFragment,
+      splitTunnel: splitTunnel ?? this.splitTunnel,
     );
   }
 
@@ -54,10 +61,12 @@ class ConnectionTuningSettings {
       'forceXudpPacketEncoding': forceXudpPacketEncoding,
       'enableMultiplex': enableMultiplex,
       'enableTlsRecordFragment': enableTlsRecordFragment,
+      'splitTunnel': splitTunnel.toJson(),
     };
   }
 
   factory ConnectionTuningSettings.fromJson(Map<String, dynamic> json) {
+    final rawSplitTunnel = json['splitTunnel'];
     return ConnectionTuningSettings(
       forceChromeUtls: json['forceChromeUtls'] as bool? ?? false,
       sniDonor: json['sniDonor']?.toString().trim() ?? '',
@@ -67,6 +76,13 @@ class ConnectionTuningSettings {
       enableMultiplex: json['enableMultiplex'] as bool? ?? false,
       enableTlsRecordFragment:
           json['enableTlsRecordFragment'] as bool? ?? false,
+      splitTunnel: rawSplitTunnel is Map<String, dynamic>
+          ? SplitTunnelSettings.fromJson(rawSplitTunnel)
+          : rawSplitTunnel is Map
+          ? SplitTunnelSettings.fromJson(
+              Map<String, dynamic>.from(rawSplitTunnel.cast<String, dynamic>()),
+            )
+          : const SplitTunnelSettings(),
     );
   }
 
@@ -78,7 +94,8 @@ class ConnectionTuningSettings {
         other.forceVisionFlow == forceVisionFlow &&
         other.forceXudpPacketEncoding == forceXudpPacketEncoding &&
         other.enableMultiplex == enableMultiplex &&
-        other.enableTlsRecordFragment == enableTlsRecordFragment;
+        other.enableTlsRecordFragment == enableTlsRecordFragment &&
+        other.splitTunnel == splitTunnel;
   }
 
   @override
@@ -89,5 +106,6 @@ class ConnectionTuningSettings {
     forceXudpPacketEncoding,
     enableMultiplex,
     enableTlsRecordFragment,
+    splitTunnel,
   );
 }

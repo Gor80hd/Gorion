@@ -7,10 +7,19 @@ import 'package:gorion_clean/features/home/application/dashboard_controller.dart
 import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 
+final ipInfoLookupServiceProvider = Provider<IpInfoLookupService>(
+  (ref) => const IpInfoLookupService(),
+);
+
 final ipInfoNotifierProvider = FutureProvider<IpInfo>((ref) async {
-  final (stage, proxyPort) = ref.watch(
+  final lookupService = ref.watch(ipInfoLookupServiceProvider);
+  final (stage, proxyPort, _) = ref.watch(
     dashboardControllerProvider.select(
-      (state) => (state.connectionStage, state.runtimeSession?.mixedPort),
+      (state) => (
+        state.connectionStage,
+        state.runtimeSession?.mixedPort,
+        state.activeServerTag,
+      ),
     ),
   );
   if (stage != ConnectionStage.connected ||
@@ -20,14 +29,11 @@ final ipInfoNotifierProvider = FutureProvider<IpInfo>((ref) async {
   }
 
   final userAgent = ref.watch(httpClientProvider).userAgent;
-  return _lookupIpInfo(
-    userAgent: userAgent,
-    mode: _IpLookupMode.proxy,
-    proxyPort: proxyPort,
-  );
+  return lookupService.lookupProxy(userAgent: userAgent, proxyPort: proxyPort);
 });
 
 final directIpInfoNotifierProvider = FutureProvider<IpInfo>((ref) async {
+  final lookupService = ref.watch(ipInfoLookupServiceProvider);
   ref.watch(
     dashboardControllerProvider.select(
       (state) => (
@@ -39,8 +45,27 @@ final directIpInfoNotifierProvider = FutureProvider<IpInfo>((ref) async {
   );
 
   final userAgent = ref.watch(httpClientProvider).userAgent;
-  return _lookupIpInfo(userAgent: userAgent, mode: _IpLookupMode.direct);
+  return lookupService.lookupDirect(userAgent: userAgent);
 });
+
+class IpInfoLookupService {
+  const IpInfoLookupService();
+
+  Future<IpInfo> lookupProxy({
+    required String userAgent,
+    required int proxyPort,
+  }) {
+    return _lookupIpInfo(
+      userAgent: userAgent,
+      mode: _IpLookupMode.proxy,
+      proxyPort: proxyPort,
+    );
+  }
+
+  Future<IpInfo> lookupDirect({required String userAgent}) {
+    return _lookupIpInfo(userAgent: userAgent, mode: _IpLookupMode.direct);
+  }
+}
 
 enum _IpLookupMode { direct, proxy }
 

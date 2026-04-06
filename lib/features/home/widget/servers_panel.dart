@@ -265,6 +265,18 @@ String _formatElapsed(Duration value) {
   return '${two(minutes)}:${two(seconds)}';
 }
 
+String _formatBestServerCheckIntervalBadge(int minutes) {
+  final hours = minutes ~/ 60;
+  final remainingMinutes = minutes % 60;
+  if (hours <= 0) {
+    return '${minutes}м';
+  }
+  if (remainingMinutes == 0) {
+    return '${hours}ч';
+  }
+  return '${hours}ч ${remainingMinutes}м';
+}
+
 const _throughputBenchmarkUrl =
     'https://speed.cloudflare.com/__down?bytes=2097152';
 const _throughputBenchmarkBytes = 2 * 1024 * 1024;
@@ -456,6 +468,11 @@ class ServersPanelWidget extends HookConsumerWidget {
     );
     final dashboardBusy = ref.watch(
       dashboardControllerProvider.select((state) => state.busy),
+    );
+    final autoSelectBestServerCheckIntervalMinutes = ref.watch(
+      dashboardControllerProvider.select(
+        (state) => state.autoSelectSettings.bestServerCheckIntervalMinutes,
+      ),
     );
     final autoServerSelectionExcluded = ref
         .watch(Preferences.autoSelectServerExcluded)
@@ -1114,7 +1131,7 @@ class ServersPanelWidget extends HookConsumerWidget {
                 }
                 if (allProfiles.isNotEmpty && visibleProfiles.isEmpty) {
                   return ListView(
-                    padding: const EdgeInsets.only(top: 8, right: 4, bottom: 8),
+                    padding: const EdgeInsets.only(top: 8, bottom: 8),
                     children: [
                       _SubscriptionsHiddenHint(
                         onManage: () => ref
@@ -1126,7 +1143,7 @@ class ServersPanelWidget extends HookConsumerWidget {
                 }
 
                 return ListView(
-                  padding: const EdgeInsets.only(right: 4, bottom: 8),
+                  padding: const EdgeInsets.only(bottom: 8),
                   children: [
                     const Gap(8),
                     PageReveal(
@@ -1143,54 +1160,91 @@ class ServersPanelWidget extends HookConsumerWidget {
                         pingOverride: autoCardPing,
                         hasSpeedResult: false,
                         isBenchmarking: false,
-                        badge: Tooltip(
-                          message: autoResetEnabled
-                              ? 'Сбросить быстрый кеш переподключения'
-                              : 'Быстрый кеш переподключения уже пуст',
-                          child: TextButton(
-                            onPressed: autoResetEnabled
-                                ? () async {
-                                    await ref
-                                        .read(
-                                          dashboardControllerProvider.notifier,
-                                        )
-                                        .resetRecentSuccessfulAutoConnect();
-                                  }
-                                : null,
-                            style: TextButton.styleFrom(
-                              minimumSize: const Size(0, 0),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        badge: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Tooltip(
+                              message: autoResetEnabled
+                                  ? 'Сбросить быстрый кеш переподключения'
+                                  : 'Быстрый кеш переподключения уже пуст',
+                              child: TextButton(
+                                onPressed: autoResetEnabled
+                                    ? () async {
+                                        await ref
+                                            .read(
+                                              dashboardControllerProvider
+                                                  .notifier,
+                                            )
+                                            .resetRecentSuccessfulAutoConnect();
+                                      }
+                                    : null,
+                                style: TextButton.styleFrom(
+                                  minimumSize: const Size(0, 0),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 2,
+                                  ),
+                                  foregroundColor: autoResetEnabled
+                                      ? const Color(0xFFFFB86B)
+                                      : Colors.white.withValues(alpha: 0.3),
+                                  backgroundColor: autoResetEnabled
+                                      ? const Color(
+                                          0xFFFFB86B,
+                                        ).withValues(alpha: 0.12)
+                                      : Colors.white.withValues(alpha: 0.04),
+                                  side: BorderSide(
+                                    color: autoResetEnabled
+                                        ? const Color(
+                                            0xFFFFB86B,
+                                          ).withValues(alpha: 0.35)
+                                        : Colors.white.withValues(alpha: 0.08),
+                                    width: 0.7,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  textStyle: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                                child: const Text('RESET'),
+                              ),
+                            ),
+                            const Gap(6),
+                            Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 7,
                                 vertical: 2,
                               ),
-                              foregroundColor: autoResetEnabled
-                                  ? const Color(0xFFFFB86B)
-                                  : Colors.white.withValues(alpha: 0.3),
-                              backgroundColor: autoResetEnabled
-                                  ? const Color(
-                                      0xFFFFB86B,
-                                    ).withValues(alpha: 0.12)
-                                  : Colors.white.withValues(alpha: 0.04),
-                              side: BorderSide(
-                                color: autoResetEnabled
-                                    ? const Color(
-                                        0xFFFFB86B,
-                                      ).withValues(alpha: 0.35)
-                                    : Colors.white.withValues(alpha: 0.08),
-                                width: 0.7,
-                              ),
-                              shape: RoundedRectangleBorder(
+                              decoration: BoxDecoration(
+                                color: const Color(
+                                  0xFF6DD3FF,
+                                ).withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: const Color(
+                                    0xFF6DD3FF,
+                                  ).withValues(alpha: 0.35),
+                                  width: 0.7,
+                                ),
                               ),
-                              textStyle: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.4,
+                              child: Text(
+                                _formatBestServerCheckIntervalBadge(
+                                  autoSelectBestServerCheckIntervalMinutes,
+                                ),
+                                style: const TextStyle(
+                                  color: Color(0xFF6DD3FF),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.2,
+                                ),
                               ),
                             ),
-                            child: const Text('RESET'),
-                          ),
+                          ],
                         ),
                         selectionProgress: autoServerSelectionProgress,
                         onSelect: () async {
@@ -2068,7 +2122,6 @@ class _SubscriptionCompactRow extends StatelessWidget {
       child: GlassPanel(
         height: 38,
         padding: const EdgeInsets.symmetric(horizontal: 14),
-        margin: const EdgeInsets.only(right: 4),
         borderRadius: 12,
         backgroundColor: Colors.white,
         opacity: isActive ? 0.08 : 0.05,
@@ -2255,7 +2308,7 @@ class _EmptyServersCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassPanel(
-      margin: const EdgeInsets.only(right: 4, bottom: 10),
+      margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
       borderRadius: 15,
       backgroundColor: Colors.white,
@@ -2360,7 +2413,7 @@ class _ServerCard extends HookConsumerWidget {
     return GestureDetector(
       onTap: onSelect,
       child: Container(
-        margin: const EdgeInsets.only(right: 4, bottom: 8),
+        margin: const EdgeInsets.only(bottom: 8),
         decoration: isBenchmarking
             ? BoxDecoration(
                 borderRadius: BorderRadius.circular(15),

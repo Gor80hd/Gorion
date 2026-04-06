@@ -2,12 +2,16 @@ import 'dart:convert';
 
 import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
+import 'package:gorion_clean/features/settings/data/split_tunnel_catalog.dart';
+import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
 
 const managedManualSelectorTag = 'gorion-manual';
 const managedAutoUrlTestTag = 'gorion-auto';
 const managedMixedInboundTag = 'gorion-mixed';
 const managedTunInboundTag = 'gorion-tun';
 const managedTunInterfaceName = 'gorion-tun';
+const _managedSplitTunnelRuleSetPrefix = 'gorion-split';
+const _managedSplitTunnelInlineTag = 'gorion-split-inline';
 
 class BuiltRuntimeConfig {
   const BuiltRuntimeConfig({
@@ -24,6 +28,7 @@ class BuiltRuntimeConfig {
 class SingboxConfigBuilder {
   static BuiltRuntimeConfig build({
     required String templateConfig,
+    required SplitTunnelSettings splitTunnelSettings,
     required RuntimeMode mode,
     required int mixedPort,
     required int controllerPort,
@@ -101,6 +106,7 @@ class SingboxConfigBuilder {
     final route = _cloneMap(config['route']);
     route['auto_detect_interface'] = true;
     route['final'] = managedManualSelectorTag;
+    _applySplitTunnel(route: route, settings: splitTunnelSettings);
     config['route'] = route;
 
     final log = _cloneMap(config['log']);
@@ -159,6 +165,124 @@ class SingboxConfigBuilder {
 
   static bool _containsTag(List<Map<String, dynamic>> outbounds, String tag) {
     return outbounds.any((outbound) => outbound['tag']?.toString() == tag);
+  }
+
+  static void _applySplitTunnel({
+    required Map<String, dynamic> route,
+    required SplitTunnelSettings settings,
+  }) {
+    if (!settings.hasOverrides) {
+      return;
+    }
+
+    final managedRuleSets = <Map<String, dynamic>>[];
+    final managedRuleSetTags = <String>[];
+
+    for (final tag in settings.normalizedGeositeTags) {
+      final managedTag = _managedSplitTunnelTag('geosite', tag);
+      managedRuleSetTags.add(managedTag);
+      managedRuleSets.add({
+        'type': 'remote',
+        'tag': managedTag,
+        'format': SplitTunnelRuleSetFormat.binary.jsonValue,
+        'url': buildBuiltInGeositeRuleSetUrl(
+          tag,
+          revision: settings.remoteRevision,
+        ),
+        'update_interval': settings.normalizedRemoteUpdateInterval,
+        'download_detour': managedManualSelectorTag,
+      });
+    }
+
+    for (final tag in settings.normalizedGeoipTags) {
+      final managedTag = _managedSplitTunnelTag('geoip', tag);
+      managedRuleSetTags.add(managedTag);
+      managedRuleSets.add({
+        'type': 'remote',
+        'tag': managedTag,
+        'format': SplitTunnelRuleSetFormat.binary.jsonValue,
+        'url': buildBuiltInGeoipRuleSetUrl(
+          tag,
+          revision: settings.remoteRevision,
+        ),
+        'update_interval': settings.normalizedRemoteUpdateInterval,
+        'download_detour': managedManualSelectorTag,
+      });
+    }
+
+    final inlineRuleSet = _buildInlineSplitTunnelRuleSet(settings);
+    if (inlineRuleSet != null) {
+      managedRuleSetTags.add(_managedSplitTunnelInlineTag);
+      managedRuleSets.add(inlineRuleSet);
+    }
+
+    for (final ruleSet in settings.activeCustomRuleSets) {
+      final managedTag = _managedSplitTunnelTag('custom', ruleSet.normalizedId);
+      managedRuleSetTags.add(managedTag);
+      managedRuleSets.add(
+        ruleSet.isRemote
+            ? {
+                'type': 'remote',
+                'tag': managedTag,
+                'format': ruleSet.format.jsonValue,
+                'url': ruleSet.normalizedUrl,
+                'update_interval': settings.normalizedRemoteUpdateInterval,
+                'download_detour': managedManualSelectorTag,
+              }
+            : {
+                'type': 'local',
+                'tag': managedTag,
+                'format': ruleSet.format.jsonValue,
+                'path': ruleSet.normalizedPath,
+              },
+      );
+    }
+
+    if (managedRuleSetTags.isEmpty) {
+      return;
+    }
+
+    final existingRuleSets = _cloneList(route['rule_set'])
+      ..removeWhere(
+        (ruleSet) =>
+            ruleSet['tag']?.toString().startsWith(
+              _managedSplitTunnelRuleSetPrefix,
+            ) ??
+            false,
+      );
+    route['rule_set'] = [...managedRuleSets, ...existingRuleSets];
+
+    final existingRules = _cloneList(route['rules']);
+    route['rules'] = [
+      {'rule_set': managedRuleSetTags, 'action': 'route', 'outbound': 'direct'},
+      ...existingRules,
+    ];
+  }
+
+  static Map<String, dynamic>? _buildInlineSplitTunnelRuleSet(
+    SplitTunnelSettings settings,
+  ) {
+    final rules = <Map<String, Object>>[];
+    if (settings.normalizedDomainSuffixes.isNotEmpty) {
+      rules.add({'domain_suffix': settings.normalizedDomainSuffixes});
+    }
+    if (settings.normalizedIpCidrs.isNotEmpty) {
+      rules.add({'ip_cidr': settings.normalizedIpCidrs});
+    }
+    if (rules.isEmpty) {
+      return null;
+    }
+
+    return {
+      'type': 'inline',
+      'tag': _managedSplitTunnelInlineTag,
+      'rules': rules,
+    };
+  }
+
+  static String _managedSplitTunnelTag(String kind, String value) {
+    final sanitized = value.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '-');
+    return '$_managedSplitTunnelRuleSetPrefix-$kind-$sanitized';
   }
 
   static List<Map<String, Object>> _buildInbounds({

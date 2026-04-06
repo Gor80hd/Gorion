@@ -8,6 +8,7 @@ import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_config_builder.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
 import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
+import 'package:gorion_clean/features/runtime/data/windows_runtime_cleanup_watchdog.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/data/connection_tuning_config_overrides.dart';
@@ -18,8 +19,13 @@ import 'package:uuid/uuid.dart';
 const _runtimeProcessMarkerFileName = 'runtime-process.json';
 
 class SingboxRuntimeService {
-  SingboxRuntimeService({SystemProxyService? systemProxyService})
-    : _systemProxyService = systemProxyService ?? const SystemProxyService();
+  SingboxRuntimeService({
+    SystemProxyService? systemProxyService,
+    WindowsRuntimeCleanupWatchdog? windowsRuntimeCleanupWatchdog,
+  }) : _systemProxyService = systemProxyService ?? const SystemProxyService(),
+       _windowsRuntimeCleanupWatchdog =
+           windowsRuntimeCleanupWatchdog ??
+           const WindowsRuntimeCleanupWatchdog();
 
   Process? _process;
   RuntimeSession? _session;
@@ -27,6 +33,7 @@ class SingboxRuntimeService {
   StreamSubscription<String>? _stdoutSubscription;
   StreamSubscription<String>? _stderrSubscription;
   final SystemProxyService _systemProxyService;
+  final WindowsRuntimeCleanupWatchdog _windowsRuntimeCleanupWatchdog;
   SystemProxyLease? _systemProxyLease;
 
   RuntimeSession? get session => _session;
@@ -57,6 +64,7 @@ class SingboxRuntimeService {
 
     final built = SingboxConfigBuilder.build(
       templateConfig: templateConfig,
+      splitTunnelSettings: connectionTuningSettings.splitTunnel,
       mode: mode,
       mixedPort: mixedPort,
       controllerPort: controllerPort,
@@ -104,6 +112,12 @@ class SingboxRuntimeService {
       pid: process.pid,
       binaryPath: binaryFile.path,
       configPath: configFile.path,
+    );
+    await _windowsRuntimeCleanupWatchdog.arm(
+      runtimeDir: runtimeDir,
+      parentPid: pid,
+      childPid: process.pid,
+      onLog: _pushLog,
     );
 
     int? startupExitCode;

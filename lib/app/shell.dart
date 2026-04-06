@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
+import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -15,17 +19,81 @@ const _dockGap = 12.0;
 const _titleBarHeight = 48.0;
 const _dockTopGap = 10.0;
 
-class AppShell extends StatefulWidget {
+class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key, required this.child});
 
   final Widget child;
 
   @override
-  State<AppShell> createState() => _AppShellState();
+  ConsumerState<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   _DockPage _currentPage = _DockPage.home;
+  AppLifecycleListener? _appLifecycleListener;
+  Future<void>? _shutdownFuture;
+  bool _windowDestroyInProgress = false;
+
+  bool get _isDesktop =>
+      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
+  @override
+  void initState() {
+    super.initState();
+    _appLifecycleListener = AppLifecycleListener(
+      onExitRequested: _handleAppExitRequest,
+    );
+    if (_isDesktop) {
+      windowManager.addListener(this);
+      unawaited(windowManager.setPreventClose(true));
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_isDesktop) {
+      windowManager.removeListener(this);
+    }
+    _appLifecycleListener?.dispose();
+    super.dispose();
+  }
+
+  @override
+  void onWindowClose() {
+    if (_windowDestroyInProgress) {
+      return;
+    }
+    unawaited(_closeWindowGracefully());
+  }
+
+  Future<AppExitResponse> _handleAppExitRequest() async {
+    await _shutdownBeforeExit();
+    return AppExitResponse.exit;
+  }
+
+  Future<void> _closeWindowGracefully() async {
+    await _shutdownBeforeExit();
+    if (!_isDesktop || _windowDestroyInProgress) {
+      return;
+    }
+
+    _windowDestroyInProgress = true;
+    await windowManager.destroy();
+  }
+
+  Future<void> _shutdownBeforeExit() {
+    return _shutdownFuture ??= _performShutdown().whenComplete(() {
+      _shutdownFuture = null;
+    });
+  }
+
+  Future<void> _performShutdown() async {
+    try {
+      await ref.read(dashboardControllerProvider.notifier).shutdownForAppExit();
+    } on Object {
+      return;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

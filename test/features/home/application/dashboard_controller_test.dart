@@ -132,7 +132,11 @@ void main() {
         );
         final settingsRepository = _FakeAutoSelectSettingsRepository(
           initialState: const StoredAutoSelectState(
-            settings: AutoSelectSettings(enabled: false),
+            settings: AutoSelectSettings(
+              enabled: false,
+              bestServerCheckIntervalMinutes:
+                  autoSelectBestServerCheckIntervalMinMinutes,
+            ),
           ),
         );
         final controller = DashboardController(
@@ -143,12 +147,15 @@ void main() {
             settingsRepository: settingsRepository,
           ),
           autoSelectorService: autoSelectorService,
-          autoSelectionInterval: const Duration(minutes: 1),
           createTimer: timerFactory.create,
           initialState: DashboardState(
             bootstrapping: false,
             runtimeMode: RuntimeMode.mixed,
-            autoSelectSettings: const AutoSelectSettings(enabled: false),
+            autoSelectSettings: const AutoSelectSettings(
+              enabled: false,
+              bestServerCheckIntervalMinutes:
+                  autoSelectBestServerCheckIntervalMinMinutes,
+            ),
             storage: _storage,
             connectionStage: ConnectionStage.connected,
             runtimeSession: _session,
@@ -172,7 +179,7 @@ void main() {
         expect(timerFactory.activeTimers, hasLength(1));
         expect(
           timerFactory.activeTimers.single.duration,
-          const Duration(minutes: 1),
+          const Duration(minutes: autoSelectBestServerCheckIntervalMinMinutes),
         );
 
         timerFactory.activeTimers.single.fire();
@@ -197,12 +204,15 @@ void main() {
           autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
           autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
           autoSelectorService: autoSelectorService,
-          autoSelectionInterval: const Duration(minutes: 1),
           createTimer: timerFactory.create,
           initialState: DashboardState(
             bootstrapping: false,
             runtimeMode: RuntimeMode.mixed,
-            autoSelectSettings: const AutoSelectSettings(enabled: true),
+            autoSelectSettings: const AutoSelectSettings(
+              enabled: true,
+              bestServerCheckIntervalMinutes:
+                  autoSelectBestServerCheckIntervalMinMinutes,
+            ),
             storage: _manualStorage,
             connectionStage: ConnectionStage.connected,
             runtimeSession: _session,
@@ -229,6 +239,95 @@ void main() {
         expect(autoSelectorService.maintainCallCount, 1);
       },
     );
+
+    test(
+      'changing the best-server interval re-arms the next automatic pass',
+      () async {
+        final timerFactory = _ControlledTimerFactory();
+        final settingsRepository = _FakeAutoSelectSettingsRepository(
+          initialState: const StoredAutoSelectState(
+            settings: AutoSelectSettings(
+              enabled: true,
+              bestServerCheckIntervalMinutes:
+                  defaultAutoSelectBestServerCheckIntervalMinutes,
+            ),
+          ),
+        );
+        final controller = DashboardController(
+          repository: _FakeProfileRepository(initialStorage: _manualStorage),
+          runtimeService: _FakeRuntimeService(),
+          autoSelectSettingsRepository: settingsRepository,
+          autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+          autoSelectorService: _ScriptedAutoSelectorService(),
+          createTimer: timerFactory.create,
+          initialState: DashboardState(
+            bootstrapping: false,
+            runtimeMode: RuntimeMode.mixed,
+            autoSelectSettings: const AutoSelectSettings(
+              enabled: true,
+              bestServerCheckIntervalMinutes:
+                  defaultAutoSelectBestServerCheckIntervalMinutes,
+            ),
+            storage: _manualStorage,
+            connectionStage: ConnectionStage.connected,
+            runtimeSession: _session,
+            selectedServerTag: 'server-a',
+            activeServerTag: 'server-a',
+          ),
+          loadOnInit: false,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.selectServer(autoSelectServerTag);
+        await _flushAsync();
+
+        expect(timerFactory.activeTimers, hasLength(1));
+        expect(
+          timerFactory.activeTimers.single.duration,
+          defaultAutoSelectBestServerCheckInterval,
+        );
+
+        await controller.setAutoSelectBestServerCheckIntervalMinutes(120);
+        await _flushAsync();
+
+        expect(
+          controller.state.autoSelectSettings.bestServerCheckIntervalMinutes,
+          120,
+        );
+        expect(timerFactory.activeTimers, hasLength(1));
+        expect(
+          timerFactory.activeTimers.single.duration,
+          const Duration(hours: 2),
+        );
+      },
+    );
+
+    test('shutdownForAppExit stops the runtime once', () async {
+      final runtimeService = _FakeRuntimeService();
+      final controller = DashboardController(
+        repository: _FakeProfileRepository(initialStorage: _storage),
+        runtimeService: runtimeService,
+        autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
+        autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+        autoSelectorService: _ScriptedAutoSelectorService(),
+        initialState: DashboardState(
+          bootstrapping: false,
+          runtimeMode: RuntimeMode.mixed,
+          autoSelectSettings: const AutoSelectSettings(enabled: true),
+          storage: _storage,
+          connectionStage: ConnectionStage.connected,
+          runtimeSession: _session,
+          selectedServerTag: autoSelectServerTag,
+          activeServerTag: 'server-a',
+        ),
+        loadOnInit: false,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.shutdownForAppExit();
+
+      expect(runtimeService.stopCallCount, 1);
+    });
 
     test(
       'runAutoSelect refreshes the quick reconnect cache to the live selected server',
@@ -403,7 +502,6 @@ void main() {
             settingsRepository: settingsRepository,
           ),
           autoSelectorService: autoSelectorService,
-          autoSelectionInterval: const Duration(minutes: 1),
           createTimer: timerFactory.create,
           initialState: DashboardState(
             bootstrapping: false,
@@ -463,7 +561,6 @@ void main() {
             settingsRepository: settingsRepository,
           ),
           autoSelectorService: autoSelectorService,
-          autoSelectionInterval: const Duration(minutes: 1),
           createTimer: timerFactory.create,
           initialState: DashboardState(
             bootstrapping: false,

@@ -3,6 +3,7 @@ import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/home/notifier/home_status_card_provider.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 
 final _createdAt = DateTime(2026, 4, 4, 12);
@@ -238,6 +239,86 @@ void main() {
       expect(model.showTargetSummary, isTrue);
       expect(model.routeName, 'Server A');
       expect(model.statusText, 'Переподключаемся к Server A');
+    });
+
+    test('prefers current routed location when auto route label conflicts', () {
+      final mismatchedProfile = _profile.copyWith(
+        servers: const [
+          ServerEntry(
+            tag: 'server-a',
+            displayName: '[BE] Brussels, Belgium, Extra',
+            type: 'vless',
+            host: 'be.example.com',
+            port: 443,
+          ),
+        ],
+      );
+      final model = buildHomeStatusCardModel(
+        state: DashboardState(
+          bootstrapping: false,
+          connectionStage: ConnectionStage.connected,
+          autoSelectSettings: AutoSelectSettings(enabled: true),
+          storage: StoredProfilesState(
+            activeProfileId: mismatchedProfile.id,
+            profiles: [mismatchedProfile],
+          ),
+          selectedServerTag: autoSelectServerTag,
+          activeServerTag: 'server-a',
+        ),
+        selectedPreview: null,
+        pendingManualSelection: null,
+        sourceIp: null,
+        currentIp: const IpInfo(
+          ip: '121.127.45.56',
+          countryCode: 'DK',
+          country: 'Denmark',
+          region: 'Capital Region',
+          city: 'Copenhagen',
+        ),
+        autoStatus: 'Проверяем текущий сервер',
+      );
+
+      expect(model.routeName, 'Copenhagen, Capital Region');
+    });
+
+    test('keeps the auto route label when it matches the routed country', () {
+      final matchingProfile = _profile.copyWith(
+        servers: const [
+          ServerEntry(
+            tag: 'server-a',
+            displayName: '[DK] Дания, Копенгаген',
+            type: 'vless',
+            host: 'dk.example.com',
+            port: 443,
+          ),
+        ],
+      );
+      final model = buildHomeStatusCardModel(
+        state: DashboardState(
+          bootstrapping: false,
+          connectionStage: ConnectionStage.connected,
+          autoSelectSettings: AutoSelectSettings(enabled: true),
+          storage: StoredProfilesState(
+            activeProfileId: matchingProfile.id,
+            profiles: [matchingProfile],
+          ),
+          selectedServerTag: autoSelectServerTag,
+          activeServerTag: 'server-a',
+        ),
+        selectedPreview: null,
+        pendingManualSelection: null,
+        sourceIp: null,
+        currentIp: const IpInfo(
+          ip: '121.127.45.56',
+          countryCode: 'DK',
+          country: 'Denmark',
+          region: 'Capital Region',
+          city: 'Copenhagen',
+        ),
+        autoStatus: 'Подключено',
+      );
+
+      expect(model.routeName, '🇩🇰 Дания, Копенгаген');
     });
   });
 }

@@ -28,6 +28,7 @@ void main() {
         const AutoSelectSettings(
           enabled: false,
           checkIp: false,
+          bestServerCheckIntervalMinutes: 120,
           domainProbeUrl: 'https://probe.example.com/204',
           ipProbeUrl: 'http://9.9.9.9',
         ),
@@ -50,6 +51,7 @@ void main() {
 
       expect(loaded.settings.enabled, isFalse);
       expect(loaded.settings.checkIp, isFalse);
+      expect(loaded.settings.bestServerCheckIntervalMinutes, 120);
       expect(loaded.settings.domainProbeUrl, 'https://probe.example.com/204');
       expect(loaded.settings.ipProbeUrl, 'http://9.9.9.9');
       expect(loaded.settings.isExcluded('profile-1', 'server-a'), isTrue);
@@ -68,6 +70,7 @@ void main() {
       final restartedState = await restartedRepository.loadState();
 
       expect(restartedState.settings.enabled, isFalse);
+      expect(restartedState.settings.bestServerCheckIntervalMinutes, 120);
       expect(
         restartedState.recentAutoSelectedServer?.matchesProfile('profile-1'),
         isTrue,

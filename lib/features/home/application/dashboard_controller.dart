@@ -19,7 +19,6 @@ import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart'
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 
-const automaticAutoSelectInterval = Duration(seconds: 60);
 const systemProxyStartupSettleDelay = Duration(milliseconds: 1500);
 
 final profileRepositoryProvider = Provider<ProfileRepository>(
@@ -71,6 +70,20 @@ RuntimeMode _normalizeRuntimeMode(RuntimeMode mode) {
 
 RuntimeMode _effectiveRuntimeMode(RuntimeMode mode) {
   return _normalizeRuntimeMode(mode);
+}
+
+String _describeAutoSelectBestServerCheckInterval(int minutes) {
+  final hours = minutes ~/ 60;
+  final remainingMinutes = minutes % 60;
+  if (hours > 0 && remainingMinutes > 0) {
+    return '$hours ${hours == 1 ? 'hour' : 'hours'} '
+        '$remainingMinutes '
+        '${remainingMinutes == 1 ? 'minute' : 'minutes'}';
+  }
+  if (hours > 0) {
+    return '$hours ${hours == 1 ? 'hour' : 'hours'}';
+  }
+  return '$minutes ${minutes == 1 ? 'minute' : 'minutes'}';
 }
 
 DashboardState _normalizeDashboardState(DashboardState state) {
@@ -243,7 +256,6 @@ class DashboardController extends StateNotifier<DashboardState> {
     required AutoSelectPreconnectService autoSelectPreconnectService,
     required AutoSelectorService autoSelectorService,
     ClashApiClientFactory? clashApiClientFactory,
-    Duration autoSelectionInterval = automaticAutoSelectInterval,
     Duration systemProxyStartupSettleDelay = Duration.zero,
     Timer Function(Duration duration, void Function() callback)? createTimer,
     Future<void> Function(Duration duration)? pause,
@@ -259,7 +271,6 @@ class DashboardController extends StateNotifier<DashboardState> {
        _autoSelectorService = autoSelectorService,
        _createClashApiClient =
            clashApiClientFactory ?? ClashApiClient.fromSession,
-       _autoSelectionInterval = autoSelectionInterval,
        _systemProxyStartupSettleDelay = systemProxyStartupSettleDelay,
        _createTimer = createTimer ?? _defaultCreateTimer,
        _pause = pause ?? _defaultPause,
@@ -289,13 +300,15 @@ class DashboardController extends StateNotifier<DashboardState> {
   final AutoSelectPreconnectService _autoSelectPreconnectService;
   final AutoSelectorService _autoSelectorService;
   final ClashApiClientFactory _createClashApiClient;
-  final Duration _autoSelectionInterval;
   final Duration _systemProxyStartupSettleDelay;
   final Timer Function(Duration duration, void Function() callback)
   _createTimer;
   final Future<void> Function(Duration duration) _pause;
   Timer? _autoSelectionTimer;
   bool _autoSelectionInFlight = false;
+
+  Duration get _currentAutoSelectionInterval =>
+      state.autoSelectSettings.bestServerCheckInterval;
 
   @override
   void dispose() {
@@ -527,6 +540,46 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
+  Future<void> refreshSplitTunnelSources() async {
+    final currentSettings = state.connectionTuningSettings;
+    final splitTunnel = currentSettings.splitTunnel;
+    if (state.busy) {
+      return;
+    }
+
+    if (!splitTunnel.hasManagedRemoteSources) {
+      state = state.copyWith(
+        clearErrorMessage: true,
+        statusMessage:
+            'No built-in geosite or geoip rule sets are enabled for refresh.',
+      );
+      return;
+    }
+
+    state = state.copyWith(
+      busy: true,
+      clearErrorMessage: true,
+      clearStatusMessage: true,
+    );
+
+    try {
+      final stored = await _connectionTuningSettingsRepository.save(
+        currentSettings.copyWith(
+          splitTunnel: splitTunnel.bumpedRemoteRevision(),
+        ),
+      );
+      state = state.copyWith(
+        busy: false,
+        connectionTuningSettings: stored,
+        statusMessage: state.connectionStage == ConnectionStage.connected
+            ? 'Split tunneling rule sets were marked for refresh. Reconnect to fetch the latest geosite/geoip sources.'
+            : 'Split tunneling rule sets will refresh on the next connect.',
+      );
+    } on Object catch (error) {
+      state = state.copyWith(busy: false, errorMessage: error.toString());
+    }
+  }
+
   Future<void> chooseProfile(String profileId) async {
     final previousProfileId = state.activeProfile?.id;
     _stopAutoSelectionMonitoring();
@@ -649,6 +702,47 @@ class DashboardController extends StateNotifier<DashboardState> {
           allowSwitchDuringCooldown: true,
           surfaceFailures: true,
         );
+      }
+    } on Object catch (error) {
+      state = state.copyWith(busy: false, errorMessage: error.toString());
+    }
+  }
+
+  Future<void> setAutoSelectBestServerCheckIntervalMinutes(int minutes) async {
+    final clampedMinutes = clampAutoSelectBestServerCheckIntervalMinutes(
+      minutes,
+    );
+    final currentSettings = state.autoSelectSettings;
+    if (state.busy ||
+        currentSettings.bestServerCheckIntervalMinutes == clampedMinutes) {
+      return;
+    }
+
+    final shouldRescheduleMonitor = _shouldMonitorAutoSelection();
+
+    state = state.copyWith(
+      busy: true,
+      clearErrorMessage: true,
+      clearStatusMessage: true,
+    );
+    try {
+      final stored = await _autoSelectSettingsRepository.saveSettings(
+        currentSettings.copyWith(
+          bestServerCheckIntervalMinutes: clampedMinutes,
+        ),
+      );
+      final updatedSettings = stored.settings;
+      state = state.copyWith(
+        busy: false,
+        autoSelectSettings: updatedSettings,
+        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
+        statusMessage:
+            'Automatic best-server checks now run every '
+            '${_describeAutoSelectBestServerCheckInterval(updatedSettings.bestServerCheckIntervalMinutes)}.',
+      );
+
+      if (shouldRescheduleMonitor && !_autoSelectionInFlight) {
+        _scheduleNextAutoSelectionPass();
       }
     } on Object catch (error) {
       state = state.copyWith(busy: false, errorMessage: error.toString());
@@ -935,6 +1029,15 @@ class DashboardController extends StateNotifier<DashboardState> {
         errorMessage: _connectionError(error, state.runtimeMode),
         logs: _runtimeService.logs,
       );
+    }
+  }
+
+  Future<void> shutdownForAppExit() async {
+    _stopAutoSelectionMonitoring();
+    try {
+      await _runtimeService.stop();
+    } on Object {
+      return;
     }
   }
 
@@ -1543,16 +1646,19 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
 
     _autoSelectionTimer?.cancel();
-    _autoSelectionTimer = _createTimer(delay ?? _autoSelectionInterval, () {
-      _autoSelectionTimer = null;
-      unawaited(
-        _runAutomaticAutoSelect(
-          allowSwitchDuringCooldown: false,
-          surfaceFailures: false,
-          rescheduleOnCompletion: true,
-        ),
-      );
-    });
+    _autoSelectionTimer = _createTimer(
+      delay ?? _currentAutoSelectionInterval,
+      () {
+        _autoSelectionTimer = null;
+        unawaited(
+          _runAutomaticAutoSelect(
+            allowSwitchDuringCooldown: false,
+            surfaceFailures: false,
+            rescheduleOnCompletion: true,
+          ),
+        );
+      },
+    );
   }
 
   void _runAutomaticAutoSelectNow({

@@ -13,6 +13,7 @@ import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/home/utils/map_location_resolver.dart';
 import 'package:gorion_clean/features/runtime/model/connection_status.dart';
 import 'package:gorion_clean/features/runtime/notifier/connection_notifier.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
@@ -44,241 +45,21 @@ Offset _latLonToSvg(double lat, double lon) {
   return Offset(x, y);
 }
 
-/// Rough country-code → (lat, lon) mapping for common locations.
-const Map<String, (double, double)> _countryLatLon = {
-  'DE': (51.1, 10.4),
-  'US': (38.9, -77.0),
-  'FR': (46.2, 2.2),
-  'GB': (55.4, -3.4),
-  'NL': (52.1, 5.3),
-  'LT': (55.2, 23.9),
-  'BE': (50.8, 4.5),
-  'RO': (45.9, 24.9),
-  'SK': (48.7, 19.7),
-  'RU': (55.7, 37.6),
-  'IR': (32.4, 53.7),
-  'TR': (38.9, 35.2),
-  'JP': (36.2, 138.3),
-  'CN': (35.9, 104.5),
-  'SG': (1.3, 103.8),
-  'CA': (56.1, -106.3),
-  'AU': (-25.3, 133.8),
-  'BR': (-14.2, -51.9),
-  'IN': (20.6, 78.9),
-  'KR': (35.9, 127.8),
-  'PL': (51.9, 19.1),
-  'SE': (60.1, 18.6),
-  'NO': (60.5, 8.5),
-  'CH': (46.8, 8.2),
-  'AT': (47.5, 14.6),
-  'UA': (48.4, 31.2),
-  'FI': (61.9, 25.7),
-  'IT': (41.9, 12.5),
-  'ES': (40.5, -3.7),
-  'PT': (39.4, -8.2),
-  'AE': (23.4, 53.8),
-  'HK': (22.3, 114.2),
-  'TW': (23.7, 121.0),
-};
-
-const Map<String, (double, double)> _locationKeywords = {
-  'lithuania': (55.2, 23.9),
-  'литва': (55.2, 23.9),
-  'vilnius': (54.6872, 25.2797),
-  'вильнюс': (54.6872, 25.2797),
-  'belgium': (50.8, 4.5),
-  'бельгия': (50.8, 4.5),
-  'brussels': (50.8503, 4.3517),
-  'брюссель': (50.8503, 4.3517),
-  'romania': (45.9, 24.9),
-  'румыния': (45.9, 24.9),
-  'bucharest': (44.4268, 26.1025),
-  'бухарест': (44.4268, 26.1025),
-  'slovakia': (48.7, 19.7),
-  'словакия': (48.7, 19.7),
-  'bratislava': (48.1486, 17.1077),
-  'братислава': (48.1486, 17.1077),
-  'germany': (51.1, 10.4),
-  'германия': (51.1, 10.4),
-  'frankfurt': (50.1109, 8.6821),
-  'франкфурт': (50.1109, 8.6821),
-  'switzerland': (46.8, 8.2),
-  'швейцария': (46.8, 8.2),
-  'zurich': (47.3769, 8.5417),
-  'цюрих': (47.3769, 8.5417),
-  'united kingdom': (55.4, -3.4),
-  'great britain': (55.4, -3.4),
-  'britain': (55.4, -3.4),
-  'великобритания': (55.4, -3.4),
-  'london': (51.5074, -0.1278),
-  'лондон': (51.5074, -0.1278),
-  'south korea': (35.9, 127.8),
-  'korea': (35.9, 127.8),
-  'южная корея': (35.9, 127.8),
-  'seoul': (37.5665, 126.9780),
-  'сеул': (37.5665, 126.9780),
-  'canada': (56.1, -106.3),
-  'канада': (56.1, -106.3),
-  'toronto': (43.6532, -79.3832),
-  'торонто': (43.6532, -79.3832),
-  'netherlands': (52.1, 5.3),
-  'amsterdam': (52.3676, 4.9041),
-  'france': (46.2, 2.2),
-  'paris': (48.8566, 2.3522),
-  'us': (38.9, -77.0),
-  'usa': (38.9, -77.0),
-  'united states': (38.9, -77.0),
-  'new york': (40.7128, -74.0060),
-  'los angeles': (34.0549, -118.2426),
-  'russia': (55.7, 37.6),
-  'moscow': (55.7558, 37.6173),
-  'iran': (32.4, 53.7),
-  'tehran': (35.6892, 51.3890),
-  'turkey': (38.9, 35.2),
-  'istanbul': (41.0082, 28.9784),
-  'japan': (36.2, 138.3),
-  'tokyo': (35.6762, 139.6503),
-  'china': (35.9, 104.5),
-  'singapore': (1.3521, 103.8198),
-  'australia': (-25.3, 133.8),
-  'brazil': (-14.2, -51.9),
-  'india': (20.6, 78.9),
-  'poland': (51.9, 19.1),
-  'sweden': (60.1, 18.6),
-  'norway': (60.5, 8.5),
-  'austria': (47.5, 14.6),
-  'ukraine': (48.4, 31.2),
-  'finland': (61.9, 25.7),
-  'italy': (41.9, 12.5),
-  'spain': (40.5, -3.7),
-  'portugal': (39.4, -8.2),
-  'uae': (23.4, 53.8),
-  'dubai': (25.2048, 55.2708),
-  'hong kong': (22.3193, 114.1694),
-  'taiwan': (23.7, 121.0),
-};
-
-(double, double) _getLatLon(String? countryCode) {
-  if (countryCode == null) return (51.5, 10.0); // fallback Europe
-  return _countryLatLon[countryCode.toUpperCase()] ?? (20.0, 0.0);
-}
-
-String _sanitizeServerName(String value) {
-  return value.replaceAll(RegExp('§[^§]*'), '').trimRight();
-}
-
-String? _extractCountryCode(String value) {
-  final match = RegExp(r'\[([A-Z]{2})\]|\b([A-Z]{2})\b').firstMatch(value);
-  final code = match?.group(1) ?? match?.group(2);
-  if (code == null || !_countryLatLon.containsKey(code)) return null;
-  return code;
-}
-
-String? _extractCountryCodeFromFlag(String value) {
-  final runes = value.runes.toList(growable: false);
-  for (var i = 0; i < runes.length - 1; i++) {
-    final first = runes[i];
-    final second = runes[i + 1];
-    final isFirstIndicator = first >= 0x1F1E6 && first <= 0x1F1FF;
-    final isSecondIndicator = second >= 0x1F1E6 && second <= 0x1F1FF;
-    if (!isFirstIndicator || !isSecondIndicator) {
-      continue;
-    }
-
-    final code = String.fromCharCodes([
-      0x41 + first - 0x1F1E6,
-      0x41 + second - 0x1F1E6,
-    ]);
-    if (_countryLatLon.containsKey(code)) {
-      return code;
-    }
-  }
-  return null;
-}
-
-Offset? _extractLatLonFromKeyword(String value) {
-  final normalized = value.toLowerCase();
-  for (final entry in _locationKeywords.entries) {
-    if (normalized.contains(entry.key)) {
-      return Offset(entry.value.$1, entry.value.$2);
-    }
-  }
-  return null;
-}
-
-(double, double) _fallbackLatLonForName(String value) {
-  var hash = 0;
-  for (final codeUnit in value.codeUnits) {
-    hash = ((hash * 31) + codeUnit) & 0x7fffffff;
-  }
-
-  final lat = -45 + (hash % 9000) / 100;
-  final lon = -170 + ((hash ~/ 9000) % 34000) / 100;
-  return (lat, lon);
-}
-
-(double, double) _resolveDestinationLatLon(
-  OutboundInfo? selectedProxy,
-  String? destCountry,
-) {
-  if (selectedProxy == null) return _getLatLon(destCountry ?? 'DE');
-
-  final rawName = selectedProxy.tagDisplay.isNotEmpty
-      ? selectedProxy.tagDisplay
-      : selectedProxy.tag;
-  final keywordLatLon = _extractLatLonFromKeyword(rawName);
-  if (keywordLatLon != null) {
-    return (keywordLatLon.dx, keywordLatLon.dy);
-  }
-
-  final countryCode =
-      _extractCountryCode(rawName) ?? _extractCountryCodeFromFlag(rawName);
-
-  if (countryCode != null) {
-    return _getLatLon(countryCode);
-  }
-
-  final sanitizedName = _sanitizeServerName(rawName);
-  if (sanitizedName.isNotEmpty) {
-    return _fallbackLatLonForName(sanitizedName);
-  }
-
-  return _getLatLon(destCountry ?? 'DE');
-}
-
-(double, double) _resolveSourceLatLon(IpInfo? ipInfo) {
-  if (ipInfo == null) {
-    return (55.7558, 37.6173);
-  }
-
-  final locationParts = [
-    ipInfo.city,
-    ipInfo.region,
-    ipInfo.countryCode,
-  ].whereType<String>().join(', ');
-  final keywordLatLon = _extractLatLonFromKeyword(locationParts);
-  if (keywordLatLon != null) {
-    return (keywordLatLon.dx, keywordLatLon.dy);
-  }
-
-  return _getLatLon(ipInfo.countryCode);
-}
-
 (double, double) _resolveLocalFallbackLatLon() {
   final locales = WidgetsBinding.instance.platformDispatcher.locales;
   for (final locale in locales) {
     final code = locale.countryCode;
-    if (code != null && _countryLatLon.containsKey(code.toUpperCase())) {
-      return _getLatLon(code);
+    if (hasCountryLatLon(code)) {
+      return lookupCountryLatLon(code);
     }
   }
 
   final detectedCountry = RegionDetector.detect();
-  if (_countryLatLon.containsKey(detectedCountry)) {
-    return _getLatLon(detectedCountry);
+  if (hasCountryLatLon(detectedCountry)) {
+    return lookupCountryLatLon(detectedCountry);
   }
 
-  return (51.5, 10.0);
+  return defaultMapFallbackLatLon;
 }
 
 bool _sameIpInfo(IpInfo? left, IpInfo? right) {
@@ -374,8 +155,8 @@ class MapView extends HookConsumerWidget {
 
     final srcLatLon = shouldUseLocalSource
         ? _resolveLocalFallbackLatLon()
-        : _resolveSourceLatLon(sourceInfo ?? sourceAnchor.value);
-    final dstLatLon = _resolveDestinationLatLon(selectedProxy, destCountry);
+        : resolveSourceLatLon(sourceInfo ?? sourceAnchor.value);
+    final dstLatLon = resolveDestinationLatLon(selectedProxy, destCountry);
 
     // Points in SVG-space
     final srcSvg = _latLonToSvg(srcLatLon.$1, srcLatLon.$2);

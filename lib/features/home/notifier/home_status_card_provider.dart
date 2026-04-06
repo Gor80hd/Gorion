@@ -6,6 +6,7 @@ import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
 import 'package:gorion_clean/features/proxy/notifier/ip_info_notifier.dart';
+import 'package:gorion_clean/features/proxy/utils/ip_info_display.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 
@@ -77,9 +78,15 @@ HomeStatusCardModel buildHomeStatusCardModel({
   final displayProxy = isAutoMode
       ? autoTargetProxy
       : (selectedPreview ?? activeProxy);
-  final routeName = hideAutoTargetSummary || autoTargetProxy == null
+  final proxyRouteName = hideAutoTargetSummary || autoTargetProxy == null
       ? null
       : _proxyName(autoTargetProxy);
+  final routeName = _resolveRouteName(
+    state,
+    isAutoMode: isAutoMode,
+    proxyRouteName: proxyRouteName,
+    currentIp: currentIp,
+  );
 
   final rawStatusText = switch ((isAutoMode, autoStatus, routeName)) {
     (true, final String s, _) when s.isNotEmpty => s,
@@ -157,6 +164,84 @@ String? _normalizeCardText(String? value) {
     return null;
   }
   return trimmed;
+}
+
+String? _resolveRouteName(
+  DashboardState state, {
+  required bool isAutoMode,
+  required String? proxyRouteName,
+  required IpInfo? currentIp,
+}) {
+  if (proxyRouteName == null) {
+    return null;
+  }
+
+  if (!isAutoMode || state.connectionStage != ConnectionStage.connected) {
+    return proxyRouteName;
+  }
+
+  final currentLocation = bestIpInfoLocation(currentIp);
+  if (currentLocation == null || currentLocation.isEmpty) {
+    return proxyRouteName;
+  }
+
+  if (_routeNameMatchesCurrentIp(proxyRouteName, currentIp)) {
+    return proxyRouteName;
+  }
+
+  return currentLocation;
+}
+
+bool _routeNameMatchesCurrentIp(String routeName, IpInfo? currentIp) {
+  if (currentIp == null) {
+    return true;
+  }
+
+  final routeCountryCode = extractCountryCodeFromDisplayText(routeName);
+  final currentCountryCode = currentIp.countryCode.trim().toUpperCase();
+  if (routeCountryCode != null &&
+      currentCountryCode.isNotEmpty &&
+      routeCountryCode == currentCountryCode) {
+    return true;
+  }
+
+  final normalizedRouteName = _normalizeComparisonText(
+    stripCountryPrefixFromDisplayText(routeName),
+  );
+  if (normalizedRouteName == null) {
+    return false;
+  }
+
+  for (final candidate in [
+    currentIp.city,
+    currentIp.region,
+    currentIp.country,
+  ]) {
+    final normalizedCandidate = _normalizeComparisonText(candidate);
+    if (normalizedCandidate != null &&
+        normalizedCandidate.isNotEmpty &&
+        normalizedRouteName.contains(normalizedCandidate)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+String? _normalizeComparisonText(String? value) {
+  final trimmed = value?.trim().toLowerCase();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+
+  final normalized = trimmed
+      .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ')
+      .trim();
+  if (normalized.isEmpty) {
+    return null;
+  }
+
+  return normalized;
 }
 
 bool _shouldHideAutoTargetSummary(

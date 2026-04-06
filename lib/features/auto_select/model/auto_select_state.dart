@@ -21,8 +21,24 @@ const defaultAutoSelectThroughputProbeUrls = <String>[
   'https://httpbingo.org/bytes/131072',
   'https://httpbin.org/bytes/131072',
 ];
+const autoSelectBestServerCheckIntervalMinMinutes = 15;
+const autoSelectBestServerCheckIntervalMaxMinutes = 180;
+const defaultAutoSelectBestServerCheckIntervalMinutes = 40;
+const defaultAutoSelectBestServerCheckInterval = Duration(
+  minutes: defaultAutoSelectBestServerCheckIntervalMinutes,
+);
 const defaultRecentAutoSelectedServerTtl = Duration(seconds: 75);
 const defaultRecentSuccessfulAutoConnectTtl = Duration(seconds: 90);
+
+int clampAutoSelectBestServerCheckIntervalMinutes(int minutes) {
+  if (minutes < autoSelectBestServerCheckIntervalMinMinutes) {
+    return autoSelectBestServerCheckIntervalMinMinutes;
+  }
+  if (minutes > autoSelectBestServerCheckIntervalMaxMinutes) {
+    return autoSelectBestServerCheckIntervalMaxMinutes;
+  }
+  return minutes;
+}
 
 List<String> resolveAutoSelectDomainProbeUrls(
   String configuredUrl, {
@@ -76,8 +92,12 @@ List<String> _resolveAutoSelectProbeUrls({
   required List<String> defaultUrls,
   required String rotationKey,
 }) {
-  final normalizedUrl = configuredUrl.trim().isEmpty ? defaultUrl : configuredUrl.trim();
-  final baseUrls = normalizedUrl == defaultUrl ? defaultUrls : <String>[normalizedUrl];
+  final normalizedUrl = configuredUrl.trim().isEmpty
+      ? defaultUrl
+      : configuredUrl.trim();
+  final baseUrls = normalizedUrl == defaultUrl
+      ? defaultUrls
+      : <String>[normalizedUrl];
   final dedupedUrls = <String>[];
   final seenUrls = <String>{};
   for (final candidate in baseUrls) {
@@ -144,8 +164,7 @@ class AutoSelectActivityState {
   final int? totalSteps;
   final List<String> logLines;
 
-  bool get hasTrace =>
-      label != null || message != null || logLines.isNotEmpty;
+  bool get hasTrace => label != null || message != null || logLines.isNotEmpty;
 
   double? get progressValue {
     final completed = completedSteps;
@@ -202,20 +221,33 @@ class AutoSelectSettings {
   const AutoSelectSettings({
     this.enabled = true,
     this.checkIp = true,
+    this.bestServerCheckIntervalMinutes =
+        defaultAutoSelectBestServerCheckIntervalMinutes,
     this.domainProbeUrl = defaultAutoSelectDomainProbeUrl,
     this.ipProbeUrl = defaultAutoSelectIpProbeUrl,
     this.excludedServerKeys = const [],
-  });
+  }) : assert(
+         bestServerCheckIntervalMinutes >=
+                 autoSelectBestServerCheckIntervalMinMinutes &&
+             bestServerCheckIntervalMinutes <=
+                 autoSelectBestServerCheckIntervalMaxMinutes,
+         'bestServerCheckIntervalMinutes must stay within the supported range.',
+       );
 
   final bool enabled;
   final bool checkIp;
+  final int bestServerCheckIntervalMinutes;
   final String domainProbeUrl;
   final String ipProbeUrl;
   final List<String> excludedServerKeys;
 
+  Duration get bestServerCheckInterval =>
+      Duration(minutes: bestServerCheckIntervalMinutes);
+
   AutoSelectSettings copyWith({
     bool? enabled,
     bool? checkIp,
+    int? bestServerCheckIntervalMinutes,
     String? domainProbeUrl,
     String? ipProbeUrl,
     List<String>? excludedServerKeys,
@@ -223,6 +255,11 @@ class AutoSelectSettings {
     return AutoSelectSettings(
       enabled: enabled ?? this.enabled,
       checkIp: checkIp ?? this.checkIp,
+      bestServerCheckIntervalMinutes: bestServerCheckIntervalMinutes == null
+          ? this.bestServerCheckIntervalMinutes
+          : clampAutoSelectBestServerCheckIntervalMinutes(
+              bestServerCheckIntervalMinutes,
+            ),
       domainProbeUrl: domainProbeUrl ?? this.domainProbeUrl,
       ipProbeUrl: ipProbeUrl ?? this.ipProbeUrl,
       excludedServerKeys: excludedServerKeys ?? this.excludedServerKeys,
@@ -241,6 +278,7 @@ class AutoSelectSettings {
     return {
       'enabled': enabled,
       'checkIp': checkIp,
+      'bestServerCheckIntervalMinutes': bestServerCheckIntervalMinutes,
       'domainProbeUrl': domainProbeUrl,
       'ipProbeUrl': ipProbeUrl,
       'excludedServerKeys': excludedServerKeys,
@@ -252,10 +290,23 @@ class AutoSelectSettings {
         .map((item) => item.toString())
         .where((item) => item.isNotEmpty)
         .toList(growable: false);
+    final bestServerCheckIntervalValue =
+        switch (json['bestServerCheckIntervalMinutes']) {
+          final num value => value.toInt(),
+          _ =>
+            int.tryParse(
+                  json['bestServerCheckIntervalMinutes']?.toString() ?? '',
+                ) ??
+                defaultAutoSelectBestServerCheckIntervalMinutes,
+        };
 
     return AutoSelectSettings(
       enabled: json['enabled'] as bool? ?? true,
       checkIp: json['checkIp'] as bool? ?? true,
+      bestServerCheckIntervalMinutes:
+          clampAutoSelectBestServerCheckIntervalMinutes(
+            bestServerCheckIntervalValue,
+          ),
       domainProbeUrl:
           json['domainProbeUrl']?.toString().trim().isNotEmpty == true
           ? json['domainProbeUrl'].toString().trim()

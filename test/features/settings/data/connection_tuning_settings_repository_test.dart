@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/features/settings/data/connection_tuning_settings_repository.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
 
 void main() {
   late Directory tempDir;
@@ -33,6 +34,23 @@ void main() {
         forceXudpPacketEncoding: true,
         enableMultiplex: true,
         enableTlsRecordFragment: true,
+        splitTunnel: SplitTunnelSettings(
+          enabled: true,
+          geositeTags: ['cn', 'apple'],
+          geoipTags: ['private', 'cn'],
+          domainSuffixes: ['local', 'lan'],
+          ipCidrs: ['10.0.0.0/8'],
+          customRuleSets: [
+            SplitTunnelCustomRuleSet(
+              id: 'corp-routes',
+              label: 'Corp routes',
+              source: SplitTunnelRuleSetSource.remote,
+              url: 'https://example.com/corp.srs',
+            ),
+          ],
+          remoteUpdateInterval: '12h',
+          remoteRevision: 42,
+        ),
       );
 
       await repository.save(savedSettings);
