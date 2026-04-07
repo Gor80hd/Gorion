@@ -8,6 +8,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gap/gap.dart';
+import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/core/widget/emoji_flag_text.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
@@ -25,7 +26,6 @@ import 'package:gorion_clean/features/proxy/notifier/ip_info_notifier.dart';
 import 'package:gorion_clean/features/proxy/utils/ip_info_display.dart';
 import 'package:gorion_clean/core/preferences/general_preferences.dart';
 import 'package:gorion_clean/features/stats/notifier/stats_notifier.dart';
-import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
 import 'package:gorion_clean/features/settings/model/singbox_config_enum.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
@@ -81,6 +81,9 @@ class MapView extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
     final status = ref.watch(connectionNotifierProvider);
     final directIpInfo = ref.watch(directIpInfoNotifierProvider);
     final routedIpInfo = ref.watch(ipInfoNotifierProvider);
@@ -254,8 +257,8 @@ class MapView extends HookConsumerWidget {
                   alignment: Alignment.topLeft,
                   colorFilter: ColorFilter.mode(
                     isConnected
-                        ? const Color(0xFF1EFFAC).withValues(alpha: 0.55)
-                        : const Color(0xFF3E5A4D).withValues(alpha: 0.62),
+                        ? scheme.primary.withValues(alpha: 0.55)
+                        : muted.withValues(alpha: 0.62),
                     BlendMode.srcIn,
                   ),
                 ),
@@ -265,7 +268,7 @@ class MapView extends HookConsumerWidget {
                   painter: _ConnectionPainter(
                     source: srcScreen,
                     destination: dstScreen,
-                    color: const Color(0xFF1EFFAC),
+                    color: scheme.primary,
                     revealProgress: revealProgress,
                     packetProgress: packetProgress,
                   ),
@@ -282,7 +285,7 @@ class MapView extends HookConsumerWidget {
                 left: dstScreen.dx - outerR,
                 top: dstScreen.dy - outerR,
                 child: _LocationDot(
-                  color: const Color(0xFF1EFFAC),
+                  color: scheme.primary,
                   opacity: destinationOpacity,
                 ),
               ),
@@ -542,6 +545,9 @@ class _ServerInfoPopup extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
     final dashboardState = ref.watch(dashboardControllerProvider);
     final visibleServiceModes = _visibleServiceModes();
     final isBenchmarking = ref.watch(benchmarkActiveProvider);
@@ -571,7 +577,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
         isBenchmarking || isSwitching || autoSelectionProgress != null;
     final progressStrokeColor = isSwitching
         ? const Color(0xFFFFB457)
-        : const Color(0xFF1EFFAC);
+        : scheme.primary;
     final routeName = model.isAutoMode && model.showTargetSummary
         ? model.routeName
         : null;
@@ -619,7 +625,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
             strokeOpacity: 0.18,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.24),
+                color: theme.shadowColor.withValues(alpha: 0.24),
                 blurRadius: 28,
                 offset: const Offset(0, 8),
               ),
@@ -632,14 +638,14 @@ class _ServerInfoPopup extends HookConsumerWidget {
                   height: 16,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: Color(0xFF1EFFAC),
+                    color: Colors.white,
                   ),
                 ),
                 const Gap(10),
-                const Text(
+                Text(
                   'Идёт тест серверов…',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: scheme.onSurface,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -669,7 +675,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
           glowBlur: 8,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.22),
+              color: theme.shadowColor.withValues(alpha: 0.22),
               blurRadius: 20,
               offset: const Offset(0, 14),
             ),
@@ -701,8 +707,8 @@ class _ServerInfoPopup extends HookConsumerWidget {
                           : 'Появится после подключения',
                     ),
                     accent: isConnected
-                        ? const Color(0xFF1EFFAC)
-                        : Colors.white.withValues(alpha: 0.42),
+                        ? scheme.primary
+                        : muted.withValues(alpha: 0.7),
                   );
 
                   Widget infoContent() {
@@ -714,7 +720,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
                           const Gap(12),
                           Container(
                             height: 1,
-                            color: Colors.white.withValues(alpha: 0.06),
+                            color: scheme.onSurface.withValues(alpha: 0.06),
                           ),
                           const Gap(12),
                           currentBlock,
@@ -750,8 +756,8 @@ class _ServerInfoPopup extends HookConsumerWidget {
                                   children: [
                                     EmojiFlagText(
                                       model.title,
-                                      style: const TextStyle(
-                                        color: Colors.white,
+                                      style: TextStyle(
+                                        color: scheme.onSurface,
                                         fontSize: 24,
                                         fontWeight: FontWeight.w800,
                                       ),
@@ -770,9 +776,9 @@ class _ServerInfoPopup extends HookConsumerWidget {
                                               color: const Color(0xFF60A5FA),
                                             ),
                                           if (model.isAutoMode)
-                                            const _GlassBadge(
+                                            _GlassBadge(
                                               label: 'AUTO',
-                                              color: Color(0xFF1EFFAC),
+                                              color: scheme.primary,
                                             ),
                                           if (showSessionTimerTag)
                                             _ConnectionTimerPill(
@@ -783,7 +789,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
                                                   timerNow.value,
                                                 ),
                                               ),
-                                              color: const Color(0xFF1EFFAC),
+                                              color: scheme.primary,
                                             ),
                                           if (showBestServerCheck)
                                             _ConnectionTimerPill(
@@ -809,7 +815,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
                                       EmojiFlagText(
                                         headerSummary,
                                         style: TextStyle(
-                                          color: Colors.white.withValues(
+                                          color: scheme.onSurface.withValues(
                                             alpha: 0.76,
                                           ),
                                           fontSize: 13.2,
@@ -824,9 +830,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
                                       EmojiFlagText(
                                         statusText,
                                         style: TextStyle(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.60,
-                                          ),
+                                          color: muted.withValues(alpha: 0.95),
                                           fontSize: 12.5,
                                           fontWeight: FontWeight.w500,
                                           height: 1.35,
@@ -893,7 +897,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
                           const Gap(16),
                           Container(
                             height: 1,
-                            color: Colors.white.withValues(alpha: 0.08),
+                            color: scheme.onSurface.withValues(alpha: 0.08),
                           ),
                           const Gap(14),
                           infoContent(),
@@ -902,7 +906,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
                             Text(
                               summary,
                               style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.58),
+                                color: muted.withValues(alpha: 0.95),
                                 fontSize: 12.4,
                                 fontWeight: FontWeight.w600,
                                 height: 1.3,
@@ -1073,13 +1077,14 @@ class _InfoBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.46),
+            color: theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.78),
             fontSize: 10.5,
             fontWeight: FontWeight.w600,
           ),
@@ -1099,7 +1104,7 @@ class _InfoBlock extends StatelessWidget {
         Text(
           detail,
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.66),
+            color: theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.95),
             fontSize: 11.8,
             height: 1.38,
           ),
@@ -1116,11 +1121,14 @@ class _InfoDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final color = Theme.of(
+      context,
+    ).colorScheme.onSurface.withValues(alpha: 0.08);
     return Container(
       width: 1,
       height: 58,
       margin: const EdgeInsets.symmetric(horizontal: 2),
-      color: Colors.white.withValues(alpha: 0.08),
+      color: color,
     );
   }
 }
@@ -1138,6 +1146,8 @@ class _ModeTextButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -1146,7 +1156,7 @@ class _ModeTextButton extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
-              color: selected ? const Color(0xFF1EFFAC) : Colors.transparent,
+              color: selected ? scheme.primary : Colors.transparent,
               width: 1.6,
             ),
           ),
@@ -1155,8 +1165,8 @@ class _ModeTextButton extends StatelessWidget {
           label,
           style: TextStyle(
             color: selected
-                ? const Color(0xFF1EFFAC)
-                : Colors.white.withValues(alpha: 0.55),
+                ? scheme.primary
+                : theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.9),
             fontSize: 11.5,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
           ),
@@ -1179,6 +1189,7 @@ class _ConnectionTimerPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final muted = Theme.of(context).gorionTokens.onSurfaceMuted;
     return GlassPanel(
       backgroundColor: Colors.white,
       opacity: 0.04,
@@ -1193,7 +1204,7 @@ class _ConnectionTimerPill extends StatelessWidget {
           Text(
             title,
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.58),
+              color: muted.withValues(alpha: 0.95),
               fontSize: 10.5,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.3,
@@ -1231,9 +1242,10 @@ class _PowerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
     final color = switch ((isConnected, isSwitching)) {
       (_, true) => const Color(0xFFFFB457),
-      (true, false) => const Color(0xFF1EFFAC),
+      (true, false) => primary,
       (false, false) => const Color(0xFFFF5F5F),
     };
 

@@ -4,21 +4,35 @@ import 'package:gorion_clean/features/home/widget/map_view.dart';
 import 'package:gorion_clean/features/home/widget/servers_panel.dart';
 
 class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, this.animateOnMount = true});
 
-  static const _mapContentPadding = EdgeInsets.fromLTRB(ServersPanelWidget.panelWidth + 32, 32, 32, 32);
+  final bool animateOnMount;
+
+  static const _mapContentPadding = EdgeInsets.fromLTRB(
+    ServersPanelWidget.panelWidth + 32,
+    32,
+    32,
+    32,
+  );
 
   @override
   Widget build(BuildContext context) {
-    return const Stack(
+    final mapView = animateOnMount
+        ? const PageReveal(
+            duration: Duration(milliseconds: 220),
+            offset: Offset(0, 0.02),
+            child: MapView(contentPadding: _mapContentPadding),
+          )
+        : const MapView(contentPadding: _mapContentPadding);
+
+    return Stack(
       fit: StackFit.expand,
       children: [
-        PageReveal(
-          duration: Duration(milliseconds: 220),
-          offset: Offset(0, 0.02),
-          child: MapView(contentPadding: _mapContentPadding),
+        mapView,
+        const Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [ServersPanelWidget(), Spacer()],
         ),
-        Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [ServersPanelWidget(), Spacer()]),
       ],
     );
   }

@@ -36,6 +36,28 @@ enum SplitTunnelRuleSetFormat {
   }
 }
 
+enum SplitTunnelAction {
+  direct('direct'),
+  block('block'),
+  proxy('proxy');
+
+  const SplitTunnelAction(this.jsonValue);
+
+  final String jsonValue;
+
+  static SplitTunnelAction fromJsonValue(dynamic value) {
+    final normalized = value?.toString().trim().toLowerCase();
+    for (final action in values) {
+      if (action.jsonValue == normalized) {
+        return action;
+      }
+    }
+    return SplitTunnelAction.direct;
+  }
+}
+
+enum SplitTunnelManagedSourceKind { geosite, geoip }
+
 const defaultSplitTunnelRemoteUpdateInterval = '1d';
 
 class SplitTunnelCustomRuleSet {
@@ -138,28 +160,20 @@ class SplitTunnelCustomRuleSet {
   );
 }
 
-class SplitTunnelSettings {
-  const SplitTunnelSettings({
-    this.enabled = false,
+class SplitTunnelRuleGroup {
+  const SplitTunnelRuleGroup({
     this.geositeTags = const [],
     this.geoipTags = const [],
     this.domainSuffixes = const [],
     this.ipCidrs = const [],
     this.customRuleSets = const [],
-    this.remoteUpdateInterval = defaultSplitTunnelRemoteUpdateInterval,
-    this.remoteRevision = 0,
-    this.lastRemoteRefreshAt,
   });
 
-  final bool enabled;
   final List<String> geositeTags;
   final List<String> geoipTags;
   final List<String> domainSuffixes;
   final List<String> ipCidrs;
   final List<SplitTunnelCustomRuleSet> customRuleSets;
-  final String remoteUpdateInterval;
-  final int remoteRevision;
-  final DateTime? lastRemoteRefreshAt;
 
   List<String> get normalizedGeositeTags {
     return _normalizeUniqueStrings(geositeTags, normalizeSplitTunnelTag);
@@ -203,10 +217,6 @@ class SplitTunnelSettings {
     ];
   }
 
-  String get normalizedRemoteUpdateInterval {
-    return normalizeSplitTunnelUpdateInterval(remoteUpdateInterval);
-  }
-
   bool get hasRules {
     return normalizedGeositeTags.isNotEmpty ||
         normalizedGeoipTags.isNotEmpty ||
@@ -215,54 +225,45 @@ class SplitTunnelSettings {
         activeCustomRuleSets.isNotEmpty;
   }
 
-  bool get hasOverrides => enabled && hasRules;
-
   bool get hasManagedRemoteSources {
-    return normalizedGeositeTags.isNotEmpty || normalizedGeoipTags.isNotEmpty;
+    return hasManagedGeositeSources || hasManagedGeoipSources;
   }
+
+  bool get hasManagedGeositeSources => normalizedGeositeTags.isNotEmpty;
+
+  bool get hasManagedGeoipSources => normalizedGeoipTags.isNotEmpty;
 
   bool get hasRemoteSources {
     return hasManagedRemoteSources ||
         activeCustomRuleSets.any((ruleSet) => ruleSet.isRemote);
   }
 
-  SplitTunnelSettings copyWith({
-    bool? enabled,
+  int get ruleCount {
+    return normalizedGeositeTags.length +
+        normalizedGeoipTags.length +
+        normalizedDomainSuffixes.length +
+        normalizedIpCidrs.length +
+        activeCustomRuleSets.length;
+  }
+
+  SplitTunnelRuleGroup copyWith({
     List<String>? geositeTags,
     List<String>? geoipTags,
     List<String>? domainSuffixes,
     List<String>? ipCidrs,
     List<SplitTunnelCustomRuleSet>? customRuleSets,
-    String? remoteUpdateInterval,
-    int? remoteRevision,
-    DateTime? lastRemoteRefreshAt,
-    bool clearLastRemoteRefreshAt = false,
   }) {
-    return SplitTunnelSettings(
-      enabled: enabled ?? this.enabled,
+    return SplitTunnelRuleGroup(
       geositeTags: geositeTags ?? this.geositeTags,
       geoipTags: geoipTags ?? this.geoipTags,
       domainSuffixes: domainSuffixes ?? this.domainSuffixes,
       ipCidrs: ipCidrs ?? this.ipCidrs,
       customRuleSets: customRuleSets ?? this.customRuleSets,
-      remoteUpdateInterval: remoteUpdateInterval ?? this.remoteUpdateInterval,
-      remoteRevision: remoteRevision ?? this.remoteRevision,
-      lastRemoteRefreshAt: clearLastRemoteRefreshAt
-          ? null
-          : lastRemoteRefreshAt ?? this.lastRemoteRefreshAt,
-    );
-  }
-
-  SplitTunnelSettings bumpedRemoteRevision() {
-    return copyWith(
-      remoteRevision: DateTime.now().microsecondsSinceEpoch,
-      lastRemoteRefreshAt: DateTime.now(),
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'enabled': enabled,
       'geositeTags': normalizedGeositeTags,
       'geoipTags': normalizedGeoipTags,
       'domainSuffixes': normalizedDomainSuffixes,
@@ -270,16 +271,12 @@ class SplitTunnelSettings {
       'customRuleSets': [
         for (final ruleSet in normalizedCustomRuleSets) ruleSet.toJson(),
       ],
-      'remoteUpdateInterval': normalizedRemoteUpdateInterval,
-      'remoteRevision': remoteRevision,
-      'lastRemoteRefreshAt': lastRemoteRefreshAt?.toIso8601String(),
     };
   }
 
-  factory SplitTunnelSettings.fromJson(Map<String, dynamic> json) {
+  factory SplitTunnelRuleGroup.fromJson(Map<String, dynamic> json) {
     final rawCustomRuleSets = json['customRuleSets'];
-    return SplitTunnelSettings(
-      enabled: json['enabled'] as bool? ?? false,
+    return SplitTunnelRuleGroup(
       geositeTags: _readStringList(json['geositeTags']),
       geoipTags: _readStringList(json['geoipTags']),
       domainSuffixes: _readStringList(json['domainSuffixes']),
@@ -295,11 +292,263 @@ class SplitTunnelSettings {
                   ),
             ]
           : const [],
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is SplitTunnelRuleGroup &&
+        _listsEqual(other.normalizedGeositeTags, normalizedGeositeTags) &&
+        _listsEqual(other.normalizedGeoipTags, normalizedGeoipTags) &&
+        _listsEqual(other.normalizedDomainSuffixes, normalizedDomainSuffixes) &&
+        _listsEqual(other.normalizedIpCidrs, normalizedIpCidrs) &&
+        _listsEqual(other.normalizedCustomRuleSets, normalizedCustomRuleSets);
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    Object.hashAll(normalizedGeositeTags),
+    Object.hashAll(normalizedGeoipTags),
+    Object.hashAll(normalizedDomainSuffixes),
+    Object.hashAll(normalizedIpCidrs),
+    Object.hashAll(normalizedCustomRuleSets),
+  );
+}
+
+class SplitTunnelSettings {
+  const SplitTunnelSettings({
+    this.enabled = false,
+    this.direct = const SplitTunnelRuleGroup(),
+    this.block = const SplitTunnelRuleGroup(),
+    this.proxy = const SplitTunnelRuleGroup(),
+    this.remoteUpdateInterval = defaultSplitTunnelRemoteUpdateInterval,
+    int remoteRevision = 0,
+    DateTime? lastRemoteRefreshAt,
+    int? geositeRemoteRevision,
+    int? geoipRemoteRevision,
+    DateTime? lastGeositeRefreshAt,
+    DateTime? lastGeoipRefreshAt,
+  }) : geositeRemoteRevision = geositeRemoteRevision ?? remoteRevision,
+       geoipRemoteRevision = geoipRemoteRevision ?? remoteRevision,
+       lastGeositeRefreshAt = lastGeositeRefreshAt ?? lastRemoteRefreshAt,
+       lastGeoipRefreshAt = lastGeoipRefreshAt ?? lastRemoteRefreshAt;
+
+  final bool enabled;
+  final SplitTunnelRuleGroup direct;
+  final SplitTunnelRuleGroup block;
+  final SplitTunnelRuleGroup proxy;
+  final String remoteUpdateInterval;
+  final int geositeRemoteRevision;
+  final int geoipRemoteRevision;
+  final DateTime? lastGeositeRefreshAt;
+  final DateTime? lastGeoipRefreshAt;
+
+  int get remoteRevision {
+    return geositeRemoteRevision >= geoipRemoteRevision
+        ? geositeRemoteRevision
+        : geoipRemoteRevision;
+  }
+
+  DateTime? get lastRemoteRefreshAt {
+    return _latestDateTime(lastGeositeRefreshAt, lastGeoipRefreshAt);
+  }
+
+  String get normalizedRemoteUpdateInterval {
+    return normalizeSplitTunnelUpdateInterval(remoteUpdateInterval);
+  }
+
+  bool get hasRules => direct.hasRules || block.hasRules || proxy.hasRules;
+
+  bool get hasOverrides => enabled && hasRules;
+
+  bool get hasManagedRemoteSources {
+    return direct.hasManagedRemoteSources ||
+        block.hasManagedRemoteSources ||
+        proxy.hasManagedRemoteSources;
+  }
+
+  bool get hasManagedGeositeSources {
+    return direct.hasManagedGeositeSources ||
+        block.hasManagedGeositeSources ||
+        proxy.hasManagedGeositeSources;
+  }
+
+  bool get hasManagedGeoipSources {
+    return direct.hasManagedGeoipSources ||
+        block.hasManagedGeoipSources ||
+        proxy.hasManagedGeoipSources;
+  }
+
+  bool get hasRemoteSources {
+    return direct.hasRemoteSources ||
+        block.hasRemoteSources ||
+        proxy.hasRemoteSources;
+  }
+
+  int get ruleCount => direct.ruleCount + block.ruleCount + proxy.ruleCount;
+
+  int revisionForManagedSource(SplitTunnelManagedSourceKind sourceKind) {
+    switch (sourceKind) {
+      case SplitTunnelManagedSourceKind.geosite:
+        return geositeRemoteRevision;
+      case SplitTunnelManagedSourceKind.geoip:
+        return geoipRemoteRevision;
+    }
+  }
+
+  DateTime? lastRefreshAtForManagedSource(
+    SplitTunnelManagedSourceKind sourceKind,
+  ) {
+    switch (sourceKind) {
+      case SplitTunnelManagedSourceKind.geosite:
+        return lastGeositeRefreshAt;
+      case SplitTunnelManagedSourceKind.geoip:
+        return lastGeoipRefreshAt;
+    }
+  }
+
+  SplitTunnelRuleGroup groupFor(SplitTunnelAction action) {
+    switch (action) {
+      case SplitTunnelAction.direct:
+        return direct;
+      case SplitTunnelAction.block:
+        return block;
+      case SplitTunnelAction.proxy:
+        return proxy;
+    }
+  }
+
+  SplitTunnelSettings copyWith({
+    bool? enabled,
+    SplitTunnelRuleGroup? direct,
+    SplitTunnelRuleGroup? block,
+    SplitTunnelRuleGroup? proxy,
+    String? remoteUpdateInterval,
+    int? remoteRevision,
+    int? geositeRemoteRevision,
+    int? geoipRemoteRevision,
+    DateTime? lastRemoteRefreshAt,
+    DateTime? lastGeositeRefreshAt,
+    DateTime? lastGeoipRefreshAt,
+    bool clearLastRemoteRefreshAt = false,
+    bool clearLastGeositeRefreshAt = false,
+    bool clearLastGeoipRefreshAt = false,
+  }) {
+    final resolvedLastGeositeRefreshAt =
+        clearLastRemoteRefreshAt || clearLastGeositeRefreshAt
+        ? null
+        : lastGeositeRefreshAt ??
+              lastRemoteRefreshAt ??
+              this.lastGeositeRefreshAt;
+    final resolvedLastGeoipRefreshAt =
+        clearLastRemoteRefreshAt || clearLastGeoipRefreshAt
+        ? null
+        : lastGeoipRefreshAt ?? lastRemoteRefreshAt ?? this.lastGeoipRefreshAt;
+
+    return SplitTunnelSettings(
+      enabled: enabled ?? this.enabled,
+      direct: direct ?? this.direct,
+      block: block ?? this.block,
+      proxy: proxy ?? this.proxy,
+      remoteUpdateInterval: remoteUpdateInterval ?? this.remoteUpdateInterval,
+      geositeRemoteRevision:
+          geositeRemoteRevision ?? remoteRevision ?? this.geositeRemoteRevision,
+      geoipRemoteRevision:
+          geoipRemoteRevision ?? remoteRevision ?? this.geoipRemoteRevision,
+      lastGeositeRefreshAt: resolvedLastGeositeRefreshAt,
+      lastGeoipRefreshAt: resolvedLastGeoipRefreshAt,
+    );
+  }
+
+  SplitTunnelSettings copyWithGroup(
+    SplitTunnelAction action,
+    SplitTunnelRuleGroup group,
+  ) {
+    switch (action) {
+      case SplitTunnelAction.direct:
+        return copyWith(direct: group);
+      case SplitTunnelAction.block:
+        return copyWith(block: group);
+      case SplitTunnelAction.proxy:
+        return copyWith(proxy: group);
+    }
+  }
+
+  SplitTunnelSettings bumpedRemoteRevision() {
+    final now = DateTime.now();
+    return copyWith(
+      remoteRevision: now.microsecondsSinceEpoch,
+      lastRemoteRefreshAt: now,
+    );
+  }
+
+  SplitTunnelSettings bumpedManagedSourceRevision(
+    SplitTunnelManagedSourceKind sourceKind,
+  ) {
+    final now = DateTime.now();
+    switch (sourceKind) {
+      case SplitTunnelManagedSourceKind.geosite:
+        return copyWith(
+          geositeRemoteRevision: now.microsecondsSinceEpoch,
+          lastGeositeRefreshAt: now,
+        );
+      case SplitTunnelManagedSourceKind.geoip:
+        return copyWith(
+          geoipRemoteRevision: now.microsecondsSinceEpoch,
+          lastGeoipRefreshAt: now,
+        );
+    }
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'enabled': enabled,
+      'direct': direct.toJson(),
+      'block': block.toJson(),
+      'proxy': proxy.toJson(),
+      'remoteUpdateInterval': normalizedRemoteUpdateInterval,
+      'geositeRemoteRevision': geositeRemoteRevision,
+      'geoipRemoteRevision': geoipRemoteRevision,
+      'remoteRevision': remoteRevision,
+      'lastGeositeRefreshAt': lastGeositeRefreshAt?.toIso8601String(),
+      'lastGeoipRefreshAt': lastGeoipRefreshAt?.toIso8601String(),
+      'lastRemoteRefreshAt': lastRemoteRefreshAt?.toIso8601String(),
+    };
+  }
+
+  factory SplitTunnelSettings.fromJson(Map<String, dynamic> json) {
+    final rawDirect = _readJsonMap(json['direct']);
+    final rawBlock = _readJsonMap(json['block']);
+    final rawProxy = _readJsonMap(json['proxy']);
+    final legacyRemoteRevision = _tryParseInt(json['remoteRevision']) ?? 0;
+    final legacyLastRemoteRefreshAt = _tryParseDateTime(
+      json['lastRemoteRefreshAt'],
+    );
+
+    return SplitTunnelSettings(
+      enabled: json['enabled'] as bool? ?? false,
+      direct: rawDirect != null
+          ? SplitTunnelRuleGroup.fromJson(rawDirect)
+          : _readLegacyDirectGroup(json),
+      block: rawBlock != null
+          ? SplitTunnelRuleGroup.fromJson(rawBlock)
+          : const SplitTunnelRuleGroup(),
+      proxy: rawProxy != null
+          ? SplitTunnelRuleGroup.fromJson(rawProxy)
+          : const SplitTunnelRuleGroup(),
       remoteUpdateInterval:
           json['remoteUpdateInterval']?.toString().trim() ??
           defaultSplitTunnelRemoteUpdateInterval,
-      remoteRevision: _tryParseInt(json['remoteRevision']) ?? 0,
-      lastRemoteRefreshAt: _tryParseDateTime(json['lastRemoteRefreshAt']),
+      geositeRemoteRevision:
+          _tryParseInt(json['geositeRemoteRevision']) ?? legacyRemoteRevision,
+      geoipRemoteRevision:
+          _tryParseInt(json['geoipRemoteRevision']) ?? legacyRemoteRevision,
+      lastGeositeRefreshAt:
+          _tryParseDateTime(json['lastGeositeRefreshAt']) ??
+          legacyLastRemoteRefreshAt,
+      lastGeoipRefreshAt:
+          _tryParseDateTime(json['lastGeoipRefreshAt']) ??
+          legacyLastRemoteRefreshAt,
     );
   }
 
@@ -307,29 +556,30 @@ class SplitTunnelSettings {
   bool operator ==(Object other) {
     return other is SplitTunnelSettings &&
         other.enabled == enabled &&
-        _listsEqual(other.normalizedGeositeTags, normalizedGeositeTags) &&
-        _listsEqual(other.normalizedGeoipTags, normalizedGeoipTags) &&
-        _listsEqual(other.normalizedDomainSuffixes, normalizedDomainSuffixes) &&
-        _listsEqual(other.normalizedIpCidrs, normalizedIpCidrs) &&
-        _listsEqual(other.normalizedCustomRuleSets, normalizedCustomRuleSets) &&
+        other.direct == direct &&
+        other.block == block &&
+        other.proxy == proxy &&
         other.normalizedRemoteUpdateInterval ==
             normalizedRemoteUpdateInterval &&
-        other.remoteRevision == remoteRevision &&
-        other.lastRemoteRefreshAt?.toIso8601String() ==
-            lastRemoteRefreshAt?.toIso8601String();
+        other.geositeRemoteRevision == geositeRemoteRevision &&
+        other.geoipRemoteRevision == geoipRemoteRevision &&
+        other.lastGeositeRefreshAt?.toIso8601String() ==
+            lastGeositeRefreshAt?.toIso8601String() &&
+        other.lastGeoipRefreshAt?.toIso8601String() ==
+            lastGeoipRefreshAt?.toIso8601String();
   }
 
   @override
   int get hashCode => Object.hash(
     enabled,
-    Object.hashAll(normalizedGeositeTags),
-    Object.hashAll(normalizedGeoipTags),
-    Object.hashAll(normalizedDomainSuffixes),
-    Object.hashAll(normalizedIpCidrs),
-    Object.hashAll(normalizedCustomRuleSets),
+    direct,
+    block,
+    proxy,
     normalizedRemoteUpdateInterval,
-    remoteRevision,
-    lastRemoteRefreshAt?.toIso8601String(),
+    geositeRemoteRevision,
+    geoipRemoteRevision,
+    lastGeositeRefreshAt?.toIso8601String(),
+    lastGeoipRefreshAt?.toIso8601String(),
   );
 }
 
@@ -355,6 +605,35 @@ String normalizeSplitTunnelUpdateInterval(String value) {
   return normalized.isEmpty
       ? defaultSplitTunnelRemoteUpdateInterval
       : normalized;
+}
+
+SplitTunnelRuleGroup _readLegacyDirectGroup(Map<String, dynamic> json) {
+  final rawCustomRuleSets = json['customRuleSets'];
+  return SplitTunnelRuleGroup(
+    geositeTags: _readStringList(json['geositeTags']),
+    geoipTags: _readStringList(json['geoipTags']),
+    domainSuffixes: _readStringList(json['domainSuffixes']),
+    ipCidrs: _readStringList(json['ipCidrs']),
+    customRuleSets: rawCustomRuleSets is List
+        ? [
+            for (final rawRuleSet in rawCustomRuleSets)
+              if (rawRuleSet is Map)
+                SplitTunnelCustomRuleSet.fromJson(
+                  Map<String, dynamic>.from(rawRuleSet.cast<String, dynamic>()),
+                ),
+          ]
+        : const [],
+  );
+}
+
+Map<String, dynamic>? _readJsonMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return Map<String, dynamic>.from(value);
+  }
+  if (value is Map) {
+    return Map<String, dynamic>.from(value.cast<String, dynamic>());
+  }
+  return null;
 }
 
 List<String> _normalizeUniqueStrings(
@@ -396,6 +675,16 @@ DateTime? _tryParseDateTime(dynamic value) {
     return null;
   }
   return DateTime.tryParse(value.toString());
+}
+
+DateTime? _latestDateTime(DateTime? left, DateTime? right) {
+  if (left == null) {
+    return right;
+  }
+  if (right == null) {
+    return left;
+  }
+  return left.isAfter(right) ? left : right;
 }
 
 bool _listsEqual<T>(List<T> left, List<T> right) {

@@ -13,6 +13,7 @@ import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/settings/data/connection_tuning_config_overrides.dart';
 import 'package:gorion_clean/features/settings/data/connection_tuning_settings_repository.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
 import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
@@ -540,18 +541,30 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
-  Future<void> refreshSplitTunnelSources() async {
+  Future<void> refreshSplitTunnelSources([
+    SplitTunnelManagedSourceKind? sourceKind,
+  ]) async {
     final currentSettings = state.connectionTuningSettings;
     final splitTunnel = currentSettings.splitTunnel;
     if (state.busy) {
       return;
     }
 
-    if (!splitTunnel.hasManagedRemoteSources) {
+    final hasEligibleSources = switch (sourceKind) {
+      SplitTunnelManagedSourceKind.geosite =>
+        splitTunnel.hasManagedGeositeSources,
+      SplitTunnelManagedSourceKind.geoip => splitTunnel.hasManagedGeoipSources,
+      null => splitTunnel.hasManagedRemoteSources,
+    };
+
+    if (!hasEligibleSources) {
       state = state.copyWith(
         clearErrorMessage: true,
-        statusMessage:
-            'No built-in geosite or geoip rule sets are enabled for refresh.',
+        statusMessage: sourceKind == SplitTunnelManagedSourceKind.geosite
+            ? 'No built-in geosite rule sets are enabled for refresh.'
+            : sourceKind == SplitTunnelManagedSourceKind.geoip
+            ? 'No built-in geoip rule sets are enabled for refresh.'
+            : 'No built-in geosite or geoip rule sets are enabled for refresh.',
       );
       return;
     }
@@ -563,21 +576,34 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
 
     try {
+      final nextSplitTunnel = sourceKind == null
+          ? splitTunnel.bumpedRemoteRevision()
+          : splitTunnel.bumpedManagedSourceRevision(sourceKind);
       final stored = await _connectionTuningSettingsRepository.save(
-        currentSettings.copyWith(
-          splitTunnel: splitTunnel.bumpedRemoteRevision(),
-        ),
+        currentSettings.copyWith(splitTunnel: nextSplitTunnel),
       );
       state = state.copyWith(
         busy: false,
         connectionTuningSettings: stored,
-        statusMessage: state.connectionStage == ConnectionStage.connected
-            ? 'Split tunneling rule sets were marked for refresh. Reconnect to fetch the latest geosite/geoip sources.'
-            : 'Split tunneling rule sets will refresh on the next connect.',
+        statusMessage: _buildSplitTunnelRefreshStatusMessage(sourceKind),
       );
     } on Object catch (error) {
       state = state.copyWith(busy: false, errorMessage: error.toString());
     }
+  }
+
+  String _buildSplitTunnelRefreshStatusMessage(
+    SplitTunnelManagedSourceKind? sourceKind,
+  ) {
+    final refreshLabel = switch (sourceKind) {
+      SplitTunnelManagedSourceKind.geosite => 'geosite rule sets',
+      SplitTunnelManagedSourceKind.geoip => 'geoip rule sets',
+      null => 'split tunneling rule sets',
+    };
+
+    return state.connectionStage == ConnectionStage.connected
+        ? '$refreshLabel were marked for refresh. Reconnect to fetch the latest sources.'
+        : '$refreshLabel will refresh on the next connect.';
   }
 
   Future<void> chooseProfile(String profileId) async {

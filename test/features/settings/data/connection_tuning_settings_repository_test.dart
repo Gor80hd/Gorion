@@ -36,18 +36,20 @@ void main() {
         enableTlsRecordFragment: true,
         splitTunnel: SplitTunnelSettings(
           enabled: true,
-          geositeTags: ['cn', 'apple'],
-          geoipTags: ['private', 'cn'],
-          domainSuffixes: ['local', 'lan'],
-          ipCidrs: ['10.0.0.0/8'],
-          customRuleSets: [
-            SplitTunnelCustomRuleSet(
-              id: 'corp-routes',
-              label: 'Corp routes',
-              source: SplitTunnelRuleSetSource.remote,
-              url: 'https://example.com/corp.srs',
-            ),
-          ],
+          direct: SplitTunnelRuleGroup(
+            geositeTags: ['cn', 'apple'],
+            geoipTags: ['private', 'cn'],
+            domainSuffixes: ['local', 'lan'],
+            ipCidrs: ['10.0.0.0/8'],
+            customRuleSets: [
+              SplitTunnelCustomRuleSet(
+                id: 'corp-routes',
+                label: 'Corp routes',
+                source: SplitTunnelRuleSetSource.remote,
+                url: 'https://example.com/corp.srs',
+              ),
+            ],
+          ),
           remoteUpdateInterval: '12h',
           remoteRevision: 42,
         ),

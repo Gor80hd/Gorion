@@ -45,18 +45,20 @@ void main() {
       templateConfig: templateConfig,
       splitTunnelSettings: const SplitTunnelSettings(
         enabled: true,
-        geositeTags: ['cn'],
-        geoipTags: ['private'],
-        domainSuffixes: ['lan'],
-        ipCidrs: ['10.0.0.0/8'],
-        customRuleSets: [
-          SplitTunnelCustomRuleSet(
-            id: 'corp',
-            label: 'Corp routes',
-            source: SplitTunnelRuleSetSource.remote,
-            url: 'https://example.com/corp.srs',
-          ),
-        ],
+        direct: SplitTunnelRuleGroup(
+          geositeTags: ['cn'],
+          geoipTags: ['private'],
+          domainSuffixes: ['lan'],
+          ipCidrs: ['10.0.0.0/8'],
+          customRuleSets: [
+            SplitTunnelCustomRuleSet(
+              id: 'corp',
+              label: 'Corp routes',
+              source: SplitTunnelRuleSetSource.remote,
+              url: 'https://example.com/corp.srs',
+            ),
+          ],
+        ),
         remoteRevision: 42,
       ),
       mode: RuntimeMode.systemProxy,
@@ -81,16 +83,16 @@ void main() {
     expect(
       ruleSetTags,
       containsAll([
-        'gorion-split-geosite-cn',
-        'gorion-split-geoip-private',
-        'gorion-split-inline',
-        'gorion-split-custom-corp',
+        'gorion-split-direct-geosite-cn',
+        'gorion-split-direct-geoip-private',
+        'gorion-split-inline-direct',
+        'gorion-split-direct-custom-corp',
         'existing-set',
       ]),
     );
 
     final geositeRuleSet = ruleSets.firstWhere(
-      (ruleSet) => ruleSet['tag'] == 'gorion-split-geosite-cn',
+      (ruleSet) => ruleSet['tag'] == 'gorion-split-direct-geosite-cn',
     );
     expect(geositeRuleSet['type'], 'remote');
     expect(geositeRuleSet['format'], 'binary');
@@ -100,7 +102,7 @@ void main() {
     );
 
     final inlineRuleSet = ruleSets.firstWhere(
-      (ruleSet) => ruleSet['tag'] == 'gorion-split-inline',
+      (ruleSet) => ruleSet['tag'] == 'gorion-split-inline-direct',
     );
     final inlineRules = [
       for (final rawRule in inlineRuleSet['rules'] as List)
@@ -129,10 +131,10 @@ void main() {
     expect(
       routeRules.first['rule_set'],
       containsAll([
-        'gorion-split-geosite-cn',
-        'gorion-split-geoip-private',
-        'gorion-split-inline',
-        'gorion-split-custom-corp',
+        'gorion-split-direct-geosite-cn',
+        'gorion-split-direct-geoip-private',
+        'gorion-split-inline-direct',
+        'gorion-split-direct-custom-corp',
       ]),
     );
   });

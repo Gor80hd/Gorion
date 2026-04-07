@@ -91,15 +91,18 @@ class _AddSubscriptionDialogState
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(dashboardControllerProvider);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
     final busy = _attemptedSubmit && state.busy;
     final errorText = _attemptedSubmit ? state.errorMessage : null;
 
     return AlertDialog(
-      backgroundColor: gorionSurface,
+      backgroundColor: scheme.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      title: const Text(
+      title: Text(
         'Добавить подписку',
-        style: TextStyle(color: gorionOnSurface),
+        style: TextStyle(color: scheme.onSurface),
       ),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
@@ -109,9 +112,7 @@ class _AddSubscriptionDialogState
           children: [
             Text(
               'Вставьте URL удалённой подписки. Поддерживаются sing-box JSON и подписки с share-ссылками.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: gorionOnSurfaceMuted),
+              style: theme.textTheme.bodyMedium?.copyWith(color: muted),
             ),
             const SizedBox(height: 14),
             TextField(
@@ -120,7 +121,7 @@ class _AddSubscriptionDialogState
               enabled: !busy,
               textInputAction: TextInputAction.done,
               onSubmitted: (_) => _submit(),
-              style: const TextStyle(color: gorionOnSurface),
+              style: TextStyle(color: scheme.onSurface),
               decoration: const InputDecoration(
                 labelText: 'URL подписки',
                 hintText: 'https://example.com/subscription',
@@ -132,10 +133,10 @@ class _AddSubscriptionDialogState
             ],
             if (busy) ...[
               const SizedBox(height: 14),
-              const LinearProgressIndicator(
+              LinearProgressIndicator(
                 minHeight: 4,
-                color: gorionAccent,
-                backgroundColor: gorionSurfaceVariant,
+                color: scheme.primary,
+                backgroundColor: scheme.surfaceContainerHighest,
               ),
             ],
           ],
@@ -209,6 +210,9 @@ class _ProfilesOverviewDialogState
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final scheme = theme.colorScheme;
+        final muted = theme.gorionTokens.onSurfaceMuted;
         final reconnectWarning =
             isActiveProfile &&
                 (stage == ConnectionStage.connected ||
@@ -216,14 +220,14 @@ class _ProfilesOverviewDialogState
             ? ' Текущее подключение будет остановлено.'
             : '';
         return AlertDialog(
-          backgroundColor: gorionSurface,
-          title: const Text(
+          backgroundColor: scheme.surface,
+          title: Text(
             'Удалить подписку?',
-            style: TextStyle(color: gorionOnSurface),
+            style: TextStyle(color: scheme.onSurface),
           ),
           content: Text(
             'Подписка "${profile.name}" будет удалена из локального хранилища.$reconnectWarning',
-            style: const TextStyle(color: gorionOnSurfaceMuted),
+            style: TextStyle(color: muted),
           ),
           actions: [
             TextButton(
@@ -258,6 +262,9 @@ class _ProfilesOverviewDialogState
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(dashboardControllerProvider);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
     final profiles = _sortProfiles(
       state.storage.profiles,
       state.storage.activeProfileId,
@@ -278,15 +285,15 @@ class _ProfilesOverviewDialogState
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: gorionSurface,
+            color: scheme.surface,
             borderRadius: BorderRadius.circular(28),
             border: Border.all(
-              color: gorionAccentDim.withValues(alpha: 0.34),
+              color: scheme.primary.withValues(alpha: 0.24),
               width: 1,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.34),
+                color: theme.shadowColor.withValues(alpha: 0.34),
                 blurRadius: 36,
                 offset: const Offset(0, 18),
               ),
@@ -302,8 +309,8 @@ class _ProfilesOverviewDialogState
                   children: [
                     Text(
                       'Подписки',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: gorionOnSurface,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: scheme.onSurface,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -312,9 +319,7 @@ class _ProfilesOverviewDialogState
                       profiles.isEmpty
                           ? 'Сохранённых подписок пока нет.'
                           : 'Выберите текущую подписку, обновите данные или удалите ненужные профили.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: gorionOnSurfaceMuted,
-                      ),
+                      style: theme.textTheme.bodyMedium?.copyWith(color: muted),
                     ),
                     if (state.storage.activeProfile != null) ...[
                       const SizedBox(height: 8),
@@ -327,10 +332,10 @@ class _ProfilesOverviewDialogState
                 ),
               ),
               if (state.busy)
-                const LinearProgressIndicator(
+                LinearProgressIndicator(
                   minHeight: 3,
-                  color: gorionAccent,
-                  backgroundColor: gorionSurfaceVariant,
+                  color: scheme.primary,
+                  backgroundColor: scheme.surfaceContainerHighest,
                 ),
               if (message != null && message.isNotEmpty)
                 Padding(
@@ -415,9 +420,7 @@ class _ProfilesOverviewDialogState
                   children: [
                     Text(
                       '${profiles.length} ${_subscriptionCountLabel(profiles.length)}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: gorionOnSurfaceMuted,
-                      ),
+                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
                     ),
                     const Spacer(),
                     TextButton(
@@ -466,13 +469,16 @@ class _ManagedSubscriptionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
     final subscriptionInfo = profile.subscriptionInfo;
     final borderColor = isActive
-        ? gorionAccent.withValues(alpha: 0.5)
-        : Colors.white.withValues(alpha: 0.1);
+        ? scheme.primary.withValues(alpha: 0.5)
+        : theme.surfaceStrokeColor(darkAlpha: 0.10, lightAlpha: 0.22);
     final backgroundColor = isActive
-        ? Colors.white.withValues(alpha: 0.07)
-        : Colors.white.withValues(alpha: 0.04);
+        ? scheme.onSurface.withValues(alpha: 0.07)
+        : scheme.onSurface.withValues(alpha: 0.04);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -493,17 +499,15 @@ class _ManagedSubscriptionCard extends StatelessWidget {
                   children: [
                     Text(
                       profile.name,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: gorionOnSurface,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: scheme.onSurface,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       '${profile.servers.length} ${_serverCountLabel(profile.servers.length)} · обновлена ${_formatDate(profile.updatedAt)}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: gorionOnSurfaceMuted,
-                      ),
+                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
                     ),
                   ],
                 ),
@@ -519,7 +523,7 @@ class _ManagedSubscriptionCard extends StatelessWidget {
                       strokeWidth: 2,
                       color: pendingAction == _ManagedSubscriptionAction.remove
                           ? const Color(0xFFFF8E8E)
-                          : gorionAccent,
+                          : scheme.primary,
                     ),
                   ),
                 )
@@ -598,6 +602,9 @@ class _SubscriptionInfoSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
     final total = info.total;
     final remaining = info.remaining;
     final progress = total > 0 ? (info.consumed / total).clamp(0.0, 1.0) : null;
@@ -605,9 +612,11 @@ class _SubscriptionInfoSummary extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: gorionCanvas.withValues(alpha: 0.32),
+        color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        border: Border.all(
+          color: theme.surfaceStrokeColor(darkAlpha: 0.08, lightAlpha: 0.20),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -616,8 +625,8 @@ class _SubscriptionInfoSummary extends StatelessWidget {
             total > 0
                 ? 'Осталось ${_formatBytes(remaining == null || remaining < 0 ? 0 : remaining)} из ${_formatBytes(total)}'
                 : 'Лимит трафика не указан',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: gorionOnSurface,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurface,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -626,9 +635,7 @@ class _SubscriptionInfoSummary extends StatelessWidget {
             info.expireAt == null
                 ? 'Срок действия не указан'
                 : 'Истекает ${_formatDate(info.expireAt!)}',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: gorionOnSurfaceMuted),
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
           ),
           if (progress != null) ...[
             const SizedBox(height: 12),
@@ -639,8 +646,8 @@ class _SubscriptionInfoSummary extends StatelessWidget {
                 value: progress,
                 color: progress >= 0.85
                     ? const Color(0xFFFF8E8E)
-                    : gorionAccent,
-                backgroundColor: Colors.white.withValues(alpha: 0.08),
+                    : scheme.primary,
+                backgroundColor: scheme.onSurface.withValues(alpha: 0.08),
               ),
             ),
           ],
@@ -658,24 +665,30 @@ class _UrlPreviewRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: gorionCanvas.withValues(alpha: 0.26),
+        color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        border: Border.all(
+          color: theme.surfaceStrokeColor(darkAlpha: 0.08, lightAlpha: 0.20),
+        ),
       ),
       child: Row(
         children: [
-          const Icon(Icons.link_rounded, size: 16, color: gorionOnSurfaceMuted),
+          Icon(Icons.link_rounded, size: 16, color: muted),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               url,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: gorionOnSurface,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurface,
                 height: 1.35,
               ),
             ),
@@ -685,7 +698,7 @@ class _UrlPreviewRow extends StatelessWidget {
             onPressed: onCopy,
             tooltip: 'Копировать URL',
             icon: const Icon(Icons.content_copy_rounded, size: 18),
-            color: gorionOnSurfaceMuted,
+            color: muted,
           ),
         ],
       ),
@@ -701,10 +714,12 @@ class _InlineBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = isError ? const Color(0xFFFFB4B4) : gorionOnSurface;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final foreground = isError ? const Color(0xFFFFB4B4) : scheme.onSurface;
     final background = isError
         ? const Color(0x40A11717)
-        : gorionAccentDim.withValues(alpha: 0.22);
+        : scheme.primary.withValues(alpha: 0.14);
 
     return Container(
       width: double.infinity,
@@ -715,12 +730,12 @@ class _InlineBanner extends StatelessWidget {
         border: Border.all(
           color: isError
               ? const Color(0x66FF8E8E)
-              : gorionAccent.withValues(alpha: 0.18),
+              : scheme.primary.withValues(alpha: 0.18),
         ),
       ),
       child: Text(
         message,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        style: theme.textTheme.bodySmall?.copyWith(
           color: foreground,
           fontWeight: FontWeight.w600,
           height: 1.35,
@@ -743,13 +758,16 @@ class _DialogMetaChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = accent ? gorionAccent : gorionOnSurfaceMuted;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
+    final foreground = accent ? scheme.primary : muted;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: accent
-            ? gorionAccentDim.withValues(alpha: 0.2)
-            : Colors.white.withValues(alpha: 0.06),
+            ? scheme.primary.withValues(alpha: 0.14)
+            : scheme.onSurface.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: foreground.withValues(alpha: 0.18)),
       ),
@@ -760,7 +778,7 @@ class _DialogMetaChip extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            style: theme.textTheme.labelSmall?.copyWith(
               color: foreground,
               fontWeight: FontWeight.w700,
             ),
@@ -776,6 +794,10 @@ class _SubscriptionsEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(28),
@@ -785,23 +807,21 @@ class _SubscriptionsEmptyState extends StatelessWidget {
             Icon(
               Icons.inventory_2_outlined,
               size: 34,
-              color: gorionOnSurfaceMuted.withValues(alpha: 0.8),
+              color: muted.withValues(alpha: 0.8),
             ),
             const SizedBox(height: 12),
             Text(
               'Пока нет ни одной сохранённой подписки.',
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(color: gorionOnSurface),
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: scheme.onSurface,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               'Добавьте первую подписку через кнопку с плюсом на главном экране.',
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: gorionOnSurfaceMuted),
+              style: theme.textTheme.bodyMedium?.copyWith(color: muted),
             ),
           ],
         ),

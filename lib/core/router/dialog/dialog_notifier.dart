@@ -10,17 +10,25 @@ class _DialogNotifier extends Notifier<void> {
     if (context == null || !context.mounted) return;
     showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF0D1A12),
-        title: Text(title, style: const TextStyle(color: Colors.white)),
-        content: Text(message, style: const TextStyle(color: Colors.white70)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF1EFFAC))),
-          ),
-        ],
-      ),
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final scheme = theme.colorScheme;
+        final muted =
+            theme.textTheme.bodyMedium?.color ??
+            scheme.onSurface.withValues(alpha: 0.72);
+
+        return AlertDialog(
+          backgroundColor: scheme.surface,
+          title: Text(title, style: TextStyle(color: scheme.onSurface)),
+          content: Text(message, style: TextStyle(color: muted)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -28,5 +36,6 @@ class _DialogNotifier extends Notifier<void> {
   void attachContext(BuildContext ctx) => _buildContext = ctx;
 }
 
-final dialogNotifierProvider =
-    NotifierProvider<_DialogNotifier, void>(_DialogNotifier.new);
+final dialogNotifierProvider = NotifierProvider<_DialogNotifier, void>(
+  _DialogNotifier.new,
+);

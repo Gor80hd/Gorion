@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_config_builder.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
+import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
 
 void main() {
   group('SingboxConfigBuilder', () {
@@ -29,6 +30,7 @@ void main() {
 
         final built = SingboxConfigBuilder.build(
           templateConfig: template,
+          splitTunnelSettings: const SplitTunnelSettings(),
           mode: RuntimeMode.mixed,
           mixedPort: 2080,
           controllerPort: 9090,
@@ -90,6 +92,7 @@ void main() {
 
       final built = SingboxConfigBuilder.build(
         templateConfig: template,
+        splitTunnelSettings: const SplitTunnelSettings(),
         mode: RuntimeMode.tun,
         mixedPort: 2080,
         controllerPort: 9090,
@@ -135,6 +138,7 @@ void main() {
 
       final built = SingboxConfigBuilder.build(
         templateConfig: template,
+        splitTunnelSettings: const SplitTunnelSettings(),
         mode: RuntimeMode.mixed,
         mixedPort: 2080,
         controllerPort: 9090,

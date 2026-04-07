@@ -11,7 +11,7 @@ const managedMixedInboundTag = 'gorion-mixed';
 const managedTunInboundTag = 'gorion-tun';
 const managedTunInterfaceName = 'gorion-tun';
 const _managedSplitTunnelRuleSetPrefix = 'gorion-split';
-const _managedSplitTunnelInlineTag = 'gorion-split-inline';
+const _managedSplitTunnelInlineBaseTag = 'gorion-split-inline';
 
 class BuiltRuntimeConfig {
   const BuiltRuntimeConfig({
@@ -176,10 +176,62 @@ class SingboxConfigBuilder {
     }
 
     final managedRuleSets = <Map<String, dynamic>>[];
+    final managedRules = <Map<String, dynamic>>[];
+
+    for (final action in const [
+      SplitTunnelAction.block,
+      SplitTunnelAction.direct,
+      SplitTunnelAction.proxy,
+    ]) {
+      final group = settings.groupFor(action);
+      final managedRuleSetTags = _buildManagedSplitTunnelRuleSets(
+        settings: settings,
+        action: action,
+        group: group,
+        managedRuleSets: managedRuleSets,
+      );
+      if (managedRuleSetTags.isEmpty) {
+        continue;
+      }
+      managedRules.add({
+        'rule_set': managedRuleSetTags,
+        'action': 'route',
+        'outbound': _outboundForSplitTunnelAction(action),
+      });
+    }
+
+    if (managedRuleSets.isEmpty || managedRules.isEmpty) {
+      return;
+    }
+
+    final existingRuleSets = _cloneList(route['rule_set'])
+      ..removeWhere(
+        (ruleSet) =>
+            ruleSet['tag']?.toString().startsWith(
+              _managedSplitTunnelRuleSetPrefix,
+            ) ??
+            false,
+      );
+    route['rule_set'] = [...managedRuleSets, ...existingRuleSets];
+
+    final existingRules = _cloneList(route['rules']);
+    route['rules'] = [...managedRules, ...existingRules];
+  }
+
+  static List<String> _buildManagedSplitTunnelRuleSets({
+    required SplitTunnelSettings settings,
+    required SplitTunnelAction action,
+    required SplitTunnelRuleGroup group,
+    required List<Map<String, dynamic>> managedRuleSets,
+  }) {
+    if (!group.hasRules) {
+      return const [];
+    }
+
     final managedRuleSetTags = <String>[];
 
-    for (final tag in settings.normalizedGeositeTags) {
-      final managedTag = _managedSplitTunnelTag('geosite', tag);
+    for (final tag in group.normalizedGeositeTags) {
+      final managedTag = _managedSplitTunnelTag(action, 'geosite', tag);
       managedRuleSetTags.add(managedTag);
       managedRuleSets.add({
         'type': 'remote',
@@ -187,15 +239,17 @@ class SingboxConfigBuilder {
         'format': SplitTunnelRuleSetFormat.binary.jsonValue,
         'url': buildBuiltInGeositeRuleSetUrl(
           tag,
-          revision: settings.remoteRevision,
+          revision: settings.revisionForManagedSource(
+            SplitTunnelManagedSourceKind.geosite,
+          ),
         ),
         'update_interval': settings.normalizedRemoteUpdateInterval,
         'download_detour': managedManualSelectorTag,
       });
     }
 
-    for (final tag in settings.normalizedGeoipTags) {
-      final managedTag = _managedSplitTunnelTag('geoip', tag);
+    for (final tag in group.normalizedGeoipTags) {
+      final managedTag = _managedSplitTunnelTag(action, 'geoip', tag);
       managedRuleSetTags.add(managedTag);
       managedRuleSets.add({
         'type': 'remote',
@@ -203,21 +257,27 @@ class SingboxConfigBuilder {
         'format': SplitTunnelRuleSetFormat.binary.jsonValue,
         'url': buildBuiltInGeoipRuleSetUrl(
           tag,
-          revision: settings.remoteRevision,
+          revision: settings.revisionForManagedSource(
+            SplitTunnelManagedSourceKind.geoip,
+          ),
         ),
         'update_interval': settings.normalizedRemoteUpdateInterval,
         'download_detour': managedManualSelectorTag,
       });
     }
 
-    final inlineRuleSet = _buildInlineSplitTunnelRuleSet(settings);
+    final inlineRuleSet = _buildInlineSplitTunnelRuleSet(action, group);
     if (inlineRuleSet != null) {
-      managedRuleSetTags.add(_managedSplitTunnelInlineTag);
+      managedRuleSetTags.add(_managedSplitTunnelInlineTag(action));
       managedRuleSets.add(inlineRuleSet);
     }
 
-    for (final ruleSet in settings.activeCustomRuleSets) {
-      final managedTag = _managedSplitTunnelTag('custom', ruleSet.normalizedId);
+    for (final ruleSet in group.activeCustomRuleSets) {
+      final managedTag = _managedSplitTunnelTag(
+        action,
+        'custom',
+        ruleSet.normalizedId,
+      );
       managedRuleSetTags.add(managedTag);
       managedRuleSets.add(
         ruleSet.isRemote
@@ -238,36 +298,19 @@ class SingboxConfigBuilder {
       );
     }
 
-    if (managedRuleSetTags.isEmpty) {
-      return;
-    }
-
-    final existingRuleSets = _cloneList(route['rule_set'])
-      ..removeWhere(
-        (ruleSet) =>
-            ruleSet['tag']?.toString().startsWith(
-              _managedSplitTunnelRuleSetPrefix,
-            ) ??
-            false,
-      );
-    route['rule_set'] = [...managedRuleSets, ...existingRuleSets];
-
-    final existingRules = _cloneList(route['rules']);
-    route['rules'] = [
-      {'rule_set': managedRuleSetTags, 'action': 'route', 'outbound': 'direct'},
-      ...existingRules,
-    ];
+    return managedRuleSetTags;
   }
 
   static Map<String, dynamic>? _buildInlineSplitTunnelRuleSet(
-    SplitTunnelSettings settings,
+    SplitTunnelAction action,
+    SplitTunnelRuleGroup group,
   ) {
     final rules = <Map<String, Object>>[];
-    if (settings.normalizedDomainSuffixes.isNotEmpty) {
-      rules.add({'domain_suffix': settings.normalizedDomainSuffixes});
+    if (group.normalizedDomainSuffixes.isNotEmpty) {
+      rules.add({'domain_suffix': group.normalizedDomainSuffixes});
     }
-    if (settings.normalizedIpCidrs.isNotEmpty) {
-      rules.add({'ip_cidr': settings.normalizedIpCidrs});
+    if (group.normalizedIpCidrs.isNotEmpty) {
+      rules.add({'ip_cidr': group.normalizedIpCidrs});
     }
     if (rules.isEmpty) {
       return null;
@@ -275,14 +318,33 @@ class SingboxConfigBuilder {
 
     return {
       'type': 'inline',
-      'tag': _managedSplitTunnelInlineTag,
+      'tag': _managedSplitTunnelInlineTag(action),
       'rules': rules,
     };
   }
 
-  static String _managedSplitTunnelTag(String kind, String value) {
+  static String _managedSplitTunnelTag(
+    SplitTunnelAction action,
+    String kind,
+    String value,
+  ) {
     final sanitized = value.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '-');
-    return '$_managedSplitTunnelRuleSetPrefix-$kind-$sanitized';
+    return '$_managedSplitTunnelRuleSetPrefix-${action.jsonValue}-$kind-$sanitized';
+  }
+
+  static String _managedSplitTunnelInlineTag(SplitTunnelAction action) {
+    return '$_managedSplitTunnelInlineBaseTag-${action.jsonValue}';
+  }
+
+  static String _outboundForSplitTunnelAction(SplitTunnelAction action) {
+    switch (action) {
+      case SplitTunnelAction.direct:
+        return 'direct';
+      case SplitTunnelAction.block:
+        return 'block';
+      case SplitTunnelAction.proxy:
+        return managedManualSelectorTag;
+    }
   }
 
   static List<Map<String, Object>> _buildInbounds({

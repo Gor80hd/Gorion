@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gap/gap.dart';
+import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/core/http_client/http_client_provider.dart';
 import 'package:gorion_clean/core/preferences/general_preferences.dart';
 import 'package:gorion_clean/core/router/bottom_sheets/bottom_sheets_notifier.dart';
@@ -210,10 +211,10 @@ String _displayName(OutboundInfo info) {
   return normalizeServerDisplayText(raw);
 }
 
-Color _typeColor(String type) {
+Color _typeColor(String type, Color primary) {
   return switch (type.toLowerCase()) {
-    'auto' => const Color(0xFF1EFFAC),
-    'vless' => const Color(0xFF1EFFAC),
+    'auto' => primary,
+    'vless' => primary,
     'vmess' => const Color(0xFF6366F1),
     'trojan' => const Color(0xFFF59E0B),
     'shadowsocks' || 'ss' => const Color(0xFF3B82F6),
@@ -269,12 +270,12 @@ String _formatBestServerCheckIntervalBadge(int minutes) {
   final hours = minutes ~/ 60;
   final remainingMinutes = minutes % 60;
   if (hours <= 0) {
-    return '${minutes}м';
+    return '$minutesм';
   }
   if (remainingMinutes == 0) {
-    return '${hours}ч';
+    return '$hoursч';
   }
-  return '${hours}ч ${remainingMinutes}м';
+  return '$hoursч $remainingMinutesм';
 }
 
 const _throughputBenchmarkUrl =
@@ -361,6 +362,8 @@ class ServersPanelWidget extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final searchCtrl = useTextEditingController();
     final searchQuery = useState('');
     final sortMode = ref.watch(Preferences.serverSortMode);
@@ -1025,7 +1028,7 @@ class ServersPanelWidget extends HookConsumerWidget {
               strokeOpacity: 0.22,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.18),
+                  color: theme.shadowColor.withValues(alpha: 0.18),
                   blurRadius: 24,
                   offset: const Offset(0, 8),
                 ),
@@ -1119,10 +1122,10 @@ class ServersPanelWidget extends HookConsumerWidget {
               child: () {
                 if (profilesAsync.connectionState == ConnectionState.waiting &&
                     !profilesAsync.hasData) {
-                  return const Center(
+                  return Center(
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Color(0xFF1EFFAC),
+                      color: scheme.primary,
                     ),
                   );
                 }
@@ -1188,18 +1191,22 @@ class ServersPanelWidget extends HookConsumerWidget {
                                   ),
                                   foregroundColor: autoResetEnabled
                                       ? const Color(0xFFFFB86B)
-                                      : Colors.white.withValues(alpha: 0.3),
+                                      : scheme.onSurface.withValues(alpha: 0.3),
                                   backgroundColor: autoResetEnabled
                                       ? const Color(
                                           0xFFFFB86B,
                                         ).withValues(alpha: 0.12)
-                                      : Colors.white.withValues(alpha: 0.04),
+                                      : scheme.onSurface.withValues(
+                                          alpha: 0.04,
+                                        ),
                                   side: BorderSide(
                                     color: autoResetEnabled
                                         ? const Color(
                                             0xFFFFB86B,
                                           ).withValues(alpha: 0.35)
-                                        : Colors.white.withValues(alpha: 0.08),
+                                        : scheme.onSurface.withValues(
+                                            alpha: 0.08,
+                                          ),
                                     width: 0.7,
                                   ),
                                   shape: RoundedRectangleBorder(
@@ -1709,6 +1716,7 @@ class _GlassTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return GlassPanel(
       height: ServersPanelWidget.searchFieldHeight,
       borderRadius: ServersPanelWidget.searchFieldRadius,
@@ -1718,8 +1726,8 @@ class _GlassTextField extends StatelessWidget {
       child: TextField(
         controller: controller,
         textAlignVertical: TextAlignVertical.center,
-        style: const TextStyle(
-          color: Colors.white,
+        style: TextStyle(
+          color: scheme.onSurface,
           fontSize: 15,
           fontWeight: FontWeight.w600,
           height: 1.1,
@@ -1727,7 +1735,7 @@ class _GlassTextField extends StatelessWidget {
         decoration: InputDecoration(
           hintText: hint,
           hintStyle: TextStyle(
-            color: Colors.white.withValues(alpha: 0.92),
+            color: Theme.of(context).gorionTokens.onSurfaceMuted,
             fontSize: 15,
             fontWeight: FontWeight.w700,
           ),
@@ -1769,6 +1777,9 @@ class _SortDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
     final isActive = value != ServerSortMode.none;
 
     return GlassPanel(
@@ -1781,14 +1792,14 @@ class _SortDropdown extends StatelessWidget {
         initialValue: value,
         tooltip: 'Сортировка',
         onSelected: onChanged,
-        color: const Color(0xCC09110D),
+        color: scheme.surface,
         elevation: 12,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         itemBuilder: (context) => [
-          _sortMenuItem(ServerSortMode.none, 'Без сортировки', value),
-          _sortMenuItem(ServerSortMode.ping, 'По пингу', value),
-          _sortMenuItem(ServerSortMode.speed, 'По скорости', value),
-          _sortMenuItem(ServerSortMode.alpha, 'По алфавиту', value),
+          _sortMenuItem(context, ServerSortMode.none, 'Без сортировки', value),
+          _sortMenuItem(context, ServerSortMode.ping, 'По пингу', value),
+          _sortMenuItem(context, ServerSortMode.speed, 'По скорости', value),
+          _sortMenuItem(context, ServerSortMode.alpha, 'По алфавиту', value),
         ],
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1797,9 +1808,7 @@ class _SortDropdown extends StatelessWidget {
               Icon(
                 Icons.tune_rounded,
                 size: 15,
-                color: isActive
-                    ? const Color(0xFF1EFFAC)
-                    : Colors.white.withValues(alpha: 0.55),
+                color: isActive ? scheme.primary : muted.withValues(alpha: 0.9),
               ),
               const Gap(8),
               Expanded(
@@ -1807,8 +1816,8 @@ class _SortDropdown extends StatelessWidget {
                   _label,
                   style: TextStyle(
                     color: isActive
-                        ? const Color(0xFF1EFFAC)
-                        : Colors.white.withValues(alpha: 0.7),
+                        ? scheme.primary
+                        : scheme.onSurface.withValues(alpha: 0.7),
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1816,7 +1825,7 @@ class _SortDropdown extends StatelessWidget {
               ),
               Icon(
                 Icons.keyboard_arrow_down_rounded,
-                color: Colors.white.withValues(alpha: 0.5),
+                color: muted.withValues(alpha: 0.85),
               ),
             ],
           ),
@@ -1826,10 +1835,13 @@ class _SortDropdown extends StatelessWidget {
   }
 
   PopupMenuItem<ServerSortMode> _sortMenuItem(
+    BuildContext context,
     ServerSortMode mode,
     String label,
     ServerSortMode currentValue,
   ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final selected = mode == currentValue;
 
     return PopupMenuItem<ServerSortMode>(
@@ -1840,16 +1852,16 @@ class _SortDropdown extends StatelessWidget {
             selected ? Icons.check_rounded : Icons.circle_outlined,
             size: 16,
             color: selected
-                ? const Color(0xFF1EFFAC)
-                : Colors.white.withValues(alpha: 0.55),
+                ? scheme.primary
+                : theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.9),
           ),
           const Gap(8),
           Text(
             label,
             style: TextStyle(
               color: selected
-                  ? const Color(0xFF1EFFAC)
-                  : Colors.white.withValues(alpha: 0.82),
+                  ? scheme.primary
+                  : scheme.onSurface.withValues(alpha: 0.82),
               fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
             ),
           ),
@@ -1874,12 +1886,14 @@ class _SmallGlassButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final enabled = onTap != null;
     final iconColor = isStop
-        ? const Color(0xFFEF4444).withValues(alpha: 0.88)
+        ? scheme.error.withValues(alpha: 0.88)
         : enabled
-        ? Colors.white.withValues(alpha: 0.75)
-        : Colors.white.withValues(alpha: 0.28);
+        ? scheme.onSurface.withValues(alpha: 0.75)
+        : theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.45);
 
     return Tooltip(
       message: tooltip,
@@ -1889,7 +1903,7 @@ class _SmallGlassButton extends StatelessWidget {
           width: 42,
           height: 42,
           borderRadius: 15,
-          backgroundColor: isStop ? Colors.red : Colors.white,
+          backgroundColor: isStop ? scheme.error : Colors.white,
           opacity: isStop ? 0.1 : (enabled ? 0.07 : 0.03),
           strokeOpacity: isStop ? 0.22 : (enabled ? 0.14 : 0.06),
           child: Center(child: Icon(icon, size: 17, color: iconColor)),
@@ -1914,6 +1928,9 @@ class _PingTestProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
     final progress = total > 0 ? completed / total : null;
     final label =
         status ??
@@ -1930,7 +1947,7 @@ class _PingTestProgress extends StatelessWidget {
               child: Text(
                 label,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.72),
+                  color: scheme.onSurface.withValues(alpha: 0.72),
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
@@ -1942,17 +1959,17 @@ class _PingTestProgress extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.06),
+                color: scheme.onSurface.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.12),
+                  color: scheme.onSurface.withValues(alpha: 0.12),
                   width: 0.7,
                 ),
               ),
               child: Text(
                 _formatElapsed(elapsed),
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.82),
+                  color: muted.withValues(alpha: 1),
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.3,
@@ -1967,8 +1984,8 @@ class _PingTestProgress extends StatelessWidget {
           child: LinearProgressIndicator(
             minHeight: 6,
             value: total > 0 ? progress : null,
-            backgroundColor: Colors.white.withValues(alpha: 0.08),
-            valueColor: const AlwaysStoppedAnimation(Color(0xFF1EFFAC)),
+            backgroundColor: scheme.onSurface.withValues(alpha: 0.08),
+            valueColor: AlwaysStoppedAnimation(scheme.primary),
           ),
         ),
       ],
@@ -2004,6 +2021,9 @@ class _SubscriptionStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
     final isRunning = updateState?.running == true;
     final progress = isRunning && (updateState?.total ?? 0) > 0
         ? (updateState!.completed / updateState!.total).clamp(0.0, 1.0)
@@ -2031,8 +2051,8 @@ class _SubscriptionStrip extends StatelessWidget {
                       title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: scheme.onSurface,
                         fontSize: 15,
                         fontWeight: FontWeight.w800,
                       ),
@@ -2043,7 +2063,7 @@ class _SubscriptionStrip extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.56),
+                        color: muted.withValues(alpha: 0.95),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -2072,7 +2092,7 @@ class _SubscriptionStrip extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.7),
+                color: scheme.onSurface.withValues(alpha: 0.7),
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
@@ -2085,8 +2105,8 @@ class _SubscriptionStrip extends StatelessWidget {
               child: LinearProgressIndicator(
                 minHeight: 6,
                 value: progress,
-                backgroundColor: Colors.white.withValues(alpha: 0.08),
-                valueColor: const AlwaysStoppedAnimation(Color(0xFF1EFFAC)),
+                backgroundColor: scheme.onSurface.withValues(alpha: 0.08),
+                valueColor: AlwaysStoppedAnimation(scheme.primary),
               ),
             ),
           ],
@@ -2113,9 +2133,11 @@ class _SubscriptionCompactRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final accent = isActive
-        ? const Color(0xFF1EFFAC)
-        : Colors.white.withValues(alpha: 0.78);
+        ? scheme.primary
+        : scheme.onSurface.withValues(alpha: 0.78);
 
     return GestureDetector(
       onTap: onTap,
@@ -2126,7 +2148,7 @@ class _SubscriptionCompactRow extends StatelessWidget {
         backgroundColor: Colors.white,
         opacity: isActive ? 0.08 : 0.05,
         strokeOpacity: isActive ? 0.22 : 0.14,
-        strokeColor: isActive ? const Color(0xFF1EFFAC) : Colors.white,
+        strokeColor: isActive ? scheme.primary : Colors.white,
         child: Row(
           children: [
             Icon(Icons.layers_rounded, size: 13, color: accent),
@@ -2135,7 +2157,7 @@ class _SubscriptionCompactRow extends StatelessWidget {
               child: Text(
                 name,
                 style: TextStyle(
-                  color: Colors.white,
+                  color: scheme.onSurface,
                   fontSize: 13,
                   fontWeight: isActive ? FontWeight.w800 : FontWeight.w700,
                   letterSpacing: 0.2,
@@ -2147,7 +2169,9 @@ class _SubscriptionCompactRow extends StatelessWidget {
             Text(
               '$serverCount',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.4),
+                color: theme.gorionTokens.onSurfaceMuted.withValues(
+                  alpha: 0.75,
+                ),
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
@@ -2159,7 +2183,7 @@ class _SubscriptionCompactRow extends StatelessWidget {
               child: Icon(
                 Icons.chevron_right_rounded,
                 size: 18,
-                color: Colors.white.withValues(alpha: 0.45),
+                color: theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.8),
               ),
             ),
           ],
@@ -2176,12 +2200,13 @@ class _SubscriptionServersPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final muted = Theme.of(context).gorionTokens.onSurfaceMuted;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 0, 2),
       child: Text(
         message,
         style: TextStyle(
-          color: Colors.white.withValues(alpha: 0.58),
+          color: muted.withValues(alpha: 0.95),
           fontSize: 12,
           fontWeight: FontWeight.w500,
         ),
@@ -2203,13 +2228,14 @@ class _SubscriptionActionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = Colors.white.withValues(alpha: 0.82);
+    final scheme = Theme.of(context).colorScheme;
+    final color = scheme.onSurface.withValues(alpha: 0.82);
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.06),
+          color: scheme.onSurface.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: color.withValues(alpha: 0.18), width: 0.7),
         ),
@@ -2240,6 +2266,7 @@ class _SubscriptionsHiddenHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return GlassPanel(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       borderRadius: 15,
@@ -2252,7 +2279,7 @@ class _SubscriptionsHiddenHint extends StatelessWidget {
             child: Text(
               'Все подписки скрыты. Включите нужные в настройках подписок.',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.68),
+                color: scheme.onSurface.withValues(alpha: 0.68),
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
@@ -2307,6 +2334,8 @@ class _EmptyServersCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return GlassPanel(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
@@ -2320,13 +2349,13 @@ class _EmptyServersCard extends StatelessWidget {
           FaIcon(
             FontAwesomeIcons.satellite,
             size: 26,
-            color: Colors.white.withValues(alpha: 0.22),
+            color: theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.48),
           ),
           const Gap(10),
           Text(
             'Нет серверов',
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.72),
+              color: scheme.onSurface.withValues(alpha: 0.72),
               fontSize: 14,
               fontWeight: FontWeight.w700,
             ),
@@ -2377,7 +2406,10 @@ class _ServerCard extends HookConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Pulsing glow controller — active only when this card is being benchmarked.
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
+
     final pulseCtrl = useAnimationController(
       duration: const Duration(milliseconds: 900),
     );
@@ -2392,20 +2424,21 @@ class _ServerCard extends HookConsumerWidget {
       }
       return null;
     }, [isBenchmarking]);
+
     final name = _displayName(server);
     final cc = _extractCountryCode(name);
     final flag = cc != null ? _flagEmoji(cc) : '';
     final displayedName = cc != null ? _stripCountryPrefix(name) : name;
     final type = server.type.isNotEmpty ? server.type.toUpperCase() : 'PROXY';
     final ping = pingOverride ?? server.urlTestDelay;
-    final typeColor = _typeColor(server.type);
+    final typeColor = _typeColor(server.type, scheme.primary);
     final pingColor = _pingColor(ping);
     final throughput = speedOverride;
     final speedColor = switch (throughput ?? -1) {
       < 1 => const Color(0xFFEF4444),
       < 256 * 1024 => const Color(0xFFF59E0B),
       < 1024 * 1024 => const Color(0xFF22C55E),
-      _ => const Color(0xFF1EFFAC),
+      _ => scheme.primary,
     };
     final hasActionsMenu =
         onShowDetails != null || onToggleAutoExclusion != null;
@@ -2419,9 +2452,9 @@ class _ServerCard extends HookConsumerWidget {
                 borderRadius: BorderRadius.circular(15),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(
-                      0xFF1EFFAC,
-                    ).withValues(alpha: 0.06 + pulseValue * 0.22),
+                    color: scheme.primary.withValues(
+                      alpha: 0.06 + pulseValue * 0.22,
+                    ),
                     blurRadius: 12 + pulseValue * 14,
                     spreadRadius: -2,
                   ),
@@ -2438,14 +2471,14 @@ class _ServerCard extends HookConsumerWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
                 color: isBenchmarking
-                    ? Colors.white.withValues(alpha: 0.09)
+                    ? scheme.onSurface.withValues(alpha: 0.09)
                     : (isSelected
-                          ? Colors.white.withValues(alpha: 0.08)
-                          : Colors.white.withValues(alpha: 0.045)),
+                          ? scheme.onSurface.withValues(alpha: 0.08)
+                          : scheme.onSurface.withValues(alpha: 0.045)),
                 border: Border.all(
                   color: isBenchmarking
-                      ? const Color(0xFF1EFFAC).withValues(alpha: 0.55)
-                      : Colors.white.withValues(
+                      ? scheme.primary.withValues(alpha: 0.55)
+                      : scheme.onSurface.withValues(
                           alpha: isSelected ? 0.14 : 0.08,
                         ),
                   width: isBenchmarking ? 1.3 : 0.7,
@@ -2453,9 +2486,7 @@ class _ServerCard extends HookConsumerWidget {
                 boxShadow: (isSelected && !isBenchmarking)
                     ? [
                         BoxShadow(
-                          color: const Color(
-                            0xFF1EFFAC,
-                          ).withValues(alpha: 0.08),
+                          color: scheme.primary.withValues(alpha: 0.08),
                           blurRadius: 18,
                           spreadRadius: -2,
                         ),
@@ -2469,10 +2500,7 @@ class _ServerCard extends HookConsumerWidget {
                       left: 0,
                       top: 0,
                       bottom: 0,
-                      child: Container(
-                        width: 2.5,
-                        color: const Color(0xFF1EFFAC),
-                      ),
+                      child: Container(width: 2.5, color: scheme.primary),
                     ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -2500,8 +2528,8 @@ class _ServerCard extends HookConsumerWidget {
                                       displayedName,
                                       style: TextStyle(
                                         color: isSelected
-                                            ? Colors.white
-                                            : Colors.white.withValues(
+                                            ? scheme.onSurface
+                                            : scheme.onSurface.withValues(
                                                 alpha: 0.9,
                                               ),
                                         fontSize: 14,
@@ -2521,7 +2549,7 @@ class _ServerCard extends HookConsumerWidget {
                                 Text(
                                   groupName,
                                   style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.44),
+                                    color: muted.withValues(alpha: 0.78),
                                     fontSize: 12,
                                   ),
                                   maxLines: 3,
@@ -2538,9 +2566,7 @@ class _ServerCard extends HookConsumerWidget {
                                   Text(
                                     detailLines[index],
                                     style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.58,
-                                      ),
+                                      color: muted.withValues(alpha: 0.95),
                                       fontSize: 11,
                                       fontWeight: FontWeight.w500,
                                       height: 1.25,
@@ -2592,13 +2618,11 @@ class _ServerCard extends HookConsumerWidget {
                                     height: 4,
                                     child: LinearProgressIndicator(
                                       value: selectionProgress!.value,
-                                      backgroundColor: Colors.white.withValues(
-                                        alpha: 0.08,
+                                      backgroundColor: scheme.onSurface
+                                          .withValues(alpha: 0.08),
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        scheme.primary,
                                       ),
-                                      valueColor:
-                                          const AlwaysStoppedAnimation<Color>(
-                                            Color(0xFF1EFFAC),
-                                          ),
                                     ),
                                   ),
                                 ),
@@ -2620,21 +2644,21 @@ class _ServerCard extends HookConsumerWidget {
                                       vertical: 3,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: const Color(
-                                        0xFF1EFFAC,
-                                      ).withValues(alpha: 0.14),
+                                      color: scheme.primary.withValues(
+                                        alpha: 0.14,
+                                      ),
                                       borderRadius: BorderRadius.circular(999),
                                       border: Border.all(
-                                        color: const Color(
-                                          0xFF1EFFAC,
-                                        ).withValues(alpha: 0.38),
+                                        color: scheme.primary.withValues(
+                                          alpha: 0.38,
+                                        ),
                                         width: 0.7,
                                       ),
                                     ),
-                                    child: const Text(
+                                    child: Text(
                                       'TEST',
                                       style: TextStyle(
-                                        color: Color(0xFF1EFFAC),
+                                        color: scheme.primary,
                                         fontSize: 10,
                                         fontWeight: FontWeight.w800,
                                         letterSpacing: 0.5,
@@ -2673,7 +2697,7 @@ class _ServerCard extends HookConsumerWidget {
                                   const Gap(6),
                                   PopupMenuButton<_ServerCardMenuAction>(
                                     tooltip: 'Действия',
-                                    color: const Color(0xCC09110D),
+                                    color: scheme.surface,
                                     elevation: 12,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(14),
@@ -2701,7 +2725,7 @@ class _ServerCard extends HookConsumerWidget {
                                                     : Icons.block_rounded,
                                                 size: 18,
                                                 color: isAutoExcluded
-                                                    ? const Color(0xFF1EFFAC)
+                                                    ? scheme.primary
                                                     : const Color(0xFFEF4444),
                                               ),
                                               const Gap(10),
@@ -2710,7 +2734,7 @@ class _ServerCard extends HookConsumerWidget {
                                                     ? 'Вернуть в автовыбор'
                                                     : 'Исключить из автовыбора',
                                                 style: TextStyle(
-                                                  color: Colors.white
+                                                  color: scheme.onSurface
                                                       .withValues(alpha: 0.92),
                                                   fontWeight: FontWeight.w700,
                                                 ),
@@ -2726,15 +2750,15 @@ class _ServerCard extends HookConsumerWidget {
                                               Icon(
                                                 Icons.tune_rounded,
                                                 size: 18,
-                                                color: Colors.white.withValues(
-                                                  alpha: 0.72,
+                                                color: muted.withValues(
+                                                  alpha: 0.95,
                                                 ),
                                               ),
                                               const Gap(10),
                                               Text(
                                                 'Параметры сервера',
                                                 style: TextStyle(
-                                                  color: Colors.white
+                                                  color: scheme.onSurface
                                                       .withValues(alpha: 0.92),
                                                   fontWeight: FontWeight.w700,
                                                 ),
@@ -2747,7 +2771,7 @@ class _ServerCard extends HookConsumerWidget {
                                       width: 28,
                                       height: 28,
                                       decoration: BoxDecoration(
-                                        color: Colors.white.withValues(
+                                        color: scheme.onSurface.withValues(
                                           alpha: 0.06,
                                         ),
                                         borderRadius: BorderRadius.circular(8),
@@ -2756,7 +2780,7 @@ class _ServerCard extends HookConsumerWidget {
                                               ? const Color(
                                                   0xFFEF4444,
                                                 ).withValues(alpha: 0.22)
-                                              : Colors.white.withValues(
+                                              : scheme.onSurface.withValues(
                                                   alpha: 0.08,
                                                 ),
                                           width: 0.7,
@@ -2771,9 +2795,7 @@ class _ServerCard extends HookConsumerWidget {
                                             ? const Color(
                                                 0xFFFF8A8A,
                                               ).withValues(alpha: 0.96)
-                                            : Colors.white.withValues(
-                                                alpha: 0.72,
-                                              ),
+                                            : muted.withValues(alpha: 0.95),
                                       ),
                                     ),
                                   ),
@@ -2835,7 +2857,9 @@ class _ServerCard extends HookConsumerWidget {
                               Text(
                                 'benchmark…',
                                 style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.82),
+                                  color: scheme.onSurface.withValues(
+                                    alpha: 0.82,
+                                  ),
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -2861,7 +2885,7 @@ class _ServerCard extends HookConsumerWidget {
                                     ? 'live throughput'
                                     : 'throughput',
                                 style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.46),
+                                  color: muted.withValues(alpha: 0.82),
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
                                   letterSpacing: 0.4,
@@ -2891,6 +2915,9 @@ class _ServerSettingsDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
     final prettyJson = outbound == null
         ? null
         : const JsonEncoder.withIndent('  ').convert(outbound);
@@ -2907,7 +2934,7 @@ class _ServerSettingsDialog extends StatelessWidget {
               child: Text(
                 title,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.88),
+                  color: scheme.onSurface.withValues(alpha: 0.88),
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -2916,7 +2943,9 @@ class _ServerSettingsDialog extends StatelessWidget {
             Expanded(
               child: SelectableText(
                 value,
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.74)),
+                style: TextStyle(
+                  color: scheme.onSurface.withValues(alpha: 0.74),
+                ),
               ),
             ),
           ],
@@ -2929,7 +2958,7 @@ class _ServerSettingsDialog extends StatelessWidget {
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: GlassPanel(
         borderRadius: 24,
-        backgroundColor: const Color(0xFF08110D),
+        backgroundColor: scheme.surface,
         opacity: 0.9,
         strokeOpacity: 0.22,
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
@@ -2943,7 +2972,7 @@ class _ServerSettingsDialog extends StatelessWidget {
                 EmojiFlagText(
                   _displayName(server),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.white,
+                    color: scheme.onSurface,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -2955,12 +2984,12 @@ class _ServerSettingsDialog extends StatelessWidget {
                 if (prettyJson != null) ...[
                   Divider(
                     height: 24,
-                    color: Colors.white.withValues(alpha: 0.08),
+                    color: scheme.onSurface.withValues(alpha: 0.08),
                   ),
-                  const Text(
+                  Text(
                     'Сырые настройки сервера',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: scheme.onSurface,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -2974,7 +3003,7 @@ class _ServerSettingsDialog extends StatelessWidget {
                     child: SelectableText(
                       prettyJson,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.78),
+                        color: scheme.onSurface.withValues(alpha: 0.78),
                       ),
                     ),
                   ),
@@ -2982,7 +3011,7 @@ class _ServerSettingsDialog extends StatelessWidget {
                   Text(
                     'Полная конфигурация сейчас недоступна, но базовые параметры сервера уже видны.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.7),
+                      color: muted.withValues(alpha: 0.95),
                     ),
                   ),
                 const Gap(16),
@@ -3029,15 +3058,16 @@ class _DialogActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = accent ? const Color(0xFF1EFFAC) : Colors.white;
+    final scheme = Theme.of(context).colorScheme;
+    final color = accent ? scheme.primary : scheme.onSurface;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         height: 44,
         decoration: BoxDecoration(
           color: accent
-              ? const Color(0xFF1EFFAC).withValues(alpha: 0.14)
-              : Colors.white.withValues(alpha: 0.06),
+              ? scheme.primary.withValues(alpha: 0.14)
+              : scheme.onSurface.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: color.withValues(alpha: 0.22), width: 0.8),
         ),

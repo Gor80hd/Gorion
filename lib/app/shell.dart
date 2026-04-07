@@ -4,16 +4,22 @@ import 'dart:math' as math;
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gorion_clean/app/theme.dart';
+import 'package:gorion_clean/app/windows_tray_controller.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
+import 'package:gorion_clean/utils/server_display_text.dart';
 import 'package:window_manager/window_manager.dart';
 
 const _dockLeftMargin = 10.0;
 const _dockVerticalMargin = 15.0;
+const _dockBottomMargin = 20.0;
 const _dockWidth = 67.0;
 const _dockGap = 12.0;
 const _titleBarHeight = 48.0;
@@ -31,11 +37,16 @@ class AppShell extends ConsumerStatefulWidget {
 class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   _DockPage _currentPage = _DockPage.home;
   AppLifecycleListener? _appLifecycleListener;
+  ProviderSubscription<DashboardState>? _dashboardSubscription;
   Future<void>? _shutdownFuture;
+  WindowsTrayController? _trayController;
+  bool _startupAutoConnectHandled = false;
   bool _windowDestroyInProgress = false;
 
   bool get _isDesktop =>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
+  bool get _usesWindowsTray => Platform.isWindows;
 
   @override
   void initState() {
@@ -43,16 +54,32 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     _appLifecycleListener = AppLifecycleListener(
       onExitRequested: _handleAppExitRequest,
     );
+    _dashboardSubscription = ref.listenManual<DashboardState>(
+      dashboardControllerProvider,
+      (previous, next) {
+        unawaited(_handleDashboardStateChanged(next));
+      },
+      fireImmediately: true,
+    );
     if (_isDesktop) {
       windowManager.addListener(this);
       unawaited(windowManager.setPreventClose(true));
+    }
+    if (_usesWindowsTray) {
+      unawaited(_initializeWindowsTray());
     }
   }
 
   @override
   void dispose() {
+    _dashboardSubscription?.close();
     if (_isDesktop) {
       windowManager.removeListener(this);
+    }
+    final trayController = _trayController;
+    _trayController = null;
+    if (trayController != null) {
+      unawaited(trayController.dispose());
     }
     _appLifecycleListener?.dispose();
     super.dispose();
@@ -63,22 +90,191 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     if (_windowDestroyInProgress) {
       return;
     }
+    if (_shouldKeepRunningInTrayOnClose) {
+      unawaited(_hideWindowToTray());
+      return;
+    }
     unawaited(_closeWindowGracefully());
   }
 
+  @override
+  void onWindowMinimize() {
+    unawaited(_syncTrayState());
+  }
+
+  @override
+  void onWindowRestore() {
+    unawaited(_syncTrayState());
+  }
+
   Future<AppExitResponse> _handleAppExitRequest() async {
+    if (_shouldKeepRunningInTrayOnClose && !_windowDestroyInProgress) {
+      await _hideWindowToTray();
+      return AppExitResponse.cancel;
+    }
+
     await _shutdownBeforeExit();
     return AppExitResponse.exit;
   }
 
   Future<void> _closeWindowGracefully() async {
-    await _shutdownBeforeExit();
     if (!_isDesktop || _windowDestroyInProgress) {
       return;
     }
 
+    await _quitApplication();
+  }
+
+  Future<void> _initializeWindowsTray() async {
+    final trayController = WindowsTrayController(
+      showWindow: _showWindowFromTray,
+      hideWindow: _hideWindowToTray,
+      connect: () => ref.read(dashboardControllerProvider.notifier).connect(),
+      disconnect: () =>
+          ref.read(dashboardControllerProvider.notifier).disconnect(),
+      reconnect: () =>
+          ref.read(dashboardControllerProvider.notifier).reconnect(),
+      quit: _quitApplication,
+    );
+
+    try {
+      await trayController.initialize();
+      if (!mounted) {
+        await trayController.dispose();
+        return;
+      }
+      _trayController = trayController;
+      await _syncTrayState();
+    } on MissingPluginException {
+      await trayController.dispose(destroyTray: false);
+    } on Object {
+      await trayController.dispose(destroyTray: false);
+    }
+  }
+
+  Future<void> _handleDashboardStateChanged(DashboardState state) async {
+    await _syncTrayState(state: state);
+    await _maybeAutoConnectOnStartup(state);
+  }
+
+  Future<void> _maybeAutoConnectOnStartup(DashboardState state) async {
+    if (_startupAutoConnectHandled || state.bootstrapping) {
+      return;
+    }
+
+    _startupAutoConnectHandled = true;
+    final desktopSettingsState = ref.read(desktopSettingsControllerProvider);
+    if (!desktopSettingsState.settings.autoConnectOnLaunch ||
+        state.activeProfile == null ||
+        state.busy ||
+        state.connectionStage != ConnectionStage.disconnected) {
+      return;
+    }
+
+    await ref.read(dashboardControllerProvider.notifier).connect();
+  }
+
+  Future<void> _syncTrayState({DashboardState? state}) async {
+    final trayController = _trayController;
+    if (trayController == null) {
+      return;
+    }
+
+    final DashboardState dashboardState =
+        state ?? ref.read(dashboardControllerProvider);
+    final windowVisible = await _isWindowPresented();
+    await trayController.update(
+      stage: dashboardState.connectionStage,
+      busy: dashboardState.busy,
+      windowVisible: windowVisible,
+      activeServerLabel: _resolveActiveServerLabel(dashboardState),
+    );
+  }
+
+  Future<bool> _isWindowPresented() async {
+    if (!_isDesktop) {
+      return true;
+    }
+
+    try {
+      final visible = await windowManager.isVisible();
+      if (!visible) {
+        return false;
+      }
+      return !(await windowManager.isMinimized());
+    } on Object {
+      return true;
+    }
+  }
+
+  String? _resolveActiveServerLabel(DashboardState state) {
+    final profile = state.activeProfile;
+    final activeServerTag = state.activeServerTag;
+    if (profile == null || activeServerTag == null) {
+      return null;
+    }
+
+    for (final server in profile.servers) {
+      if (server.tag != activeServerTag) {
+        continue;
+      }
+
+      final normalized = normalizeServerDisplayText(
+        server.displayName,
+        replaceUnderscores: true,
+      );
+      return normalized.isEmpty ? server.tag : normalized;
+    }
+
+    return activeServerTag;
+  }
+
+  Future<void> _showWindowFromTray() async {
+    if (!_isDesktop) {
+      return;
+    }
+
+    await windowManager.show();
+    await windowManager.focus();
+    await _syncTrayState();
+  }
+
+  Future<void> _hideWindowToTray() async {
+    if (!_isDesktop) {
+      return;
+    }
+
+    await windowManager.hide();
+    await _syncTrayState();
+  }
+
+  bool get _shouldKeepRunningInTrayOnClose {
+    if (!_usesWindowsTray || _trayController == null) {
+      return false;
+    }
+    final desktopSettingsState = ref.read(desktopSettingsControllerProvider);
+    return desktopSettingsState.settings.keepRunningInTrayOnClose;
+  }
+
+  Future<void> _quitApplication() async {
+    if (!_isDesktop || _windowDestroyInProgress) {
+      return;
+    }
+
+    await _shutdownBeforeExit();
+
     _windowDestroyInProgress = true;
-    await windowManager.destroy();
+    final trayController = _trayController;
+    _trayController = null;
+    try {
+      if (trayController != null) {
+        await trayController.dispose();
+      }
+      await windowManager.destroy();
+    } on Object {
+      _windowDestroyInProgress = false;
+      rethrow;
+    }
   }
 
   Future<void> _shutdownBeforeExit() {
@@ -97,6 +293,8 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens = theme.gorionTokens;
     final viewPadding = MediaQuery.viewPaddingOf(context);
     final topInset = math.max(
       _dockVerticalMargin,
@@ -110,36 +308,40 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       _dockVerticalMargin,
       viewPadding.bottom + _dockVerticalMargin,
     );
+    final dockBottomInset = math.max(
+      _dockBottomMargin,
+      viewPadding.bottom + _dockBottomMargin,
+    );
     final leftInset = math.max(
       _dockLeftMargin,
       viewPadding.left + _dockLeftMargin,
     );
+    final contentTopInset = _currentPage == _DockPage.settings
+        ? topInset + _titleBarHeight + _dockTopGap
+        : topInset + 8;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: DecoratedBox(
-        decoration: const BoxDecoration(gradient: gorionAppBackgroundGradient),
+        decoration: BoxDecoration(
+          gradient: tokens.backgroundGradientFor(theme.brightness),
+        ),
         child: Stack(
           fit: StackFit.expand,
           children: [
-            const _BackgroundAtmosphere(),
+            _BackgroundAtmosphere(),
             Padding(
               padding: EdgeInsets.fromLTRB(
                 leftInset + _dockWidth + _dockGap,
-                topInset + 8,
+                contentTopInset,
                 rightInset,
                 bottomInset,
               ),
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeOutCubic,
-                child: KeyedSubtree(
-                  key: ValueKey(_currentPage),
-                  child: _currentPage == _DockPage.home
-                      ? widget.child
-                      : const SettingsPage(),
-                ),
+              child: KeyedSubtree(
+                key: ValueKey(_currentPage),
+                child: _currentPage == _DockPage.home
+                    ? widget.child
+                    : const SettingsPage(animateOnMount: false),
               ),
             ),
             Positioned(
@@ -155,7 +357,7 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
             Positioned(
               left: leftInset,
               top: topInset + _titleBarHeight + _dockTopGap,
-              bottom: bottomInset,
+              bottom: dockBottomInset,
               child: _Dock(
                 current: _currentPage,
                 onSelect: (page) {
@@ -178,23 +380,30 @@ class _BackgroundAtmosphere extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    if (isDark) {
+      return const SizedBox.shrink();
+    }
+
+    final tokens = context.gorionTokens;
+
     return IgnorePointer(
       child: Stack(
         children: [
-          const Positioned(
+          Positioned(
             left: -180,
             top: -140,
-            child: _GlowOrb(size: 380, color: Color(0x221EFFAC)),
+            child: _GlowOrb(size: 380, color: tokens.atmospherePrimary),
           ),
-          const Positioned(
+          Positioned(
             right: -90,
             top: 80,
-            child: _GlowOrb(size: 240, color: Color(0x160E865E)),
+            child: _GlowOrb(size: 240, color: tokens.atmosphereSecondary),
           ),
-          const Positioned(
+          Positioned(
             right: 120,
             bottom: -180,
-            child: _GlowOrb(size: 420, color: Color(0x160DA06B)),
+            child: _GlowOrb(size: 420, color: tokens.atmosphereTertiary),
           ),
         ],
       ),
@@ -210,6 +419,8 @@ class _GlowOrb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
       width: size,
       height: size,
@@ -218,8 +429,8 @@ class _GlowOrb extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: color,
-            blurRadius: size * 0.42,
-            spreadRadius: size * 0.06,
+            blurRadius: size * (isDark ? 0.42 : 0.20),
+            spreadRadius: size * (isDark ? 0.06 : 0.0),
           ),
         ],
       ),
@@ -258,7 +469,7 @@ class _TitleBar extends StatelessWidget {
                     left: leftInset,
                     right: rightInset + _windowControlsWidth,
                   ),
-                  child: const Align(
+                  child: Align(
                     alignment: Alignment.topLeft,
                     child: _TitleContent(),
                   ),
@@ -272,7 +483,7 @@ class _TitleBar extends StatelessWidget {
                 left: leftInset,
                 right: rightInset,
               ),
-              child: const Align(
+              child: Align(
                 alignment: Alignment.topLeft,
                 child: _TitleContent(),
               ),
@@ -281,7 +492,7 @@ class _TitleBar extends StatelessWidget {
             Positioned(
               top: topInset,
               right: rightInset,
-              child: const _WindowControls(),
+              child: _WindowControls(),
             ),
         ],
       ),
@@ -294,6 +505,10 @@ class _TitleContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final brandAccent = theme.brandAccent;
+
     return Padding(
       padding: const EdgeInsets.only(left: 1, right: 4),
       child: Row(
@@ -303,16 +518,16 @@ class _TitleContent extends StatelessWidget {
             'assets/images/logo.svg',
             width: 20,
             height: 20,
-            colorFilter: const ColorFilter.mode(gorionAccent, BlendMode.srcIn),
+            colorFilter: ColorFilter.mode(brandAccent, BlendMode.srcIn),
           ),
           const SizedBox(width: 10),
-          const Text(
+          Text(
             'gorion',
             style: TextStyle(
               fontFamily: 'IBMPlexSans',
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: gorionOnSurface,
+              color: scheme.onSurface,
               letterSpacing: 0.4,
             ),
           ),
@@ -320,16 +535,16 @@ class _TitleContent extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
             decoration: BoxDecoration(
-              color: gorionAccent.withValues(alpha: 0.12),
+              color: brandAccent.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(999),
             ),
-            child: const Text(
+            child: Text(
               '0.0.4 beta',
               style: TextStyle(
                 fontFamily: 'IBMPlexSans',
                 fontSize: 10,
                 fontWeight: FontWeight.w500,
-                color: gorionAccent,
+                color: brandAccent,
                 letterSpacing: 0.2,
               ),
             ),
@@ -373,13 +588,28 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
+    final isDark = theme.brightness == Brightness.dark;
+    final controlIconColor = isDark
+        ? scheme.onSurface
+        : theme.isMonochromeLightGorion
+        ? scheme.onSurface
+        : muted;
+    final closeIconColor = isDark
+        ? scheme.onSurface
+        : theme.isMonochromeLightGorion
+        ? scheme.onSurface
+        : Colors.white;
+
     return GlassPanel(
       height: _TitleBar._height,
       borderRadius: 18,
       padding: const EdgeInsets.all(4),
       opacity: 0.22,
-      backgroundColor: gorionSurface,
-      strokeColor: Colors.white,
+      backgroundColor: scheme.surface,
+      strokeColor: scheme.onSurface,
       strokeOpacity: 0.1,
       strokeWidth: 1,
       boxShadow: const [
@@ -394,11 +624,7 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
         children: [
           _WinBtn(
             onTap: () => windowManager.minimize(),
-            child: Container(
-              width: 10,
-              height: 1.5,
-              color: gorionOnSurfaceMuted,
-            ),
+            child: Container(width: 10, height: 1.5, color: controlIconColor),
           ),
           _WinBtn(
             onTap: () async {
@@ -409,26 +635,19 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
               }
             },
             child: _isMaximized
-                ? _RestoreIcon()
+                ? _RestoreIcon(color: controlIconColor)
                 : Container(
                     width: 10,
                     height: 10,
                     decoration: BoxDecoration(
-                      border: Border.all(
-                        color: gorionOnSurfaceMuted,
-                        width: 1.2,
-                      ),
+                      border: Border.all(color: controlIconColor, width: 1.2),
                     ),
                   ),
           ),
           _WinBtn(
             isClose: true,
             onTap: () => windowManager.close(),
-            child: const Icon(
-              Icons.close_rounded,
-              size: 14,
-              color: gorionOnSurface,
-            ),
+            child: Icon(Icons.close_rounded, size: 14, color: closeIconColor),
           ),
         ],
       ),
@@ -456,9 +675,11 @@ class _WinBtnState extends State<_WinBtn> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final bgHover = widget.isClose
-        ? const Color(0xFFEF4444)
-        : gorionAccent.withValues(alpha: 0.12);
+        ? scheme.error
+        : theme.brandAccent.withValues(alpha: 0.12);
     return GestureDetector(
       onTap: widget.onTap,
       child: MouseRegion(
@@ -481,21 +702,29 @@ class _WinBtnState extends State<_WinBtn> {
 }
 
 class _RestoreIcon extends StatelessWidget {
+  const _RestoreIcon({required this.color});
+
+  final Color color;
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: 12,
       height: 12,
-      child: CustomPaint(painter: _RestorePainter()),
+      child: CustomPaint(painter: _RestorePainter(color)),
     );
   }
 }
 
 class _RestorePainter extends CustomPainter {
+  const _RestorePainter(this.color);
+
+  final Color color;
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = gorionOnSurfaceMuted
+      ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.2;
     canvas.drawRect(
@@ -522,14 +751,16 @@ class _Dock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return SizedBox(
       width: _dockWidth,
       child: GlassPanel(
         borderRadius: 24,
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
         opacity: 0.05,
-        backgroundColor: Colors.white,
-        strokeColor: Colors.white,
+        backgroundColor: scheme.onSurface,
+        strokeColor: scheme.onSurface,
         strokeOpacity: 0.0,
         strokeWidth: 1,
         showGlow: false,
@@ -554,7 +785,7 @@ class _Dock extends StatelessWidget {
             Container(
               width: 18,
               height: 1,
-              color: Colors.white.withValues(alpha: 0.1),
+              color: scheme.onSurface.withValues(alpha: 0.1),
             ),
             const Spacer(),
             _DockBtn(
@@ -593,14 +824,22 @@ class _DockBtnState extends State<_DockBtn> {
 
   @override
   Widget build(BuildContext context) {
-    final color = widget.selected
-        ? gorionAccent
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
+    final brandAccent = theme.brandAccent;
+    final color = theme.isMonochromeLightGorion
+        ? scheme.onSurface
+        : widget.selected
+        ? brandAccent
         : _hover
-        ? gorionOnSurface
-        : gorionOnSurfaceMuted;
+        ? scheme.onSurface
+        : muted;
     final borderColor = widget.selected
-        ? gorionAccent.withValues(alpha: 0.28)
-        : Colors.white.withValues(alpha: _hover ? 0.12 : 0.06);
+        ? brandAccent.withValues(alpha: 0.28)
+        : theme.isMonochromeLightGorion
+        ? brandAccent.withValues(alpha: _hover ? 0.14 : 0.08)
+        : scheme.onSurface.withValues(alpha: _hover ? 0.12 : 0.06);
 
     return Tooltip(
       message: widget.label,
@@ -619,15 +858,17 @@ class _DockBtnState extends State<_DockBtn> {
               color: widget.selected
                   ? null
                   : _hover
-                  ? Colors.white.withValues(alpha: 0.06)
+                  ? theme.isMonochromeLightGorion
+                        ? brandAccent.withValues(alpha: 0.08)
+                        : scheme.onSurface.withValues(alpha: 0.06)
                   : Colors.transparent,
               gradient: widget.selected
                   ? LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        gorionAccent.withValues(alpha: 0.2),
-                        gorionAccent.withValues(alpha: 0.08),
+                        brandAccent.withValues(alpha: 0.2),
+                        brandAccent.withValues(alpha: 0.08),
                       ],
                     )
                   : null,
@@ -636,7 +877,7 @@ class _DockBtnState extends State<_DockBtn> {
               boxShadow: widget.selected
                   ? [
                       BoxShadow(
-                        color: gorionAccent.withValues(alpha: 0.18),
+                        color: brandAccent.withValues(alpha: 0.18),
                         blurRadius: 20,
                         spreadRadius: -6,
                       ),

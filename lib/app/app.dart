@@ -1,20 +1,31 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gorion_clean/app/theme_preferences.dart';
+import 'package:gorion_clean/app/theme_settings.dart';
 import 'package:gorion_clean/app/shell.dart';
 import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/features/home/widget/home_page.dart';
 
-class GorionApp extends StatelessWidget {
+class GorionApp extends ConsumerWidget {
   const GorionApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeSettings = ref.watch(appThemeSettingsProvider);
+
     return MaterialApp(
       title: 'gorion',
       debugShowCheckedModeBanner: false,
-      theme: buildGorionTheme(),
-      home: const AppShell(
-        child: HomePage(),
+      theme: buildGorionTheme(
+        brightness: Brightness.light,
+        palette: themeSettings.palette,
       ),
+      darkTheme: buildGorionTheme(
+        brightness: Brightness.dark,
+        palette: themeSettings.palette,
+      ),
+      themeMode: themeSettings.mode.materialThemeMode,
+      home: const AppShell(child: HomePage(animateOnMount: false)),
     );
   }
 }

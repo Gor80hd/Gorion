@@ -4,10 +4,18 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/app/app.dart';
 import 'package:gorion_clean/app/theme.dart';
+import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
+import 'package:gorion_clean/features/settings/data/desktop_settings_repository.dart';
+import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
 import 'package:window_manager/window_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final launchAtStartupService = buildLaunchAtStartupService();
+  final desktopSettingsBootstrap = await loadDesktopSettingsBootstrap(
+    repository: DesktopSettingsRepository(),
+    launchAtStartupService: launchAtStartupService,
+  );
 
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await windowManager.ensureInitialized();
@@ -17,14 +25,31 @@ void main() async {
       center: true,
       title: 'gorion',
       titleBarStyle: TitleBarStyle.hidden,
-      backgroundColor: gorionBackgroundStart,
+      backgroundColor: gorionDefaultWindowBackground,
       skipTaskbar: false,
     );
     await windowManager.waitUntilReadyToShow(options, () async {
-      await windowManager.show();
-      await windowManager.focus();
+      if (Platform.isWindows &&
+          desktopSettingsBootstrap.settings.launchMinimized) {
+        await windowManager.hide();
+      } else {
+        await windowManager.show();
+        await windowManager.focus();
+      }
     });
   }
 
-  runApp(const ProviderScope(child: GorionApp()));
+  runApp(
+    ProviderScope(
+      overrides: [
+        desktopSettingsBootstrapProvider.overrideWithValue(
+          desktopSettingsBootstrap,
+        ),
+        launchAtStartupServiceProvider.overrideWithValue(
+          launchAtStartupService,
+        ),
+      ],
+      child: const GorionApp(),
+    ),
+  );
 }

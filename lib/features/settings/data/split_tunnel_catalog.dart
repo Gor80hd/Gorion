@@ -1,7 +1,7 @@
 import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
 
-class SplitTunnelSuggestion {
-  const SplitTunnelSuggestion({
+class SplitTunnelTagSuggestion {
+  const SplitTunnelTagSuggestion({
     required this.tag,
     required this.label,
     required this.description,
@@ -17,6 +17,7 @@ class SplitTunnelPreset {
     required this.id,
     required this.label,
     required this.description,
+    required this.action,
     this.geositeTags = const [],
     this.geoipTags = const [],
     this.domainSuffixes = const [],
@@ -26,103 +27,144 @@ class SplitTunnelPreset {
   final String id;
   final String label;
   final String description;
+  final SplitTunnelAction action;
   final List<String> geositeTags;
   final List<String> geoipTags;
   final List<String> domainSuffixes;
   final List<String> ipCidrs;
 }
 
-const splitTunnelSuggestedGeositeEntries = <SplitTunnelSuggestion>[
-  SplitTunnelSuggestion(
+const splitTunnelSuggestedGeositeTags = <SplitTunnelTagSuggestion>[
+  SplitTunnelTagSuggestion(
     tag: 'cn',
     label: 'geosite:cn',
-    description: 'Домены материкового Китая напрямую.',
+    description: 'Домены Китая.',
   ),
-  SplitTunnelSuggestion(
+  SplitTunnelTagSuggestion(
     tag: 'apple',
     label: 'geosite:apple',
-    description: 'Сервисы Apple напрямую.',
+    description: 'Сервисы Apple.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'category-ads-all',
+    label: 'geosite:category-ads-all',
+    description: 'Рекламные и трекинговые домены.',
   ),
 ];
 
-const splitTunnelSuggestedGeoipEntries = <SplitTunnelSuggestion>[
-  SplitTunnelSuggestion(
+const splitTunnelSuggestedGeoipTags = <SplitTunnelTagSuggestion>[
+  SplitTunnelTagSuggestion(
     tag: 'private',
     label: 'geoip:private',
-    description: 'LAN и private ranges напрямую.',
+    description: 'LAN и private ranges.',
   ),
-  SplitTunnelSuggestion(
+  SplitTunnelTagSuggestion(
     tag: 'cn',
     label: 'geoip:cn',
-    description: 'IP-диапазоны Китая напрямую.',
+    description: 'IP-диапазоны Китая.',
   ),
-  SplitTunnelSuggestion(
-    tag: 'ru',
-    label: 'geoip:ru',
-    description: 'IP-диапазоны России напрямую.',
-  ),
-  SplitTunnelSuggestion(
-    tag: 'us',
-    label: 'geoip:us',
-    description: 'IP-диапазоны США напрямую.',
-  ),
-  SplitTunnelSuggestion(
-    tag: 'jp',
-    label: 'geoip:jp',
-    description: 'IP-диапазоны Японии напрямую.',
-  ),
-  SplitTunnelSuggestion(
+  SplitTunnelTagSuggestion(
     tag: 'telegram',
     label: 'geoip:telegram',
-    description: 'IP-адреса Telegram напрямую.',
+    description: 'IP Telegram.',
   ),
-  SplitTunnelSuggestion(
+  SplitTunnelTagSuggestion(
     tag: 'google',
     label: 'geoip:google',
-    description: 'IP-адреса Google напрямую.',
+    description: 'IP Google.',
   ),
-  SplitTunnelSuggestion(
+  SplitTunnelTagSuggestion(
     tag: 'netflix',
     label: 'geoip:netflix',
-    description: 'IP-адреса Netflix напрямую.',
+    description: 'IP Netflix.',
   ),
 ];
 
 const splitTunnelPresets = <SplitTunnelPreset>[
   SplitTunnelPreset(
-    id: 'lan-bypass',
+    id: 'lan-direct',
     label: 'LAN / private',
-    description: 'Не гонять private IP и локальные hostname через туннель.',
+    description: 'Локальные адреса и hostname уйдут в direct.',
+    action: SplitTunnelAction.direct,
     geoipTags: ['private'],
     domainSuffixes: ['local', 'lan', 'localhost'],
   ),
   SplitTunnelPreset(
-    id: 'cn-bypass',
+    id: 'cn-direct',
     label: 'CN direct',
     description: 'Китайские домены и IP пойдут напрямую.',
+    action: SplitTunnelAction.direct,
     geositeTags: ['cn'],
     geoipTags: ['cn', 'private'],
     domainSuffixes: ['local', 'lan', 'localhost'],
   ),
   SplitTunnelPreset(
-    id: 'apple-bypass',
+    id: 'apple-direct',
     label: 'Apple direct',
     description: 'Apple-сервисы уйдут в DIRECT по geosite.',
+    action: SplitTunnelAction.direct,
     geositeTags: ['apple'],
   ),
+  SplitTunnelPreset(
+    id: 'ads-block',
+    label: 'Ads block',
+    description: 'Основные рекламные и трекинговые домены будут блокироваться.',
+    action: SplitTunnelAction.block,
+    geositeTags: ['category-ads-all'],
+    domainSuffixes: [
+      'doubleclick.net',
+      'googleadservices.com',
+      'googlesyndication.com',
+      'googletagmanager.com',
+    ],
+  ),
+  SplitTunnelPreset(
+    id: 'telegram-proxy',
+    label: 'Telegram proxy',
+    description: 'Маршрутизировать Telegram через активный proxy.',
+    action: SplitTunnelAction.proxy,
+    geoipTags: ['telegram'],
+    domainSuffixes: ['t.me', 'telegram.org', 'telegram.me'],
+  ),
+  SplitTunnelPreset(
+    id: 'google-proxy',
+    label: 'Google / YouTube proxy',
+    description: 'Маршрутизировать сервисы Google и YouTube через proxy.',
+    action: SplitTunnelAction.proxy,
+    geoipTags: ['google'],
+    domainSuffixes: ['google.com', 'gstatic.com', 'youtube.com', 'youtu.be'],
+  ),
+  SplitTunnelPreset(
+    id: 'netflix-proxy',
+    label: 'Netflix proxy',
+    description: 'Оставлять Netflix на активном proxy-маршруте.',
+    action: SplitTunnelAction.proxy,
+    geoipTags: ['netflix'],
+    domainSuffixes: ['netflix.com', 'nflxvideo.net', 'nflximg.net'],
+  ),
 ];
+
+List<SplitTunnelPreset> splitTunnelPresetsForAction(SplitTunnelAction action) {
+  return [
+    for (final preset in splitTunnelPresets)
+      if (preset.action == action) preset,
+  ];
+}
 
 SplitTunnelSettings applySplitTunnelPreset({
   required SplitTunnelSettings current,
   required SplitTunnelPreset preset,
 }) {
-  return current.copyWith(
-    enabled: true,
-    geositeTags: [...current.geositeTags, ...preset.geositeTags],
-    geoipTags: [...current.geoipTags, ...preset.geoipTags],
-    domainSuffixes: [...current.domainSuffixes, ...preset.domainSuffixes],
-    ipCidrs: [...current.ipCidrs, ...preset.ipCidrs],
+  final currentGroup = current.groupFor(preset.action);
+  final nextGroup = currentGroup.copyWith(
+    geositeTags: [...currentGroup.geositeTags, ...preset.geositeTags],
+    geoipTags: [...currentGroup.geoipTags, ...preset.geoipTags],
+    domainSuffixes: [...currentGroup.domainSuffixes, ...preset.domainSuffixes],
+    ipCidrs: [...currentGroup.ipCidrs, ...preset.ipCidrs],
   );
+  return current
+      .copyWith(enabled: true)
+      .copyWithGroup(preset.action, nextGroup);
 }
 
 String buildBuiltInGeositeRuleSetUrl(String tag, {int revision = 0}) {

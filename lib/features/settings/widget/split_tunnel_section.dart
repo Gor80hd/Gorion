@@ -4,6 +4,12 @@ import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/features/settings/data/split_tunnel_catalog.dart';
 import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
 
+const _splitTunnelActionOrder = <SplitTunnelAction>[
+  SplitTunnelAction.direct,
+  SplitTunnelAction.block,
+  SplitTunnelAction.proxy,
+];
+
 class SplitTunnelSection extends StatelessWidget {
   const SplitTunnelSection({
     super.key,
@@ -18,11 +24,13 @@ class SplitTunnelSection extends StatelessWidget {
   final bool busy;
   final bool isConnected;
   final ValueChanged<SplitTunnelSettings> onChanged;
-  final Future<void> Function() onRefreshRequested;
+  final Future<void> Function(SplitTunnelManagedSourceKind sourceKind)
+  onRefreshRequested;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final importedBindings = _collectCustomRuleSetBindings(settings);
 
     return GlassPanel(
       borderRadius: 26,
@@ -37,7 +45,7 @@ class SplitTunnelSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Split tunneling',
+            'Traffic routing',
             style: theme.textTheme.titleLarge?.copyWith(
               color: gorionOnSurface,
               fontWeight: FontWeight.w700,
@@ -45,7 +53,7 @@ class SplitTunnelSection extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Совпавшие geosite, geoip, custom rule-set и вручную добавленные домены/IP уходят в DIRECT. Остальной трафик остаётся на активном proxy selector.',
+            'Здесь задаётся понятная логика маршрутизации: что идёт в direct, что блокируется, а что принудительно остаётся на proxy. Пресеты добавляют готовые правила, а ниже можно вручную дописать свои домены и сети.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: gorionOnSurfaceMuted,
               height: 1.45,
@@ -53,265 +61,242 @@ class SplitTunnelSection extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           _ToggleCard(
-            title: 'Включить split tunneling',
-            subtitle: settings.hasRules
-                ? settings.enabled
-                      ? 'Правила активны и будут вставлены в route.rule_set / route.rules при следующем connect.'
-                      : 'Правила сохранены, но сейчас выключены и не попадут в runtime.'
-                : 'Сначала добавьте хотя бы один geosite, geoip, custom rule-set, domain suffix или IP CIDR.',
+            title: 'Включить правила маршрутизации',
+            subtitle: _buildEnabledSubtitle(),
             value: settings.enabled,
             onChanged: (value) => onChanged(settings.copyWith(enabled: value)),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           Wrap(
             spacing: 10,
             runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              _MetaChip(
-                label:
-                    'update_interval ${settings.normalizedRemoteUpdateInterval}',
-              ),
-              _MetaChip(
-                label:
-                    'last refresh ${_formatRefreshTimestamp(settings.lastRemoteRefreshAt)}',
-              ),
-              OutlinedButton.icon(
-                onPressed: busy ? null : () => _changeUpdateInterval(context),
-                icon: const Icon(Icons.schedule_rounded),
-                label: const Text('Изменить интервал'),
-              ),
-              OutlinedButton.icon(
-                onPressed: busy || !settings.hasManagedRemoteSources
-                    ? null
-                    : onRefreshRequested,
-                icon: const Icon(Icons.refresh_rounded),
-                label: Text(
-                  isConnected
-                      ? 'Обновить geosite/geoip и переподключить'
-                      : 'Обновить geosite/geoip',
+              for (final action in _splitTunnelActionOrder)
+                _ActionSummaryChip(
+                  title: _actionTitle(action),
+                  count: settings.groupFor(action).ruleCount,
+                  color: _actionColor(action),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          _SubsectionTitle(
-            title: 'Пресеты',
-            description:
-                'Кнопки ниже сразу добавят строки в split tunneling конфиг и включат секцию.',
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (final preset in splitTunnelPresets)
-                OutlinedButton.icon(
-                  onPressed: busy
-                      ? null
-                      : () => onChanged(
-                          applySplitTunnelPreset(
-                            current: settings,
-                            preset: preset,
-                          ),
-                        ),
-                  icon: const Icon(Icons.auto_awesome_rounded),
-                  label: Text(preset.label),
+              if (settings.hasManagedGeositeSources)
+                _MetaChip(
+                  label:
+                      'geosite ${_formatRefreshTimestamp(settings.lastRefreshAtForManagedSource(SplitTunnelManagedSourceKind.geosite))}',
+                ),
+              if (settings.hasManagedGeoipSources)
+                _MetaChip(
+                  label:
+                      'geoip ${_formatRefreshTimestamp(settings.lastRefreshAtForManagedSource(SplitTunnelManagedSourceKind.geoip))}',
+                ),
+              if (settings.hasManagedRemoteSources)
+                _MetaChip(
+                  label:
+                      'автообновление geo-списков ${settings.normalizedRemoteUpdateInterval}',
                 ),
             ],
           ),
-          const SizedBox(height: 18),
-          _SubsectionTitle(
-            title: 'Built-in geosite',
-            description:
-                'Предлагаемые geosite тянут готовые `.srs` из MetaCubeX sing branch. Можно включить подсказки или добавить свой tag вручную.',
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (final entry in splitTunnelSuggestedGeositeEntries)
-                FilterChip(
-                  selected: settings.normalizedGeositeTags.contains(entry.tag),
-                  label: Text(entry.label),
-                  onSelected: busy ? null : (_) => _toggleGeositeTag(entry.tag),
-                  tooltip: entry.description,
-                  selectedColor: gorionAccent.withValues(alpha: 0.18),
-                  backgroundColor: Colors.white.withValues(alpha: 0.05),
-                  labelStyle: theme.textTheme.bodySmall?.copyWith(
-                    color: gorionOnSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  side: BorderSide(
-                    color: settings.normalizedGeositeTags.contains(entry.tag)
-                        ? gorionAccent.withValues(alpha: 0.34)
-                        : Colors.white.withValues(alpha: 0.08),
-                  ),
-                ),
-              ActionChip(
-                onPressed: busy ? null : () => _addGeositeTag(context),
-                label: const Text('Добавить geosite tag'),
-                avatar: const Icon(Icons.add_rounded, size: 18),
+          const SizedBox(height: 20),
+          for (final action in _splitTunnelActionOrder) ...[
+            _RoutingActionCard(
+              action: action,
+              group: settings.groupFor(action),
+              presets: splitTunnelPresetsForAction(action),
+              busy: busy,
+              onApplyPreset: (preset) => onChanged(
+                applySplitTunnelPreset(current: settings, preset: preset),
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _TokenWrap(
-            values: settings.normalizedGeositeTags,
-            emptyLabel: 'Пока нет geosite правил.',
-            tokenBuilder: (tag) => 'geosite:$tag',
-            onDeleted: busy ? null : _removeGeositeTag,
-          ),
-          const SizedBox(height: 18),
-          _SubsectionTitle(
-            title: 'Built-in geoip',
-            description:
-                'GeoIP подборки тоже используют готовые `.srs`. Хорошо подходят для private/LAN, страновых диапазонов и крупных сервисов.',
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (final entry in splitTunnelSuggestedGeoipEntries)
-                FilterChip(
-                  selected: settings.normalizedGeoipTags.contains(entry.tag),
-                  label: Text(entry.label),
-                  onSelected: busy ? null : (_) => _toggleGeoipTag(entry.tag),
-                  tooltip: entry.description,
-                  selectedColor: gorionAccent.withValues(alpha: 0.18),
-                  backgroundColor: Colors.white.withValues(alpha: 0.05),
-                  labelStyle: theme.textTheme.bodySmall?.copyWith(
-                    color: gorionOnSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  side: BorderSide(
-                    color: settings.normalizedGeoipTags.contains(entry.tag)
-                        ? gorionAccent.withValues(alpha: 0.34)
-                        : Colors.white.withValues(alpha: 0.08),
-                  ),
-                ),
-              ActionChip(
-                onPressed: busy ? null : () => _addGeoipTag(context),
-                label: const Text('Добавить geoip tag'),
-                avatar: const Icon(Icons.add_rounded, size: 18),
+              onAddGeositePressed: () => _addGeositeTag(context, action),
+              onAddGeoipPressed: () => _addGeoipTag(context, action),
+              onAddDomainPressed: () => _addDomainSuffix(context, action),
+              onAddIpPressed: () => _addIpCidr(context, action),
+              onClearPressed: () => onChanged(
+                settings.copyWithGroup(action, const SplitTunnelRuleGroup()),
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _TokenWrap(
-            values: settings.normalizedGeoipTags,
-            emptyLabel: 'Пока нет geoip правил.',
-            tokenBuilder: (tag) => 'geoip:$tag',
-            onDeleted: busy ? null : _removeGeoipTag,
-          ),
-          const SizedBox(height: 18),
-          _SubsectionTitle(
-            title: 'Вручную: domain suffix / IP CIDR',
-            description:
-                'Эти значения собираются в inline rule-set и сразу мачтятся в split tunnel без внешних источников.',
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              ActionChip(
-                onPressed: busy ? null : () => _addDomainSuffix(context),
-                label: const Text('Добавить domain suffix'),
-                avatar: const Icon(Icons.language_rounded, size: 18),
-              ),
-              ActionChip(
-                onPressed: busy ? null : () => _addIpCidr(context),
-                label: const Text('Добавить IP CIDR'),
-                avatar: const Icon(Icons.lan_rounded, size: 18),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _TokenWrap(
-            values: settings.normalizedDomainSuffixes,
-            emptyLabel: 'Domain suffix пока пустой.',
-            tokenBuilder: (value) => 'suffix:$value',
-            onDeleted: busy ? null : _removeDomainSuffix,
-          ),
-          const SizedBox(height: 10),
-          _TokenWrap(
-            values: settings.normalizedIpCidrs,
-            emptyLabel: 'IP CIDR пока пустой.',
-            tokenBuilder: (value) => 'cidr:$value',
-            onDeleted: busy ? null : _removeIpCidr,
-          ),
-          const SizedBox(height: 18),
-          _SubsectionTitle(
-            title: 'Свои rule-set',
-            description:
-                'Можно добавить свой remote URL (`.srs` / `.json`) или локальный путь к rule-set. Они тоже попадут в DIRECT.',
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: busy ? null : () => _addCustomRuleSet(context),
-            icon: const Icon(Icons.library_add_rounded),
-            label: const Text('Добавить custom rule-set'),
-          ),
-          const SizedBox(height: 10),
-          if (settings.normalizedCustomRuleSets.isEmpty)
-            Text(
-              'Пользовательские rule-set пока не добавлены.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: gorionOnSurfaceMuted,
-              ),
-            )
-          else
-            Column(
-              children: [
-                for (final ruleSet in settings.normalizedCustomRuleSets) ...[
-                  _CustomRuleSetCard(
-                    ruleSet: ruleSet,
-                    onToggle: busy
-                        ? null
-                        : (value) => _toggleCustomRuleSet(ruleSet, value),
-                    onDelete: busy ? null : () => _removeCustomRuleSet(ruleSet),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-              ],
+              onDeleteGeosite: (value) => _removeGeositeTag(action, value),
+              onDeleteGeoip: (value) => _removeGeoipTag(action, value),
+              onDeleteDomain: (value) => _removeDomainSuffix(action, value),
+              onDeleteIp: (value) => _removeIpCidr(action, value),
+              onDeleteImport: (ruleSet) =>
+                  _removeCustomRuleSet(action, ruleSet),
             ),
+            if (action != _splitTunnelActionOrder.last)
+              const SizedBox(height: 14),
+          ],
+          const SizedBox(height: 18),
+          _buildAdvancedSection(context, importedBindings),
         ],
       ),
     );
   }
 
-  void _toggleGeositeTag(String tag) {
-    onChanged(
-      settings.copyWith(
-        geositeTags: _toggleStringValue(
-          settings.geositeTags,
-          tag,
-          normalizeSplitTunnelTag,
+  String _buildEnabledSubtitle() {
+    if (!settings.hasRules) {
+      return 'Сначала примените пресет или добавьте свои домены и сети. Пока правил нет.';
+    }
+    if (settings.enabled) {
+      return 'Правила активны и будут встроены в runtime-конфиг при следующем подключении.';
+    }
+    return 'Правила сохранены, но сейчас выключены и не будут применяться.';
+  }
+
+  Widget _buildAdvancedSection(
+    BuildContext context,
+    List<_CustomRuleSetBinding> importedBindings,
+  ) {
+    final theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Theme(
+        data: theme.copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+          childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          collapsedShape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: Text(
+            'Advanced',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: gorionOnSurface,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          subtitle: Text(
+            'Автообновление built-in geosite/geoip и импорт custom rule-set.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: gorionOnSurfaceMuted,
+            ),
+          ),
+          children: [
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                if (settings.hasManagedGeositeSources)
+                  _MetaChip(
+                    label:
+                        'geosite ${_formatRefreshTimestamp(settings.lastRefreshAtForManagedSource(SplitTunnelManagedSourceKind.geosite))}',
+                  ),
+                if (settings.hasManagedGeoipSources)
+                  _MetaChip(
+                    label:
+                        'geoip ${_formatRefreshTimestamp(settings.lastRefreshAtForManagedSource(SplitTunnelManagedSourceKind.geoip))}',
+                  ),
+                _MetaChip(
+                  label:
+                      'автообновление ${settings.normalizedRemoteUpdateInterval}',
+                ),
+                OutlinedButton.icon(
+                  onPressed: busy ? null : () => _changeUpdateInterval(context),
+                  icon: const Icon(Icons.schedule_rounded),
+                  label: const Text('Интервал автообновления'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: busy || !settings.hasManagedGeositeSources
+                      ? null
+                      : () => onRefreshRequested(
+                          SplitTunnelManagedSourceKind.geosite,
+                        ),
+                  icon: const Icon(Icons.travel_explore_rounded),
+                  label: Text(
+                    isConnected ? 'Обновить geosite' : 'Обновить geosite',
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: busy || !settings.hasManagedGeoipSources
+                      ? null
+                      : () => onRefreshRequested(
+                          SplitTunnelManagedSourceKind.geoip,
+                        ),
+                  icon: const Icon(Icons.map_rounded),
+                  label: Text(
+                    isConnected ? 'Обновить geoip' : 'Обновить geoip',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              settings.hasManagedRemoteSources
+                  ? 'Интервал автообновления задаёт, как часто sing-box перепроверяет remote geosite/geoip rule-set. Кнопки выше форсят одноразовое обновление нужного источника уже сейчас. Ручные домены и сети начинают работать без refresh.'
+                  : 'Пока built-in geosite/geoip списки не используются. Если нужны сложные внешние правила, можно импортировать свой rule-set ниже.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: gorionOnSurfaceMuted,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Imported rule-set',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: gorionOnSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: busy ? null : () => _addCustomRuleSet(context),
+                  icon: const Icon(Icons.library_add_rounded),
+                  label: const Text('Добавить import'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (importedBindings.isEmpty)
+              Text(
+                'Импортированных rule-set пока нет.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: gorionOnSurfaceMuted,
+                ),
+              )
+            else
+              Column(
+                children: [
+                  for (final binding in importedBindings) ...[
+                    _ImportedRuleSetCard(
+                      action: binding.action,
+                      ruleSet: binding.ruleSet,
+                      onToggle: busy
+                          ? null
+                          : (value) => _toggleCustomRuleSet(
+                              binding.action,
+                              binding.ruleSet,
+                              value,
+                            ),
+                      onDelete: busy
+                          ? null
+                          : () => _removeCustomRuleSet(
+                              binding.action,
+                              binding.ruleSet,
+                            ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                ],
+              ),
+          ],
         ),
       ),
     );
   }
 
-  void _toggleGeoipTag(String tag) {
-    onChanged(
-      settings.copyWith(
-        geoipTags: _toggleStringValue(
-          settings.geoipTags,
-          tag,
-          normalizeSplitTunnelTag,
-        ),
-      ),
-    );
-  }
-
-  void _removeGeositeTag(String tag) {
-    onChanged(
-      settings.copyWith(
+  void _removeGeositeTag(SplitTunnelAction action, String tag) {
+    _updateGroup(
+      action,
+      (group) => group.copyWith(
         geositeTags: _removeStringValue(
-          settings.geositeTags,
+          group.geositeTags,
           tag,
           normalizeSplitTunnelTag,
         ),
@@ -319,11 +304,12 @@ class SplitTunnelSection extends StatelessWidget {
     );
   }
 
-  void _removeGeoipTag(String tag) {
-    onChanged(
-      settings.copyWith(
+  void _removeGeoipTag(SplitTunnelAction action, String tag) {
+    _updateGroup(
+      action,
+      (group) => group.copyWith(
         geoipTags: _removeStringValue(
-          settings.geoipTags,
+          group.geoipTags,
           tag,
           normalizeSplitTunnelTag,
         ),
@@ -331,11 +317,12 @@ class SplitTunnelSection extends StatelessWidget {
     );
   }
 
-  void _removeDomainSuffix(String value) {
-    onChanged(
-      settings.copyWith(
+  void _removeDomainSuffix(SplitTunnelAction action, String value) {
+    _updateGroup(
+      action,
+      (group) => group.copyWith(
         domainSuffixes: _removeStringValue(
-          settings.domainSuffixes,
+          group.domainSuffixes,
           value,
           normalizeSplitTunnelDomainSuffix,
         ),
@@ -343,11 +330,12 @@ class SplitTunnelSection extends StatelessWidget {
     );
   }
 
-  void _removeIpCidr(String value) {
-    onChanged(
-      settings.copyWith(
+  void _removeIpCidr(SplitTunnelAction action, String value) {
+    _updateGroup(
+      action,
+      (group) => group.copyWith(
         ipCidrs: _removeStringValue(
-          settings.ipCidrs,
+          group.ipCidrs,
           value,
           normalizeSplitTunnelIpCidr,
         ),
@@ -355,11 +343,16 @@ class SplitTunnelSection extends StatelessWidget {
     );
   }
 
-  void _toggleCustomRuleSet(SplitTunnelCustomRuleSet target, bool enabled) {
-    onChanged(
-      settings.copyWith(
+  void _toggleCustomRuleSet(
+    SplitTunnelAction action,
+    SplitTunnelCustomRuleSet target,
+    bool enabled,
+  ) {
+    _updateGroup(
+      action,
+      (group) => group.copyWith(
         customRuleSets: [
-          for (final ruleSet in settings.customRuleSets)
+          for (final ruleSet in group.customRuleSets)
             ruleSet.normalizedId == target.normalizedId
                 ? ruleSet.copyWith(enabled: enabled)
                 : ruleSet,
@@ -368,11 +361,15 @@ class SplitTunnelSection extends StatelessWidget {
     );
   }
 
-  void _removeCustomRuleSet(SplitTunnelCustomRuleSet target) {
-    onChanged(
-      settings.copyWith(
+  void _removeCustomRuleSet(
+    SplitTunnelAction action,
+    SplitTunnelCustomRuleSet target,
+  ) {
+    _updateGroup(
+      action,
+      (group) => group.copyWith(
         customRuleSets: [
-          for (final ruleSet in settings.customRuleSets)
+          for (final ruleSet in group.customRuleSets)
             if (ruleSet.normalizedId != target.normalizedId) ruleSet,
         ],
       ),
@@ -382,9 +379,9 @@ class SplitTunnelSection extends StatelessWidget {
   Future<void> _changeUpdateInterval(BuildContext context) async {
     final value = await _showTextInputDialog(
       context,
-      title: 'Интервал обновления remote rule-set',
+      title: 'Интервал автообновления geosite/geoip',
       description:
-          'Введите значение в формате sing-box, например `12h`, `1d` или `30m`.',
+          'Это интервал фоновой перепроверки remote geosite/geoip rule-set. Например: `12h`, `1d` или `30m`. Для немедленного обновления используйте отдельные кнопки geosite / geoip выше.',
       initialValue: settings.normalizedRemoteUpdateInterval,
       hintText: '1d',
       normalize: normalizeSplitTunnelUpdateInterval,
@@ -396,22 +393,28 @@ class SplitTunnelSection extends StatelessWidget {
     onChanged(settings.copyWith(remoteUpdateInterval: value));
   }
 
-  Future<void> _addGeositeTag(BuildContext context) async {
+  Future<void> _addGeositeTag(
+    BuildContext context,
+    SplitTunnelAction action,
+  ) async {
     final value = await _showTextInputDialog(
       context,
-      title: 'Добавить geosite tag',
+      title: '${_actionTitle(action)}: добавить geosite',
       description:
-          'Например: `cn`, `apple`, `steam@cn`. Для built-in geosite используется MetaCubeX sing `.srs`.',
+          'Выберите популярный geosite-тег ниже или введите свой вручную. Например: `cn`, `apple`, `category-ads-all`.',
       hintText: 'cn',
       normalize: normalizeSplitTunnelTag,
+      suggestions: splitTunnelSuggestedGeositeTags,
     );
     if (value == null || value.isEmpty) {
       return;
     }
-    onChanged(
-      settings.copyWith(
+
+    _updateGroup(
+      action,
+      (group) => group.copyWith(
         geositeTags: _addStringValue(
-          settings.geositeTags,
+          group.geositeTags,
           value,
           normalizeSplitTunnelTag,
         ),
@@ -419,21 +422,28 @@ class SplitTunnelSection extends StatelessWidget {
     );
   }
 
-  Future<void> _addGeoipTag(BuildContext context) async {
+  Future<void> _addGeoipTag(
+    BuildContext context,
+    SplitTunnelAction action,
+  ) async {
     final value = await _showTextInputDialog(
       context,
-      title: 'Добавить geoip tag',
-      description: 'Например: `private`, `ru`, `telegram`, `google`.',
+      title: '${_actionTitle(action)}: добавить geoip',
+      description:
+          'Выберите популярный geoip-тег ниже или введите свой вручную. Например: `private`, `cn`, `telegram`, `google`.',
       hintText: 'private',
       normalize: normalizeSplitTunnelTag,
+      suggestions: splitTunnelSuggestedGeoipTags,
     );
     if (value == null || value.isEmpty) {
       return;
     }
-    onChanged(
-      settings.copyWith(
+
+    _updateGroup(
+      action,
+      (group) => group.copyWith(
         geoipTags: _addStringValue(
-          settings.geoipTags,
+          group.geoipTags,
           value,
           normalizeSplitTunnelTag,
         ),
@@ -441,21 +451,27 @@ class SplitTunnelSection extends StatelessWidget {
     );
   }
 
-  Future<void> _addDomainSuffix(BuildContext context) async {
+  Future<void> _addDomainSuffix(
+    BuildContext context,
+    SplitTunnelAction action,
+  ) async {
     final value = await _showTextInputDialog(
       context,
-      title: 'Добавить domain suffix',
-      description: 'Например: `corp.example.com`, `local`, `internal`.',
+      title: '${_actionTitle(action)}: добавить домен',
+      description:
+          'Введите домен или suffix. Например: `corp.example.com`, `youtube.com`, `localhost`.',
       hintText: 'corp.example.com',
       normalize: normalizeSplitTunnelDomainSuffix,
     );
     if (value == null || value.isEmpty) {
       return;
     }
-    onChanged(
-      settings.copyWith(
+
+    _updateGroup(
+      action,
+      (group) => group.copyWith(
         domainSuffixes: _addStringValue(
-          settings.domainSuffixes,
+          group.domainSuffixes,
           value,
           normalizeSplitTunnelDomainSuffix,
         ),
@@ -463,10 +479,13 @@ class SplitTunnelSection extends StatelessWidget {
     );
   }
 
-  Future<void> _addIpCidr(BuildContext context) async {
+  Future<void> _addIpCidr(
+    BuildContext context,
+    SplitTunnelAction action,
+  ) async {
     final value = await _showTextInputDialog(
       context,
-      title: 'Добавить IP CIDR',
+      title: '${_actionTitle(action)}: добавить сеть',
       description: 'Например: `10.0.0.0/8` или `fd00::/8`.',
       hintText: '10.0.0.0/8',
       normalize: normalizeSplitTunnelIpCidr,
@@ -474,10 +493,12 @@ class SplitTunnelSection extends StatelessWidget {
     if (value == null || value.isEmpty) {
       return;
     }
-    onChanged(
-      settings.copyWith(
+
+    _updateGroup(
+      action,
+      (group) => group.copyWith(
         ipCidrs: _addStringValue(
-          settings.ipCidrs,
+          group.ipCidrs,
           value,
           normalizeSplitTunnelIpCidr,
         ),
@@ -486,17 +507,28 @@ class SplitTunnelSection extends StatelessWidget {
   }
 
   Future<void> _addCustomRuleSet(BuildContext context) async {
-    final result = await showDialog<SplitTunnelCustomRuleSet>(
+    final result = await showDialog<_CustomRuleSetDraft>(
       context: context,
       builder: (context) => const _CustomRuleSetDialog(),
     );
-    if (result == null || !result.hasSource) {
+    if (result == null || !result.ruleSet.hasSource) {
       return;
     }
 
-    onChanged(
-      settings.copyWith(customRuleSets: [...settings.customRuleSets, result]),
+    _updateGroup(
+      result.action,
+      (group) => group.copyWith(
+        customRuleSets: [...group.customRuleSets, result.ruleSet],
+      ),
     );
+  }
+
+  void _updateGroup(
+    SplitTunnelAction action,
+    SplitTunnelRuleGroup Function(SplitTunnelRuleGroup group) transform,
+  ) {
+    final currentGroup = settings.groupFor(action);
+    onChanged(settings.copyWithGroup(action, transform(currentGroup)));
   }
 
   static Future<String?> _showTextInputDialog(
@@ -506,6 +538,7 @@ class SplitTunnelSection extends StatelessWidget {
     String initialValue = '',
     required String hintText,
     required String Function(String value) normalize,
+    List<SplitTunnelTagSuggestion> suggestions = const [],
   }) async {
     final controller = TextEditingController(text: initialValue);
     return showDialog<String>(
@@ -535,6 +568,31 @@ class SplitTunnelSection extends StatelessWidget {
                     hintStyle: const TextStyle(color: gorionOnSurfaceMuted),
                   ),
                 ),
+                if (suggestions.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Быстрый выбор',
+                    style: TextStyle(
+                      color: gorionOnSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final suggestion in suggestions)
+                        ActionChip(
+                          onPressed: () => Navigator.of(
+                            context,
+                          ).pop(normalize(suggestion.tag)),
+                          label: Text(suggestion.label),
+                          tooltip: suggestion.description,
+                        ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -555,6 +613,248 @@ class SplitTunnelSection extends StatelessWidget {
   }
 }
 
+class _RoutingActionCard extends StatelessWidget {
+  const _RoutingActionCard({
+    required this.action,
+    required this.group,
+    required this.presets,
+    required this.busy,
+    required this.onApplyPreset,
+    required this.onAddGeositePressed,
+    required this.onAddGeoipPressed,
+    required this.onAddDomainPressed,
+    required this.onAddIpPressed,
+    required this.onClearPressed,
+    required this.onDeleteGeosite,
+    required this.onDeleteGeoip,
+    required this.onDeleteDomain,
+    required this.onDeleteIp,
+    required this.onDeleteImport,
+  });
+
+  final SplitTunnelAction action;
+  final SplitTunnelRuleGroup group;
+  final List<SplitTunnelPreset> presets;
+  final bool busy;
+  final ValueChanged<SplitTunnelPreset> onApplyPreset;
+  final VoidCallback onAddGeositePressed;
+  final VoidCallback onAddGeoipPressed;
+  final VoidCallback onAddDomainPressed;
+  final VoidCallback onAddIpPressed;
+  final VoidCallback onClearPressed;
+  final ValueChanged<String> onDeleteGeosite;
+  final ValueChanged<String> onDeleteGeoip;
+  final ValueChanged<String> onDeleteDomain;
+  final ValueChanged<String> onDeleteIp;
+  final ValueChanged<SplitTunnelCustomRuleSet> onDeleteImport;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = _actionColor(action);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: color.withValues(alpha: 0.20)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(_actionIcon(action), color: color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _actionTitle(action),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: gorionOnSurface,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _actionDescription(action),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: gorionOnSurfaceMuted,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              _ActionSummaryChip(
+                title: _actionTitle(action),
+                count: group.ruleCount,
+                color: color,
+              ),
+            ],
+          ),
+          if (presets.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Text(
+              'Пресеты',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: gorionOnSurface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final preset in presets)
+                  _PresetCard(
+                    preset: preset,
+                    color: color,
+                    onPressed: busy ? null : () => onApplyPreset(preset),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              OutlinedButton.icon(
+                onPressed: busy ? null : onAddGeositePressed,
+                icon: const Icon(Icons.travel_explore_rounded),
+                label: const Text('Добавить geosite'),
+              ),
+              OutlinedButton.icon(
+                onPressed: busy ? null : onAddGeoipPressed,
+                icon: const Icon(Icons.map_rounded),
+                label: const Text('Добавить geoip'),
+              ),
+              OutlinedButton.icon(
+                onPressed: busy ? null : onAddDomainPressed,
+                icon: const Icon(Icons.language_rounded),
+                label: const Text('Добавить домен'),
+              ),
+              OutlinedButton.icon(
+                onPressed: busy ? null : onAddIpPressed,
+                icon: const Icon(Icons.lan_rounded),
+                label: const Text('Добавить сеть'),
+              ),
+              if (group.hasRules)
+                TextButton.icon(
+                  onPressed: busy ? null : onClearPressed,
+                  icon: const Icon(Icons.delete_sweep_rounded),
+                  label: const Text('Очистить секцию'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (!group.hasRules)
+            Text(
+              _emptyLabelForAction(action),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: gorionOnSurfaceMuted,
+                height: 1.45,
+              ),
+            )
+          else ...[
+            if (group.normalizedGeositeTags.isNotEmpty)
+              _RuleChipSection(
+                title: 'Built-in domain lists',
+                children: [
+                  for (final value in group.normalizedGeositeTags)
+                    _RuleChip(
+                      label: 'geosite:$value',
+                      onDeleted: busy ? null : () => onDeleteGeosite(value),
+                    ),
+                ],
+              ),
+            if (group.normalizedGeoipTags.isNotEmpty)
+              _RuleChipSection(
+                title: 'Built-in IP lists',
+                children: [
+                  for (final value in group.normalizedGeoipTags)
+                    _RuleChip(
+                      label: 'geoip:$value',
+                      onDeleted: busy ? null : () => onDeleteGeoip(value),
+                    ),
+                ],
+              ),
+            if (group.normalizedDomainSuffixes.isNotEmpty)
+              _RuleChipSection(
+                title: 'Manual domains',
+                children: [
+                  for (final value in group.normalizedDomainSuffixes)
+                    _RuleChip(
+                      label: value,
+                      onDeleted: busy ? null : () => onDeleteDomain(value),
+                    ),
+                ],
+              ),
+            if (group.normalizedIpCidrs.isNotEmpty)
+              _RuleChipSection(
+                title: 'Manual networks',
+                children: [
+                  for (final value in group.normalizedIpCidrs)
+                    _RuleChip(
+                      label: value,
+                      onDeleted: busy ? null : () => onDeleteIp(value),
+                    ),
+                ],
+              ),
+            if (group.activeCustomRuleSets.isNotEmpty)
+              _RuleChipSection(
+                title: 'Imported lists',
+                children: [
+                  for (final ruleSet in group.activeCustomRuleSets)
+                    _RuleChip(
+                      label: ruleSet.normalizedLabel.isEmpty
+                          ? ruleSet.normalizedId
+                          : ruleSet.normalizedLabel,
+                      onDeleted: busy ? null : () => onDeleteImport(ruleSet),
+                    ),
+                ],
+              ),
+          ],
+          if (group.normalizedCustomRuleSets.length >
+              group.activeCustomRuleSets.length) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Есть отключённые imported rule-set. Управление ими находится в Advanced.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: gorionOnSurfaceMuted,
+                height: 1.45,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomRuleSetDraft {
+  const _CustomRuleSetDraft({required this.action, required this.ruleSet});
+
+  final SplitTunnelAction action;
+  final SplitTunnelCustomRuleSet ruleSet;
+}
+
 class _CustomRuleSetDialog extends StatefulWidget {
   const _CustomRuleSetDialog();
 
@@ -565,6 +865,7 @@ class _CustomRuleSetDialog extends StatefulWidget {
 class _CustomRuleSetDialogState extends State<_CustomRuleSetDialog> {
   late final TextEditingController _nameController;
   late final TextEditingController _sourceController;
+  SplitTunnelAction _action = SplitTunnelAction.direct;
   SplitTunnelRuleSetSource _source = SplitTunnelRuleSetSource.remote;
   SplitTunnelRuleSetFormat _format = SplitTunnelRuleSetFormat.binary;
 
@@ -591,7 +892,7 @@ class _CustomRuleSetDialogState extends State<_CustomRuleSetDialog> {
     return AlertDialog(
       backgroundColor: gorionSurface,
       title: const Text(
-        'Новый custom rule-set',
+        'Новый imported rule-set',
         style: TextStyle(color: gorionOnSurface),
       ),
       content: SizedBox(
@@ -601,10 +902,28 @@ class _CustomRuleSetDialogState extends State<_CustomRuleSetDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Добавьте свой remote URL или local path. `.srs` используйте как `binary`, headless JSON rule-set как `source`.',
+              'Импорт можно привязать к direct, block или proxy. `.srs` используйте как `binary`, JSON rule-set как `source`.',
               style: TextStyle(color: gorionOnSurfaceMuted, height: 1.45),
             ),
             const SizedBox(height: 14),
+            DropdownButtonFormField<SplitTunnelAction>(
+              initialValue: _action,
+              decoration: const InputDecoration(labelText: 'Куда применять'),
+              items: [
+                for (final action in _splitTunnelActionOrder)
+                  DropdownMenuItem(
+                    value: action,
+                    child: Text(_actionTitle(action)),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+                setState(() => _action = value);
+              },
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _nameController,
               onChanged: (_) => setState(() {}),
@@ -615,7 +934,7 @@ class _CustomRuleSetDialogState extends State<_CustomRuleSetDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<SplitTunnelRuleSetSource>(
-              value: _source,
+              initialValue: _source,
               decoration: const InputDecoration(labelText: 'Источник'),
               items: const [
                 DropdownMenuItem(
@@ -636,7 +955,7 @@ class _CustomRuleSetDialogState extends State<_CustomRuleSetDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<SplitTunnelRuleSetFormat>(
-              value: _format,
+              initialValue: _format,
               decoration: const InputDecoration(labelText: 'Формат'),
               items: const [
                 DropdownMenuItem(
@@ -680,19 +999,22 @@ class _CustomRuleSetDialogState extends State<_CustomRuleSetDialog> {
           onPressed: !canSubmit
               ? null
               : () => Navigator.of(context).pop(
-                  SplitTunnelCustomRuleSet(
-                    id: normalizeSplitTunnelRuleSetId(
-                      '${_nameController.text.trim()}-${DateTime.now().microsecondsSinceEpoch}',
+                  _CustomRuleSetDraft(
+                    action: _action,
+                    ruleSet: SplitTunnelCustomRuleSet(
+                      id: normalizeSplitTunnelRuleSetId(
+                        '${_nameController.text.trim()}-${DateTime.now().microsecondsSinceEpoch}',
+                      ),
+                      label: _nameController.text.trim(),
+                      source: _source,
+                      url: _source == SplitTunnelRuleSetSource.remote
+                          ? _sourceController.text.trim()
+                          : '',
+                      path: _source == SplitTunnelRuleSetSource.local
+                          ? _sourceController.text.trim()
+                          : '',
+                      format: _format,
                     ),
-                    label: _nameController.text.trim(),
-                    source: _source,
-                    url: _source == SplitTunnelRuleSetSource.remote
-                        ? _sourceController.text.trim()
-                        : '',
-                    path: _source == SplitTunnelRuleSetSource.local
-                        ? _sourceController.text.trim()
-                        : '',
-                    format: _format,
                   ),
                 ),
           child: const Text('Добавить'),
@@ -702,13 +1024,15 @@ class _CustomRuleSetDialogState extends State<_CustomRuleSetDialog> {
   }
 }
 
-class _CustomRuleSetCard extends StatelessWidget {
-  const _CustomRuleSetCard({
+class _ImportedRuleSetCard extends StatelessWidget {
+  const _ImportedRuleSetCard({
+    required this.action,
     required this.ruleSet,
     required this.onToggle,
     required this.onDelete,
   });
 
+  final SplitTunnelAction action;
   final SplitTunnelCustomRuleSet ruleSet;
   final ValueChanged<bool>? onToggle;
   final VoidCallback? onDelete;
@@ -760,7 +1084,7 @@ class _CustomRuleSetCard extends StatelessWidget {
               const SizedBox(width: 12),
               Switch.adaptive(value: ruleSet.enabled, onChanged: onToggle),
               IconButton(
-                tooltip: 'Удалить rule-set',
+                tooltip: 'Удалить import',
                 onPressed: onDelete,
                 icon: const Icon(Icons.delete_outline_rounded),
               ),
@@ -771,6 +1095,7 @@ class _CustomRuleSetCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
+              _MetaChip(label: _actionTitle(action)),
               _MetaChip(label: ruleSet.isRemote ? 'Remote URL' : 'Local path'),
               _MetaChip(label: 'format ${ruleSet.format.jsonValue}'),
               _MetaChip(label: ruleSet.enabled ? 'Enabled' : 'Disabled'),
@@ -782,44 +1107,138 @@ class _CustomRuleSetCard extends StatelessWidget {
   }
 }
 
-class _TokenWrap extends StatelessWidget {
-  const _TokenWrap({
-    required this.values,
-    required this.emptyLabel,
-    required this.tokenBuilder,
-    required this.onDeleted,
+class _CustomRuleSetBinding {
+  const _CustomRuleSetBinding({required this.action, required this.ruleSet});
+
+  final SplitTunnelAction action;
+  final SplitTunnelCustomRuleSet ruleSet;
+}
+
+class _PresetCard extends StatelessWidget {
+  const _PresetCard({
+    required this.preset,
+    required this.color,
+    required this.onPressed,
   });
 
-  final List<String> values;
-  final String emptyLabel;
-  final String Function(String value) tokenBuilder;
-  final ValueChanged<String>? onDeleted;
+  final SplitTunnelPreset preset;
+  final Color color;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    if (values.isEmpty) {
-      return Text(
-        emptyLabel,
-        style: theme.textTheme.bodySmall?.copyWith(color: gorionOnSurfaceMuted),
-      );
-    }
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final value in values)
-          InputChip(
-            label: Text(tokenBuilder(value)),
-            onDeleted: onDeleted == null ? null : () => onDeleted!(value),
-            backgroundColor: Colors.white.withValues(alpha: 0.06),
-            side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-            labelStyle: theme.textTheme.bodySmall?.copyWith(
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.all(14),
+        minimumSize: const Size(220, 0),
+        backgroundColor: Colors.white.withValues(alpha: 0.04),
+        side: BorderSide(color: color.withValues(alpha: 0.22)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            preset.label,
+            style: theme.textTheme.titleSmall?.copyWith(
               color: gorionOnSurface,
+              fontWeight: FontWeight.w700,
             ),
           ),
-      ],
+          const SizedBox(height: 6),
+          Text(
+            preset.description,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: gorionOnSurfaceMuted,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RuleChipSection extends StatelessWidget {
+  const _RuleChipSection({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: gorionOnSurface,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: children),
+        ],
+      ),
+    );
+  }
+}
+
+class _RuleChip extends StatelessWidget {
+  const _RuleChip({required this.label, required this.onDeleted});
+
+  final String label;
+  final VoidCallback? onDeleted;
+
+  @override
+  Widget build(BuildContext context) {
+    return InputChip(
+      label: Text(label),
+      onDeleted: onDeleted,
+      backgroundColor: Colors.white.withValues(alpha: 0.06),
+      side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+      labelStyle: Theme.of(
+        context,
+      ).textTheme.bodySmall?.copyWith(color: gorionOnSurface),
+    );
+  }
+}
+
+class _ActionSummaryChip extends StatelessWidget {
+  const _ActionSummaryChip({
+    required this.title,
+    required this.count,
+    required this.color,
+  });
+
+  final String title;
+  final int count;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        '$title $count',
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          color: gorionOnSurface,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }
@@ -885,38 +1304,6 @@ class _ToggleCard extends StatelessWidget {
   }
 }
 
-class _SubsectionTitle extends StatelessWidget {
-  const _SubsectionTitle({required this.title, required this.description});
-
-  final String title;
-  final String description;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: gorionOnSurface,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          description,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: gorionOnSurfaceMuted,
-            height: 1.45,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _MetaChip extends StatelessWidget {
   const _MetaChip({required this.label});
 
@@ -942,27 +1329,69 @@ class _MetaChip extends StatelessWidget {
   }
 }
 
-List<String> _toggleStringValue(
-  List<String> current,
-  String value,
-  String Function(String value) normalize,
+List<_CustomRuleSetBinding> _collectCustomRuleSetBindings(
+  SplitTunnelSettings settings,
 ) {
-  final normalized = normalize(value);
-  if (normalized.isEmpty) {
-    return current;
-  }
+  return [
+    for (final action in _splitTunnelActionOrder)
+      for (final ruleSet in settings.groupFor(action).normalizedCustomRuleSets)
+        _CustomRuleSetBinding(action: action, ruleSet: ruleSet),
+  ];
+}
 
-  final existingIndex = current.indexWhere(
-    (item) => normalize(item) == normalized,
-  );
-  if (existingIndex >= 0) {
-    return [
-      for (var index = 0; index < current.length; index++)
-        if (index != existingIndex) current[index],
-    ];
+Color _actionColor(SplitTunnelAction action) {
+  switch (action) {
+    case SplitTunnelAction.direct:
+      return const Color(0xFF1EFFAC);
+    case SplitTunnelAction.block:
+      return const Color(0xFFFF735C);
+    case SplitTunnelAction.proxy:
+      return const Color(0xFF72A8FF);
   }
+}
 
-  return [...current, normalized];
+IconData _actionIcon(SplitTunnelAction action) {
+  switch (action) {
+    case SplitTunnelAction.direct:
+      return Icons.call_made_rounded;
+    case SplitTunnelAction.block:
+      return Icons.block_rounded;
+    case SplitTunnelAction.proxy:
+      return Icons.verified_outlined;
+  }
+}
+
+String _actionTitle(SplitTunnelAction action) {
+  switch (action) {
+    case SplitTunnelAction.direct:
+      return 'Direct';
+    case SplitTunnelAction.block:
+      return 'Block';
+    case SplitTunnelAction.proxy:
+      return 'Proxy';
+  }
+}
+
+String _actionDescription(SplitTunnelAction action) {
+  switch (action) {
+    case SplitTunnelAction.direct:
+      return 'Обойти прокси и отправить трафик напрямую. Подходит для LAN, локальных сервисов и безопасных исключений.';
+    case SplitTunnelAction.block:
+      return 'Полностью остановить трафик до отправки в outbound. Подходит для рекламы, трекинга и нежелательных направлений.';
+    case SplitTunnelAction.proxy:
+      return 'Принудительно держать трафик на активном proxy selector. Полезно для сервисов, которые нельзя выпускать в direct.';
+  }
+}
+
+String _emptyLabelForAction(SplitTunnelAction action) {
+  switch (action) {
+    case SplitTunnelAction.direct:
+      return 'Пока нет direct-исключений. Добавьте пресет или свой домен / сеть.';
+    case SplitTunnelAction.block:
+      return 'Пока нет block-правил. Добавьте пресет или свой домен / сеть.';
+    case SplitTunnelAction.proxy:
+      return 'Пока нет proxy-правил. Добавьте пресет или свой домен / сеть.';
+  }
 }
 
 List<String> _addStringValue(
