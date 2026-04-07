@@ -688,6 +688,8 @@ class _ServerInfoPopup extends HookConsumerWidget {
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final isCompact = constraints.maxWidth < 520;
+                  final needsScrollableCard =
+                      constraints.maxWidth < 280 || constraints.maxHeight < 360;
                   final sourceBlock = _InfoBlock(
                     label: 'Исходный IP',
                     value: model.sourceIp?.ip ?? '—',
@@ -739,182 +741,190 @@ class _ServerInfoPopup extends HookConsumerWidget {
                     );
                   }
 
+                  final cardContent = Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                EmojiFlagText(
+                                  model.title,
+                                  style: TextStyle(
+                                    color: scheme.onSurface,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (showMetaTags) ...[
+                                  const Gap(8),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: [
+                                      if (type.isNotEmpty)
+                                        _GlassBadge(
+                                          label: type,
+                                          color: const Color(0xFF60A5FA),
+                                        ),
+                                      if (model.isAutoMode)
+                                        _GlassBadge(
+                                          label: 'AUTO',
+                                          color: scheme.primary,
+                                        ),
+                                      if (showSessionTimerTag)
+                                        _ConnectionTimerPill(
+                                          title: 'Сессия',
+                                          value: _formatElapsed(
+                                            _elapsedSince(
+                                              connectedAt,
+                                              timerNow.value,
+                                            ),
+                                          ),
+                                          color: scheme.primary,
+                                        ),
+                                      if (showBestServerCheck)
+                                        _ConnectionTimerPill(
+                                          title: 'Best server',
+                                          value: lastBestServerCheckAt != null
+                                              ? _formatElapsed(
+                                                  _elapsedSince(
+                                                    lastBestServerCheckAt,
+                                                    timerNow.value,
+                                                  ),
+                                                )
+                                              : 'идёт',
+                                          color: bestServerCheckRunning
+                                              ? const Color(0xFFFFB457)
+                                              : const Color(0xFF60A5FA),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                                if (headerSummary.isNotEmpty) ...[
+                                  const Gap(6),
+                                  EmojiFlagText(
+                                    headerSummary,
+                                    style: TextStyle(
+                                      color: scheme.onSurface.withValues(
+                                        alpha: 0.76,
+                                      ),
+                                      fontSize: 13.2,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ],
+                                if (model.statusText
+                                    case final statusText?) ...[
+                                  const Gap(4),
+                                  EmojiFlagText(
+                                    statusText,
+                                    style: TextStyle(
+                                      color: muted.withValues(alpha: 0.95),
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w500,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const Gap(18),
+                          _PowerButton(
+                            isConnected: isConnected,
+                            isConnecting: isConnecting,
+                            isSwitching: isSwitching,
+                            onTap: onToggle,
+                          ),
+                        ],
+                      ),
+                      if (model.alertText case final alertText?) ...[
+                        const Gap(14),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0x33FF8A80),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0x66FF8A80)),
+                          ),
+                          child: EmojiFlagText(
+                            alertText,
+                            style: const TextStyle(
+                              color: Color(0xFFFFD8D4),
+                              fontSize: 12.8,
+                              fontWeight: FontWeight.w600,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                      const Gap(14),
+                      Align(
+                        alignment: Alignment.center,
+                        child: Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 18,
+                          runSpacing: 8,
+                          children: visibleServiceModes.map((mode) {
+                            final selected = mode == serviceMode;
+                            return _ModeTextButton(
+                              label: _serviceModeLabel(mode),
+                              selected: selected,
+                              onTap: selected
+                                  ? null
+                                  : () => onModeChanged(mode),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      const Gap(16),
+                      Container(
+                        height: 1,
+                        color: scheme.onSurface.withValues(alpha: 0.08),
+                      ),
+                      const Gap(14),
+                      infoContent(),
+                      if (throughputSummary case final summary?) ...[
+                        const Gap(14),
+                        Text(
+                          summary,
+                          style: TextStyle(
+                            color: muted.withValues(alpha: 0.95),
+                            fontSize: 12.4,
+                            fontWeight: FontWeight.w600,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+
                   return SizedBox(
                     width: double.infinity,
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 300),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    EmojiFlagText(
-                                      model.title,
-                                      style: TextStyle(
-                                        color: scheme.onSurface,
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    if (showMetaTags) ...[
-                                      const Gap(8),
-                                      Wrap(
-                                        spacing: 6,
-                                        runSpacing: 6,
-                                        children: [
-                                          if (type.isNotEmpty)
-                                            _GlassBadge(
-                                              label: type,
-                                              color: const Color(0xFF60A5FA),
-                                            ),
-                                          if (model.isAutoMode)
-                                            _GlassBadge(
-                                              label: 'AUTO',
-                                              color: scheme.primary,
-                                            ),
-                                          if (showSessionTimerTag)
-                                            _ConnectionTimerPill(
-                                              title: 'Сессия',
-                                              value: _formatElapsed(
-                                                _elapsedSince(
-                                                  connectedAt,
-                                                  timerNow.value,
-                                                ),
-                                              ),
-                                              color: scheme.primary,
-                                            ),
-                                          if (showBestServerCheck)
-                                            _ConnectionTimerPill(
-                                              title: 'Best server',
-                                              value:
-                                                  lastBestServerCheckAt != null
-                                                  ? _formatElapsed(
-                                                      _elapsedSince(
-                                                        lastBestServerCheckAt,
-                                                        timerNow.value,
-                                                      ),
-                                                    )
-                                                  : 'идёт',
-                                              color: bestServerCheckRunning
-                                                  ? const Color(0xFFFFB457)
-                                                  : const Color(0xFF60A5FA),
-                                            ),
-                                        ],
-                                      ),
-                                    ],
-                                    if (headerSummary.isNotEmpty) ...[
-                                      const Gap(6),
-                                      EmojiFlagText(
-                                        headerSummary,
-                                        style: TextStyle(
-                                          color: scheme.onSurface.withValues(
-                                            alpha: 0.76,
-                                          ),
-                                          fontSize: 13.2,
-                                          fontWeight: FontWeight.w600,
-                                          height: 1.35,
-                                        ),
-                                      ),
-                                    ],
-                                    if (model.statusText
-                                        case final statusText?) ...[
-                                      const Gap(4),
-                                      EmojiFlagText(
-                                        statusText,
-                                        style: TextStyle(
-                                          color: muted.withValues(alpha: 0.95),
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w500,
-                                          height: 1.35,
-                                        ),
-                                      ),
-                                    ],
-                                  ],
+                      child: needsScrollableCard
+                          ? SingleChildScrollView(
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minWidth: constraints.maxWidth,
                                 ),
+                                child: cardContent,
                               ),
-                              const Gap(18),
-                              _PowerButton(
-                                isConnected: isConnected,
-                                isConnecting: isConnecting,
-                                isSwitching: isSwitching,
-                                onTap: onToggle,
-                              ),
-                            ],
-                          ),
-                          if (model.alertText case final alertText?) ...[
-                            const Gap(14),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0x33FF8A80),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: const Color(0x66FF8A80),
-                                ),
-                              ),
-                              child: EmojiFlagText(
-                                alertText,
-                                style: const TextStyle(
-                                  color: Color(0xFFFFD8D4),
-                                  fontSize: 12.8,
-                                  fontWeight: FontWeight.w600,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ),
-                          ],
-                          const Gap(14),
-                          Align(
-                            alignment: Alignment.center,
-                            child: Wrap(
-                              alignment: WrapAlignment.center,
-                              spacing: 18,
-                              runSpacing: 8,
-                              children: visibleServiceModes.map((mode) {
-                                final selected = mode == serviceMode;
-                                return _ModeTextButton(
-                                  label: _serviceModeLabel(mode),
-                                  selected: selected,
-                                  onTap: selected
-                                      ? null
-                                      : () => onModeChanged(mode),
-                                );
-                              }).toList(),
-                            ),
-                          ),
-                          const Gap(16),
-                          Container(
-                            height: 1,
-                            color: scheme.onSurface.withValues(alpha: 0.08),
-                          ),
-                          const Gap(14),
-                          infoContent(),
-                          if (throughputSummary case final summary?) ...[
-                            const Gap(14),
-                            Text(
-                              summary,
-                              style: TextStyle(
-                                color: muted.withValues(alpha: 0.95),
-                                fontSize: 12.4,
-                                fontWeight: FontWeight.w600,
-                                height: 1.3,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
+                            )
+                          : cardContent,
                     ),
                   );
                 },

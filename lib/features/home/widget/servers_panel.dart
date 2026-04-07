@@ -2436,25 +2436,25 @@ class _EmptyServersCard extends StatelessWidget {
     final scheme = theme.colorScheme;
     return GlassPanel(
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       borderRadius: 15,
       backgroundColor: Colors.white,
       opacity: 0.05,
       strokeOpacity: 0.09,
-      child: Column(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           FaIcon(
             FontAwesomeIcons.satellite,
-            size: 26,
+            size: 16,
             color: theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.48),
           ),
-          const Gap(10),
+          const Gap(8),
           Text(
             'Нет серверов',
             style: TextStyle(
               color: scheme.onSurface.withValues(alpha: 0.72),
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: FontWeight.w700,
             ),
           ),

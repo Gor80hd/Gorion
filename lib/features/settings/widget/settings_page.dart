@@ -294,7 +294,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         crossAxisCount: 2,
         crossAxisSpacing: 18,
         mainAxisSpacing: 18,
-        mainAxisExtent: 282,
+        mainAxisExtent: 320,
       ),
       itemCount: groups.length,
       itemBuilder: (context, index) => buildCard(groups[index]),
@@ -1377,79 +1377,106 @@ class _SettingsGroupCard extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(26),
-          child: Padding(
-            padding: const EdgeInsets.all(22),
-            child: Column(
-              mainAxisSize: MainAxisSize.max,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final hasBoundedHeight = constraints.hasBoundedHeight;
+              final isCompact = constraints.maxHeight < 286;
+              final iconSize = isCompact ? 44.0 : 48.0;
+              final cardPadding = isCompact ? 18.0 : 22.0;
+              final titleGap = isCompact ? 14.0 : 18.0;
+              final bodyGap = isCompact ? 6.0 : 8.0;
+              final badgeGap = isCompact ? 12.0 : 16.0;
+              final supportingGap = isCompact ? 8.0 : 10.0;
+              final footerGap = isCompact ? 12.0 : 18.0;
+
+              return Padding(
+                padding: EdgeInsets.all(cardPadding),
+                child: Column(
+                  mainAxisSize: hasBoundedHeight
+                      ? MainAxisSize.max
+                      : MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: group.accentColor.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(group.icon, color: group.accentColor),
+                    Row(
+                      children: [
+                        Container(
+                          width: iconSize,
+                          height: iconSize,
+                          decoration: BoxDecoration(
+                            color: group.accentColor.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Icon(group.icon, color: group.accentColor),
+                        ),
+                        const Spacer(),
+                        if (snapshot.hasPendingChanges)
+                          const _Badge(
+                            label: 'Не сохранено',
+                            backgroundColor: Color(0x22FFC857),
+                            foregroundColor: Color(0xFFFFC857),
+                          ),
+                      ],
                     ),
-                    const Spacer(),
-                    if (snapshot.hasPendingChanges)
-                      const _Badge(
-                        label: 'Не сохранено',
-                        backgroundColor: Color(0x22FFC857),
-                        foregroundColor: Color(0xFFFFC857),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  group.title,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    color: scheme.onSurface,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  group.description,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: muted,
-                    height: 1.45,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _Badge(
-                  label: snapshot.badgeLabel,
-                  backgroundColor: group.accentColor.withValues(alpha: 0.14),
-                  foregroundColor: group.accentColor,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  snapshot.supportingLabel,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurface,
-                    height: 1.45,
-                  ),
-                ),
-                const Spacer(),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
+                    SizedBox(height: titleGap),
                     Text(
-                      'Открыть группу',
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: group.accentColor,
+                      group.title,
+                      maxLines: isCompact ? 2 : 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: scheme.onSurface,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const Spacer(),
-                    Icon(Icons.arrow_forward_rounded, color: group.accentColor),
+                    SizedBox(height: bodyGap),
+                    Text(
+                      group.description,
+                      maxLines: isCompact ? 2 : 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: muted,
+                        height: 1.45,
+                      ),
+                    ),
+                    SizedBox(height: badgeGap),
+                    _Badge(
+                      label: snapshot.badgeLabel,
+                      backgroundColor: group.accentColor.withValues(
+                        alpha: 0.14,
+                      ),
+                      foregroundColor: group.accentColor,
+                    ),
+                    SizedBox(height: supportingGap),
+                    Text(
+                      snapshot.supportingLabel,
+                      maxLines: isCompact ? 2 : 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurface,
+                        height: 1.45,
+                      ),
+                    ),
+                    if (hasBoundedHeight) const Spacer(),
+                    SizedBox(height: footerGap),
+                    Row(
+                      children: [
+                        Text(
+                          'Открыть группу',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: group.accentColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const Spacer(),
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          color: group.accentColor,
+                        ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ),
