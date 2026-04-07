@@ -508,6 +508,8 @@ class _TitleContent extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final brandAccent = theme.brandAccent;
+    final versionInk =
+      theme.brightness == Brightness.dark ? Colors.white : Colors.black;
 
     return Padding(
       padding: const EdgeInsets.only(left: 1, right: 4),
@@ -532,19 +534,21 @@ class _TitleContent extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Container(
+          GlassPanel(
+            borderRadius: 999,
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-            decoration: BoxDecoration(
-              color: brandAccent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(999),
-            ),
+            backgroundColor: brandAccent,
+            opacity: theme.brightness == Brightness.dark ? 0.18 : 0.22,
+            strokeColor: brandAccent,
+            strokeOpacity: theme.brightness == Brightness.dark ? 0.34 : 0.26,
+            strokeWidth: 0.9,
             child: Text(
               '0.0.4 beta',
               style: TextStyle(
                 fontFamily: 'IBMPlexSans',
                 fontSize: 10,
                 fontWeight: FontWeight.w500,
-                color: brandAccent,
+                color: versionInk,
                 letterSpacing: 0.2,
               ),
             ),
@@ -590,8 +594,12 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    const controlIconColor = Colors.white;
-    const closeIconColor = Colors.white;
+    final controlIconColor = theme.brightness == Brightness.dark
+        ? Colors.white
+        : Colors.black;
+    final closeIconColor = theme.brightness == Brightness.dark
+        ? Colors.white
+        : Colors.black;
 
     return GlassPanel(
       height: _TitleBar._height,

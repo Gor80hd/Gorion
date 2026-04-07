@@ -181,7 +181,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 dashboardState: dashboardState,
                 appThemeSettings: appThemeSettings,
                 desktopSettingsState: desktopSettingsState,
-                cardWidth: cardWidth,
+                isWide: isWide,
                 bestServerCheckIntervalMinutes: bestServerCheckIntervalMinutes,
               )
             : _buildGroupPage(
@@ -199,9 +199,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _HeroPanel(
-                stage: dashboardState.connectionStage,
                 busy: dashboardState.busy,
-                hasOverrides: _draft.hasOverrides,
                 activeGroup: _selectedGroup,
                 hasPendingChanges: hasPendingChanges,
                 hasFailedSaves: hasFailedSaves,
@@ -210,7 +208,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 onSave: canManualSave ? _savePendingChanges : null,
                 onBack: _selectedGroup == null ? null : _closeGroup,
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 10),
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 220),
                 switchInCurve: Curves.easeOutCubic,
@@ -256,30 +254,50 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     required DashboardState dashboardState,
     required AppThemeSettings appThemeSettings,
     required DesktopSettingsState desktopSettingsState,
-    required double cardWidth,
+    required bool isWide,
     required int bestServerCheckIntervalMinutes,
   }) {
-    return Wrap(
+    final groups = _visibleGroups.toList(growable: false);
+
+    Widget buildCard(_SettingsGroup group) {
+      return _SettingsGroupCard(
+        group: group,
+        snapshot: _buildGroupSnapshot(
+          group,
+          dashboardState,
+          appThemeSettings,
+          desktopSettingsState,
+          bestServerCheckIntervalMinutes,
+        ),
+        onTap: () => _openGroup(group),
+      );
+    }
+
+    if (!isWide) {
+      return Column(
+        key: const ValueKey('settings-overview'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var index = 0; index < groups.length; index += 1) ...[
+            buildCard(groups[index]),
+            if (index != groups.length - 1) const SizedBox(height: 18),
+          ],
+        ],
+      );
+    }
+
+    return GridView.builder(
       key: const ValueKey('settings-overview'),
-      spacing: 18,
-      runSpacing: 18,
-      children: [
-        for (final group in _visibleGroups)
-          SizedBox(
-            width: cardWidth,
-            child: _SettingsGroupCard(
-              group: group,
-              snapshot: _buildGroupSnapshot(
-                group,
-                dashboardState,
-                appThemeSettings,
-                desktopSettingsState,
-                bestServerCheckIntervalMinutes,
-              ),
-              onTap: () => _openGroup(group),
-            ),
-          ),
-      ],
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 18,
+        mainAxisSpacing: 18,
+        mainAxisExtent: 282,
+      ),
+      itemCount: groups.length,
+      itemBuilder: (context, index) => buildCard(groups[index]),
     );
   }
 
@@ -1196,9 +1214,7 @@ String _formatBestServerCheckIntervalBadge(int minutes) {
 
 class _HeroPanel extends StatelessWidget {
   const _HeroPanel({
-    required this.stage,
     required this.busy,
-    required this.hasOverrides,
     required this.activeGroup,
     required this.hasPendingChanges,
     required this.hasFailedSaves,
@@ -1208,9 +1224,7 @@ class _HeroPanel extends StatelessWidget {
     this.onBack,
   });
 
-  final ConnectionStage stage;
   final bool busy;
-  final bool hasOverrides;
   final _SettingsGroup? activeGroup;
   final bool hasPendingChanges;
   final bool hasFailedSaves;
@@ -1223,7 +1237,6 @@ class _HeroPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final muted = theme.gorionTokens.onSurfaceMuted;
     final saveLabel = busy
         ? 'Сохранение...'
         : canManualSave
@@ -1242,6 +1255,27 @@ class _HeroPanel extends StatelessWidget {
         : hasPendingChanges
         ? Icons.schedule_rounded
         : Icons.check_rounded;
+    final heroMetaChildren = <Widget>[
+      if (onBack != null)
+        OutlinedButton.icon(
+          onPressed: onBack,
+          icon: const Icon(Icons.arrow_back_rounded),
+          label: const Text('Все группы'),
+        ),
+      if (activeGroup != null)
+        _Badge(
+          label: activeGroup!.title,
+          backgroundColor: activeGroup!.accentColor.withValues(alpha: 0.14),
+          foregroundColor: activeGroup!.accentColor,
+        ),
+      if (hasPendingChanges)
+        _Badge(
+          label: hasFailedSaves ? 'Не сохранено' : 'Применяется',
+          backgroundColor: const Color(0x22FFC857),
+          foregroundColor: const Color(0xFFFFC857),
+        ),
+    ];
+    final hasHeroMeta = heroMetaChildren.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1250,10 +1284,11 @@ class _HeroPanel extends StatelessWidget {
           builder: (context, constraints) {
             final titleBlock = Text(
               'Настройки',
-              style: theme.textTheme.headlineSmall?.copyWith(
+              style: theme.textTheme.displaySmall?.copyWith(
                 color: scheme.onSurface,
                 fontWeight: FontWeight.w700,
-                height: 1.05,
+                height: 1.0,
+                letterSpacing: -0.6,
               ),
             );
             final saveButton = FilledButton.icon(
@@ -1267,53 +1302,15 @@ class _HeroPanel extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   titleBlock,
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      if (onBack != null)
-                        OutlinedButton.icon(
-                          onPressed: onBack,
-                          icon: const Icon(Icons.arrow_back_rounded),
-                          label: const Text('Все группы'),
-                        ),
-                      _Badge(
-                        label: _stageLabel(stage),
-                        backgroundColor: _stageColor(
-                          theme,
-                          stage,
-                        ).withValues(alpha: 0.14),
-                        foregroundColor: _stageColor(theme, stage),
-                      ),
-                      _Badge(
-                        label: hasOverrides
-                            ? 'Override активны'
-                            : 'Override не заданы',
-                        backgroundColor: hasOverrides
-                            ? scheme.primary.withValues(alpha: 0.14)
-                            : scheme.onSurface.withValues(alpha: 0.06),
-                        foregroundColor: hasOverrides ? scheme.primary : muted,
-                      ),
-                      if (activeGroup != null)
-                        _Badge(
-                          label: activeGroup!.title,
-                          backgroundColor: activeGroup!.accentColor.withValues(
-                            alpha: 0.14,
-                          ),
-                          foregroundColor: activeGroup!.accentColor,
-                        ),
-                      if (hasPendingChanges)
-                        _Badge(
-                          label: hasFailedSaves
-                              ? 'Не сохранено'
-                              : 'Применяется',
-                          backgroundColor: const Color(0x22FFC857),
-                          foregroundColor: const Color(0xFFFFC857),
-                        ),
-                    ],
-                  ),
+                  if (hasHeroMeta) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: heroMetaChildren,
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   saveButton,
                 ],
@@ -1331,88 +1328,21 @@ class _HeroPanel extends StatelessWidget {
                     saveButton,
                   ],
                 ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    if (onBack != null)
-                      OutlinedButton.icon(
-                        onPressed: onBack,
-                        icon: const Icon(Icons.arrow_back_rounded),
-                        label: const Text('Все группы'),
-                      ),
-                    _Badge(
-                      label: _stageLabel(stage),
-                      backgroundColor: _stageColor(
-                        theme,
-                        stage,
-                      ).withValues(alpha: 0.14),
-                      foregroundColor: _stageColor(theme, stage),
-                    ),
-                    _Badge(
-                      label: hasOverrides
-                          ? 'Override активны'
-                          : 'Override не заданы',
-                      backgroundColor: hasOverrides
-                          ? scheme.primary.withValues(alpha: 0.14)
-                          : scheme.onSurface.withValues(alpha: 0.06),
-                      foregroundColor: hasOverrides ? scheme.primary : muted,
-                    ),
-                    if (activeGroup != null)
-                      _Badge(
-                        label: activeGroup!.title,
-                        backgroundColor: activeGroup!.accentColor.withValues(
-                          alpha: 0.14,
-                        ),
-                        foregroundColor: activeGroup!.accentColor,
-                      ),
-                    if (hasPendingChanges)
-                      _Badge(
-                        label: hasFailedSaves ? 'Не сохранено' : 'Применяется',
-                        backgroundColor: const Color(0x22FFC857),
-                        foregroundColor: const Color(0xFFFFC857),
-                      ),
-                  ],
-                ),
+                if (hasHeroMeta) ...[
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: heroMetaChildren,
+                  ),
+                ],
               ],
             );
           },
         ),
       ],
     );
-  }
-
-  static Color _stageColor(ThemeData theme, ConnectionStage stage) {
-    final scheme = theme.colorScheme;
-    switch (stage) {
-      case ConnectionStage.disconnected:
-        return theme.gorionTokens.onSurfaceMuted;
-      case ConnectionStage.starting:
-        return const Color(0xFFFFC857);
-      case ConnectionStage.connected:
-        return scheme.primary;
-      case ConnectionStage.stopping:
-        return const Color(0xFFFFA94D);
-      case ConnectionStage.failed:
-        return scheme.error;
-    }
-  }
-
-  static String _stageLabel(ConnectionStage stage) {
-    switch (stage) {
-      case ConnectionStage.disconnected:
-        return 'Отключено';
-      case ConnectionStage.starting:
-        return 'Подключение';
-      case ConnectionStage.connected:
-        return 'Подключено';
-      case ConnectionStage.stopping:
-        return 'Отключение';
-      case ConnectionStage.failed:
-        return 'Ошибка';
-    }
   }
 }
 
@@ -1450,7 +1380,7 @@ class _SettingsGroupCard extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(22),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisSize: MainAxisSize.max,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
@@ -1503,6 +1433,7 @@ class _SettingsGroupCard extends StatelessWidget {
                     height: 1.45,
                   ),
                 ),
+                const Spacer(),
                 const SizedBox(height: 18),
                 Row(
                   children: [

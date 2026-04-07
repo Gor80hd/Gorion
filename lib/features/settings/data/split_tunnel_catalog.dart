@@ -36,9 +36,34 @@ class SplitTunnelPreset {
 
 const splitTunnelSuggestedGeositeTags = <SplitTunnelTagSuggestion>[
   SplitTunnelTagSuggestion(
-    tag: 'cn',
-    label: 'geosite:cn',
-    description: 'Домены Китая.',
+    tag: 'category-ru',
+    label: 'geosite:category-ru',
+    description: 'Россия: основные домены и онлайн-сервисы.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'category-gov-ru',
+    label: 'geosite:category-gov-ru',
+    description: 'Россия: государственные сервисы и домены.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'category-bank-ru',
+    label: 'geosite:category-bank-ru',
+    description: 'Россия: банки и платёжные сервисы.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'category-media-ru',
+    label: 'geosite:category-media-ru',
+    description: 'Россия: медиа и новостные сайты.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'category-ecommerce-ru',
+    label: 'geosite:category-ecommerce-ru',
+    description: 'Россия: маркетплейсы и e-commerce.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'category-entertainment-ru',
+    label: 'geosite:category-entertainment-ru',
+    description: 'Россия: развлекательные сервисы.',
   ),
   SplitTunnelTagSuggestion(
     tag: 'apple',
@@ -46,9 +71,44 @@ const splitTunnelSuggestedGeositeTags = <SplitTunnelTagSuggestion>[
     description: 'Сервисы Apple.',
   ),
   SplitTunnelTagSuggestion(
+    tag: 'google',
+    label: 'geosite:google',
+    description: 'Сервисы Google.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'youtube',
+    label: 'geosite:youtube',
+    description: 'YouTube и связанные домены.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'telegram',
+    label: 'geosite:telegram',
+    description: 'Домены Telegram.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'github',
+    label: 'geosite:github',
+    description: 'GitHub и связанные домены.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'netflix',
+    label: 'geosite:netflix',
+    description: 'Домены Netflix.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'openai',
+    label: 'geosite:openai',
+    description: 'Домены OpenAI.',
+  ),
+  SplitTunnelTagSuggestion(
     tag: 'category-ads-all',
     label: 'geosite:category-ads-all',
     description: 'Рекламные и трекинговые домены.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'cn',
+    label: 'geosite:cn',
+    description: 'Домены Китая.',
   ),
 ];
 
@@ -59,9 +119,9 @@ const splitTunnelSuggestedGeoipTags = <SplitTunnelTagSuggestion>[
     description: 'LAN и private ranges.',
   ),
   SplitTunnelTagSuggestion(
-    tag: 'cn',
-    label: 'geoip:cn',
-    description: 'IP-диапазоны Китая.',
+    tag: 'ru',
+    label: 'geoip:ru',
+    description: 'Россия: IP-диапазоны страны.',
   ),
   SplitTunnelTagSuggestion(
     tag: 'telegram',
@@ -78,6 +138,31 @@ const splitTunnelSuggestedGeoipTags = <SplitTunnelTagSuggestion>[
     label: 'geoip:netflix',
     description: 'IP Netflix.',
   ),
+  SplitTunnelTagSuggestion(
+    tag: 'cloudflare',
+    label: 'geoip:cloudflare',
+    description: 'IP Cloudflare.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'cloudfront',
+    label: 'geoip:cloudfront',
+    description: 'IP Amazon CloudFront.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'apple',
+    label: 'geoip:apple',
+    description: 'IP Apple.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'facebook',
+    label: 'geoip:facebook',
+    description: 'IP Meta / Facebook.',
+  ),
+  SplitTunnelTagSuggestion(
+    tag: 'cn',
+    label: 'geoip:cn',
+    description: 'IP-диапазоны Китая.',
+  ),
 ];
 
 const splitTunnelPresets = <SplitTunnelPreset>[
@@ -90,12 +175,12 @@ const splitTunnelPresets = <SplitTunnelPreset>[
     domainSuffixes: ['local', 'lan', 'localhost'],
   ),
   SplitTunnelPreset(
-    id: 'cn-direct',
-    label: 'CN direct',
-    description: 'Китайские домены и IP пойдут напрямую.',
+    id: 'ru-direct',
+    label: 'RU direct',
+    description: 'Российские домены и IP пойдут напрямую.',
     action: SplitTunnelAction.direct,
-    geositeTags: ['cn'],
-    geoipTags: ['cn', 'private'],
+    geositeTags: ['category-ru'],
+    geoipTags: ['ru', 'private'],
     domainSuffixes: ['local', 'lan', 'localhost'],
   ),
   SplitTunnelPreset(

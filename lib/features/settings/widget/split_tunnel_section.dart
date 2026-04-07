@@ -10,6 +10,24 @@ const _splitTunnelActionOrder = <SplitTunnelAction>[
   SplitTunnelAction.proxy,
 ];
 
+Color _splitTunnelPrimaryInk(ThemeData theme) {
+  return theme.brightness == Brightness.light
+      ? Colors.black.withValues(alpha: 0.90)
+      : gorionOnSurface;
+}
+
+Color _splitTunnelSecondaryInk(ThemeData theme) {
+  return theme.brightness == Brightness.light
+      ? Colors.black.withValues(alpha: 0.58)
+      : gorionOnSurfaceMuted;
+}
+
+Color _splitTunnelIconInk(ThemeData theme, Color darkColor) {
+  return theme.brightness == Brightness.light
+      ? Colors.black.withValues(alpha: 0.86)
+      : darkColor;
+}
+
 class SplitTunnelSection extends StatelessWidget {
   const SplitTunnelSection({
     super.key,
@@ -47,7 +65,7 @@ class SplitTunnelSection extends StatelessWidget {
           Text(
             'Traffic routing',
             style: theme.textTheme.titleLarge?.copyWith(
-              color: gorionOnSurface,
+              color: _splitTunnelPrimaryInk(theme),
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -55,7 +73,7 @@ class SplitTunnelSection extends StatelessWidget {
           Text(
             'Здесь задаётся понятная логика маршрутизации: что идёт в direct, что блокируется, а что принудительно остаётся на proxy. Пресеты добавляют готовые правила, а ниже можно вручную дописать свои домены и сети.',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: gorionOnSurfaceMuted,
+              color: _splitTunnelSecondaryInk(theme),
               height: 1.45,
             ),
           ),
@@ -165,14 +183,14 @@ class SplitTunnelSection extends StatelessWidget {
           title: Text(
             'Advanced',
             style: theme.textTheme.titleMedium?.copyWith(
-              color: gorionOnSurface,
+              color: _splitTunnelPrimaryInk(theme),
               fontWeight: FontWeight.w700,
             ),
           ),
           subtitle: Text(
             'Автообновление built-in geosite/geoip и импорт custom rule-set.',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: gorionOnSurfaceMuted,
+              color: _splitTunnelSecondaryInk(theme),
             ),
           ),
           children: [
@@ -229,7 +247,7 @@ class SplitTunnelSection extends StatelessWidget {
                   ? 'Интервал автообновления задаёт, как часто sing-box перепроверяет remote geosite/geoip rule-set. Кнопки выше форсят одноразовое обновление нужного источника уже сейчас. Ручные домены и сети начинают работать без refresh.'
                   : 'Пока built-in geosite/geoip списки не используются. Если нужны сложные внешние правила, можно импортировать свой rule-set ниже.',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: gorionOnSurfaceMuted,
+                color: _splitTunnelSecondaryInk(theme),
                 height: 1.45,
               ),
             ),
@@ -240,7 +258,7 @@ class SplitTunnelSection extends StatelessWidget {
                   child: Text(
                     'Imported rule-set',
                     style: theme.textTheme.titleSmall?.copyWith(
-                      color: gorionOnSurface,
+                      color: _splitTunnelPrimaryInk(theme),
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -257,7 +275,7 @@ class SplitTunnelSection extends StatelessWidget {
               Text(
                 'Импортированных rule-set пока нет.',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: gorionOnSurfaceMuted,
+                  color: _splitTunnelSecondaryInk(theme),
                 ),
               )
             else
@@ -397,28 +415,23 @@ class SplitTunnelSection extends StatelessWidget {
     BuildContext context,
     SplitTunnelAction action,
   ) async {
-    final value = await _showTextInputDialog(
+    final selectedValues = await _showTagSelectionDialog(
       context,
       title: '${_actionTitle(action)}: добавить geosite',
       description:
-          'Выберите популярный geosite-тег ниже или введите свой вручную. Например: `cn`, `apple`, `category-ads-all`.',
-      hintText: 'cn',
+          'Отметьте geosite-теги, которые должны участвовать в этом маршруте. Список фильтруется поиском, а при необходимости можно добавить свой тег прямо из строки поиска.',
+      searchHintText: 'Россия, category-ru, apple, youtube',
       normalize: normalizeSplitTunnelTag,
       suggestions: splitTunnelSuggestedGeositeTags,
+      initialValues: settings.groupFor(action).geositeTags,
     );
-    if (value == null || value.isEmpty) {
+    if (selectedValues == null) {
       return;
     }
 
     _updateGroup(
       action,
-      (group) => group.copyWith(
-        geositeTags: _addStringValue(
-          group.geositeTags,
-          value,
-          normalizeSplitTunnelTag,
-        ),
-      ),
+      (group) => group.copyWith(geositeTags: selectedValues),
     );
   }
 
@@ -426,29 +439,21 @@ class SplitTunnelSection extends StatelessWidget {
     BuildContext context,
     SplitTunnelAction action,
   ) async {
-    final value = await _showTextInputDialog(
+    final selectedValues = await _showTagSelectionDialog(
       context,
       title: '${_actionTitle(action)}: добавить geoip',
       description:
-          'Выберите популярный geoip-тег ниже или введите свой вручную. Например: `private`, `cn`, `telegram`, `google`.',
-      hintText: 'private',
+          'Отметьте geoip-теги, которые должны участвовать в этом маршруте. Список фильтруется поиском, а при необходимости можно добавить свой тег прямо из строки поиска.',
+      searchHintText: 'Россия, ru, private, telegram',
       normalize: normalizeSplitTunnelTag,
       suggestions: splitTunnelSuggestedGeoipTags,
+      initialValues: settings.groupFor(action).geoipTags,
     );
-    if (value == null || value.isEmpty) {
+    if (selectedValues == null) {
       return;
     }
 
-    _updateGroup(
-      action,
-      (group) => group.copyWith(
-        geoipTags: _addStringValue(
-          group.geoipTags,
-          value,
-          normalizeSplitTunnelTag,
-        ),
-      ),
-    );
+    _updateGroup(action, (group) => group.copyWith(geoipTags: selectedValues));
   }
 
   Future<void> _addDomainSuffix(
@@ -611,6 +616,314 @@ class SplitTunnelSection extends StatelessWidget {
       },
     );
   }
+
+  static Future<List<String>?> _showTagSelectionDialog(
+    BuildContext context, {
+    required String title,
+    required String description,
+    required String searchHintText,
+    required String Function(String value) normalize,
+    required List<SplitTunnelTagSuggestion> suggestions,
+    required List<String> initialValues,
+  }) {
+    return showDialog<List<String>>(
+      context: context,
+      builder: (context) {
+        return _SplitTunnelTagSelectionDialog(
+          title: title,
+          description: description,
+          searchHintText: searchHintText,
+          normalize: normalize,
+          suggestions: suggestions,
+          initialValues: initialValues,
+        );
+      },
+    );
+  }
+}
+
+class _SplitTunnelTagOption {
+  const _SplitTunnelTagOption({
+    required this.tag,
+    required this.label,
+    required this.description,
+    this.isCustom = false,
+  });
+
+  final String tag;
+  final String label;
+  final String description;
+  final bool isCustom;
+
+  String get compactSearchText =>
+      _normalizeTagSearchText('$tag $label $description');
+
+  String get plainSearchText => '$tag $label $description'.toLowerCase();
+}
+
+class _SplitTunnelTagSelectionDialog extends StatefulWidget {
+  const _SplitTunnelTagSelectionDialog({
+    required this.title,
+    required this.description,
+    required this.searchHintText,
+    required this.normalize,
+    required this.suggestions,
+    required this.initialValues,
+  });
+
+  final String title;
+  final String description;
+  final String searchHintText;
+  final String Function(String value) normalize;
+  final List<SplitTunnelTagSuggestion> suggestions;
+  final List<String> initialValues;
+
+  @override
+  State<_SplitTunnelTagSelectionDialog> createState() =>
+      _SplitTunnelTagSelectionDialogState();
+}
+
+class _SplitTunnelTagSelectionDialogState
+    extends State<_SplitTunnelTagSelectionDialog> {
+  late final TextEditingController _searchController;
+  late final Set<String> _selectedTags;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+    _selectedTags = {
+      for (final value in widget.initialValues)
+        if (widget.normalize(value).isNotEmpty) widget.normalize(value),
+    };
+    _searchController.addListener(_handleSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_handleSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _handleSearchChanged() {
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filteredOptions = _filteredOptions;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final maxDialogHeight = MediaQuery.sizeOf(context).height * 0.72;
+
+    return AlertDialog(
+      backgroundColor: gorionSurface,
+      title: Text(widget.title, style: const TextStyle(color: gorionOnSurface)),
+      content: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 560, maxHeight: maxDialogHeight),
+        child: SizedBox(
+          width: screenWidth > 640 ? 560 : screenWidth * 0.88,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.description,
+                style: const TextStyle(
+                  color: gorionOnSurfaceMuted,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  hintText: widget.searchHintText,
+                  hintStyle: const TextStyle(color: gorionOnSurfaceMuted),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _selectedTags.isEmpty
+                    ? 'Ничего не выбрано'
+                    : 'Выбрано: ${_selectedTags.length}',
+                style: const TextStyle(
+                  color: gorionOnSurfaceMuted,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: filteredOptions.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'Ничего не найдено. Уточните поиск или введите свой тег.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: gorionOnSurfaceMuted,
+                            height: 1.45,
+                          ),
+                        ),
+                      )
+                    : Scrollbar(
+                        thumbVisibility: filteredOptions.length > 8,
+                        child: ListView.separated(
+                          itemCount: filteredOptions.length,
+                          separatorBuilder: (_, _) => Divider(
+                            color: Colors.white.withValues(alpha: 0.08),
+                            height: 1,
+                          ),
+                          itemBuilder: (context, index) {
+                            final option = filteredOptions[index];
+                            final selected = _selectedTags.contains(option.tag);
+                            return CheckboxListTile(
+                              value: selected,
+                              dense: true,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              activeColor: gorionAccent,
+                              checkColor: Colors.black,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                option.label,
+                                style: const TextStyle(color: gorionOnSurface),
+                              ),
+                              subtitle: Text(
+                                option.description,
+                                style: const TextStyle(
+                                  color: gorionOnSurfaceMuted,
+                                  height: 1.35,
+                                ),
+                              ),
+                              onChanged: (_) => _toggleOption(option.tag),
+                            );
+                          },
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _selectedTags.isEmpty
+              ? null
+              : () => setState(_selectedTags.clear),
+          child: const Text('Снять всё'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_selectedValues),
+          child: const Text('Применить'),
+        ),
+      ],
+    );
+  }
+
+  List<String> get _selectedValues {
+    final values = <String>[];
+    final seen = <String>{};
+    for (final option in _availableOptions) {
+      if (_selectedTags.contains(option.tag) && seen.add(option.tag)) {
+        values.add(option.tag);
+      }
+    }
+    return values;
+  }
+
+  List<_SplitTunnelTagOption> get _filteredOptions {
+    final query = _searchController.text.trim().toLowerCase();
+    final compactQuery = _normalizeTagSearchText(_searchController.text);
+    if (query.isEmpty && compactQuery.isEmpty) {
+      return _availableOptions;
+    }
+
+    return [
+      for (final option in _availableOptions)
+        if (option.plainSearchText.contains(query) ||
+            (compactQuery.isNotEmpty &&
+                option.compactSearchText.contains(compactQuery)))
+          option,
+    ];
+  }
+
+  List<_SplitTunnelTagOption> get _availableOptions {
+    final options = <_SplitTunnelTagOption>[];
+    final seen = <String>{};
+
+    for (final value in _selectedTags) {
+      final normalizedValue = widget.normalize(value);
+      if (normalizedValue.isEmpty || !seen.add(normalizedValue)) {
+        continue;
+      }
+      final suggestion = _suggestionForTag(normalizedValue);
+      options.add(
+        _SplitTunnelTagOption(
+          tag: normalizedValue,
+          label: suggestion?.label ?? normalizedValue,
+          description: suggestion?.description ?? 'Пользовательский тег.',
+          isCustom: suggestion == null,
+        ),
+      );
+    }
+
+    for (final suggestion in widget.suggestions) {
+      final normalizedTag = widget.normalize(suggestion.tag);
+      if (normalizedTag.isEmpty || seen.contains(normalizedTag)) {
+        continue;
+      }
+      options.add(
+        _SplitTunnelTagOption(
+          tag: normalizedTag,
+          label: suggestion.label,
+          description: suggestion.description,
+        ),
+      );
+      seen.add(normalizedTag);
+    }
+
+    final normalizedQuery = widget.normalize(_searchController.text);
+    if (normalizedQuery.isNotEmpty && !seen.contains(normalizedQuery)) {
+      options.insert(
+        0,
+        _SplitTunnelTagOption(
+          tag: normalizedQuery,
+          label: normalizedQuery,
+          description: 'Добавить пользовательский тег из строки поиска.',
+          isCustom: true,
+        ),
+      );
+    }
+
+    return options;
+  }
+
+  SplitTunnelTagSuggestion? _suggestionForTag(String tag) {
+    final normalizedTag = widget.normalize(tag);
+    for (final suggestion in widget.suggestions) {
+      if (widget.normalize(suggestion.tag) == normalizedTag) {
+        return suggestion;
+      }
+    }
+    return null;
+  }
+
+  void _toggleOption(String tag) {
+    setState(() {
+      if (_selectedTags.contains(tag)) {
+        _selectedTags.remove(tag);
+      } else {
+        _selectedTags.add(tag);
+      }
+    });
+  }
+}
+
+String _normalizeTagSearchText(String value) {
+  return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9а-я]+'), '');
 }
 
 class _RoutingActionCard extends StatelessWidget {
@@ -652,6 +965,9 @@ class _RoutingActionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final color = _actionColor(action);
+    final primaryInk = _splitTunnelPrimaryInk(theme);
+    final secondaryInk = _splitTunnelSecondaryInk(theme);
+    final iconInk = _splitTunnelIconInk(theme, color);
 
     return Container(
       width: double.infinity,
@@ -674,7 +990,7 @@ class _RoutingActionCard extends StatelessWidget {
                   color: color.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(_actionIcon(action), color: color),
+                child: Icon(_actionIcon(action), color: iconInk),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -684,7 +1000,7 @@ class _RoutingActionCard extends StatelessWidget {
                     Text(
                       _actionTitle(action),
                       style: theme.textTheme.titleMedium?.copyWith(
-                        color: gorionOnSurface,
+                        color: primaryInk,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -692,7 +1008,7 @@ class _RoutingActionCard extends StatelessWidget {
                     Text(
                       _actionDescription(action),
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: gorionOnSurfaceMuted,
+                        color: secondaryInk,
                         height: 1.45,
                       ),
                     ),
@@ -712,7 +1028,7 @@ class _RoutingActionCard extends StatelessWidget {
             Text(
               'Пресеты',
               style: theme.textTheme.labelLarge?.copyWith(
-                color: gorionOnSurface,
+                color: primaryInk,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -738,12 +1054,12 @@ class _RoutingActionCard extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: busy ? null : onAddGeositePressed,
                 icon: const Icon(Icons.travel_explore_rounded),
-                label: const Text('Добавить geosite'),
+                label: const Text('Выбрать geosite'),
               ),
               OutlinedButton.icon(
                 onPressed: busy ? null : onAddGeoipPressed,
                 icon: const Icon(Icons.map_rounded),
-                label: const Text('Добавить geoip'),
+                label: const Text('Выбрать geoip'),
               ),
               OutlinedButton.icon(
                 onPressed: busy ? null : onAddDomainPressed,
@@ -768,7 +1084,7 @@ class _RoutingActionCard extends StatelessWidget {
             Text(
               _emptyLabelForAction(action),
               style: theme.textTheme.bodySmall?.copyWith(
-                color: gorionOnSurfaceMuted,
+                color: secondaryInk,
                 height: 1.45,
               ),
             )
@@ -837,7 +1153,7 @@ class _RoutingActionCard extends StatelessWidget {
             Text(
               'Есть отключённые imported rule-set. Управление ими находится в Advanced.',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: gorionOnSurfaceMuted,
+                color: secondaryInk,
                 height: 1.45,
               ),
             ),
@@ -1040,6 +1356,8 @@ class _ImportedRuleSetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final primaryInk = _splitTunnelPrimaryInk(theme);
+    final secondaryInk = _splitTunnelSecondaryInk(theme);
 
     return Container(
       width: double.infinity,
@@ -1064,7 +1382,7 @@ class _ImportedRuleSetCard extends StatelessWidget {
                           ? ruleSet.normalizedId
                           : ruleSet.normalizedLabel,
                       style: theme.textTheme.titleMedium?.copyWith(
-                        color: gorionOnSurface,
+                        color: primaryInk,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -1074,7 +1392,7 @@ class _ImportedRuleSetCard extends StatelessWidget {
                           ? ruleSet.normalizedUrl
                           : ruleSet.normalizedPath,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: gorionOnSurfaceMuted,
+                        color: secondaryInk,
                         height: 1.45,
                       ),
                     ),
@@ -1128,6 +1446,8 @@ class _PresetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final primaryInk = _splitTunnelPrimaryInk(theme);
+    final secondaryInk = _splitTunnelSecondaryInk(theme);
 
     return OutlinedButton(
       onPressed: onPressed,
@@ -1144,7 +1464,7 @@ class _PresetCard extends StatelessWidget {
           Text(
             preset.label,
             style: theme.textTheme.titleSmall?.copyWith(
-              color: gorionOnSurface,
+              color: primaryInk,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -1152,7 +1472,7 @@ class _PresetCard extends StatelessWidget {
           Text(
             preset.description,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: gorionOnSurfaceMuted,
+              color: secondaryInk,
               height: 1.45,
             ),
           ),
@@ -1180,7 +1500,7 @@ class _RuleChipSection extends StatelessWidget {
           Text(
             title,
             style: theme.textTheme.labelLarge?.copyWith(
-              color: gorionOnSurface,
+              color: _splitTunnelPrimaryInk(theme),
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -1200,14 +1520,16 @@ class _RuleChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return InputChip(
       label: Text(label),
       onDeleted: onDeleted,
       backgroundColor: Colors.white.withValues(alpha: 0.06),
       side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-      labelStyle: Theme.of(
-        context,
-      ).textTheme.bodySmall?.copyWith(color: gorionOnSurface),
+      deleteIconColor: _splitTunnelPrimaryInk(theme),
+      labelStyle: theme.textTheme.bodySmall?.copyWith(
+        color: _splitTunnelPrimaryInk(theme),
+      ),
     );
   }
 }
@@ -1225,6 +1547,7 @@ class _ActionSummaryChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -1234,8 +1557,8 @@ class _ActionSummaryChip extends StatelessWidget {
       ),
       child: Text(
         '$title $count',
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-          color: gorionOnSurface,
+        style: theme.textTheme.labelLarge?.copyWith(
+          color: _splitTunnelPrimaryInk(theme),
           fontWeight: FontWeight.w700,
         ),
       ),
@@ -1281,7 +1604,7 @@ class _ToggleCard extends StatelessWidget {
                 Text(
                   title,
                   style: theme.textTheme.titleMedium?.copyWith(
-                    color: gorionOnSurface,
+                    color: _splitTunnelPrimaryInk(theme),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1289,7 +1612,7 @@ class _ToggleCard extends StatelessWidget {
                 Text(
                   subtitle,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: gorionOnSurfaceMuted,
+                    color: _splitTunnelSecondaryInk(theme),
                     height: 1.45,
                   ),
                 ),
@@ -1311,6 +1634,7 @@ class _MetaChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
@@ -1320,8 +1644,8 @@ class _MetaChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: gorionOnSurfaceMuted,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: _splitTunnelSecondaryInk(theme),
           fontWeight: FontWeight.w600,
         ),
       ),

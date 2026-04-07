@@ -40,6 +40,7 @@ void main() {
               required templateConfig,
               required candidate,
               required settings,
+              abortReason,
             }) async {
               probeCalls += 1;
               return AutoSelectPreconnectProbeResult(
@@ -83,6 +84,7 @@ void main() {
               required templateConfig,
               required candidate,
               required settings,
+              abortReason,
             }) async {
               probedTags.add(candidate.tag);
               return switch (candidate.tag) {
@@ -135,6 +137,7 @@ void main() {
               required templateConfig,
               required candidate,
               required settings,
+              abortReason,
             }) async {
               return switch (candidate.tag) {
                 'server-a' => const AutoSelectPreconnectProbeResult(
@@ -175,6 +178,7 @@ void main() {
             required templateConfig,
             required candidate,
             required settings,
+            abortReason,
           }) async {
             return switch (candidate.tag) {
               'server-a' => const AutoSelectPreconnectProbeResult(
@@ -220,6 +224,7 @@ void main() {
               required templateConfig,
               required candidate,
               required settings,
+              abortReason,
             }) async {
               probedTags.add(candidate.tag);
               return AutoSelectPreconnectProbeResult(
@@ -257,6 +262,7 @@ void main() {
               required templateConfig,
               required candidate,
               required settings,
+              abortReason,
             }) async {
               probedTags.add(candidate.tag);
               return AutoSelectPreconnectProbeResult(
@@ -270,7 +276,9 @@ void main() {
       );
 
       await service.prepare(
-        profile: _buildProfile(serverTags: ['server-a', 'server-b', 'server-c']),
+        profile: _buildProfile(
+          serverTags: ['server-a', 'server-b', 'server-c'],
+        ),
         templateConfig: jsonEncode({
           'outbounds': [
             {
@@ -313,6 +321,7 @@ void main() {
             required templateConfig,
             required candidate,
             required settings,
+            abortReason,
           }) async {
             probedTags.add(candidate.tag);
             return AutoSelectPreconnectProbeResult(
@@ -345,6 +354,7 @@ void main() {
             required templateConfig,
             required candidate,
             required settings,
+            abortReason,
           }) async {
             return switch (candidate.tag) {
               'server-a' => const AutoSelectPreconnectProbeResult(
@@ -394,6 +404,7 @@ void main() {
             required templateConfig,
             required candidate,
             required settings,
+            abortReason,
           }) async {
             return switch (candidate.tag) {
               'server-a' => const AutoSelectPreconnectProbeResult(
@@ -442,6 +453,7 @@ void main() {
               required templateConfig,
               required candidate,
               required settings,
+              abortReason,
             }) => Completer<AutoSelectPreconnectProbeResult>().future,
       );
 
@@ -457,6 +469,51 @@ void main() {
     },
   );
 
+  test('aborts preconnect preparation when cancellation is signaled', () async {
+    var aborted = false;
+    final probeStarted = Completer<void>();
+    final service = AutoSelectPreconnectService(
+      settingsRepository: settingsRepository,
+      probeCandidate:
+          ({
+            required profileId,
+            required templateConfig,
+            required candidate,
+            required settings,
+            abortReason,
+          }) async {
+            if (!probeStarted.isCompleted) {
+              probeStarted.complete();
+            }
+            while (true) {
+              final reason = abortReason?.call();
+              if (reason != null) {
+                throw Exception(reason);
+              }
+              await Future<void>.delayed(const Duration(milliseconds: 1));
+            }
+          },
+    );
+
+    final prepareFuture = service.prepare(
+      profile: _buildProfile(serverTags: ['server-a']),
+      templateConfig: _templateConfig(['server-a']),
+      abortReason: () => aborted ? 'cancelled by test' : null,
+    );
+
+    await probeStarted.future;
+    aborted = true;
+
+    await expectLater(
+      prepareFuture,
+      throwsA(
+        predicate<Object>(
+          (error) => error.toString().contains('cancelled by test'),
+        ),
+      ),
+    );
+  });
+
   test(
     'falls back to the saved server when no candidate passes preconnect',
     () async {
@@ -469,6 +526,7 @@ void main() {
               required templateConfig,
               required candidate,
               required settings,
+              abortReason,
             }) async {
               return const AutoSelectPreconnectProbeResult(
                 serverTag: 'server-a',
@@ -507,6 +565,7 @@ void main() {
               required templateConfig,
               required candidate,
               required settings,
+              abortReason,
             }) async {
               return switch (candidate.tag) {
                 'server-a' => const AutoSelectPreconnectProbeResult(

@@ -61,7 +61,15 @@ typedef AutoSelectPreconnectCandidateProbe =
       required String templateConfig,
       required AutoSelectConfigCandidate candidate,
       required AutoSelectSettings settings,
+      String? Function()? abortReason,
     });
+
+void _throwIfPreconnectAborted(String? Function()? abortReason) {
+  final reason = abortReason?.call();
+  if (reason != null) {
+    throw Exception(reason);
+  }
+}
 
 class AutoSelectPreconnectService {
   AutoSelectPreconnectService({
@@ -125,8 +133,10 @@ class AutoSelectPreconnectService {
     required ProxyProfile profile,
     required String templateConfig,
     AutoSelectProgressReporter? onProgress,
+    String? Function()? abortReason,
   }) async {
     final storedState = await _settingsRepository.clearExpiredCaches();
+    _throwIfPreconnectAborted(abortReason);
     final settings = storedState.settings;
     if (!settings.enabled || !profile.prefersAutoSelection) {
       return null;
@@ -156,6 +166,7 @@ class AutoSelectPreconnectService {
       candidates: candidates,
     );
     if (reusedRecentSuccessfulSelection != null) {
+      _throwIfPreconnectAborted(abortReason);
       onProgress?.call(
         AutoSelectProgressEvent(
           message:
@@ -194,6 +205,7 @@ class AutoSelectPreconnectService {
       batchStart < probePlan.length && !fastAccepted;
       batchStart += preconnectProbeBatchSize
     ) {
+      _throwIfPreconnectAborted(abortReason);
       final batchEnd = batchStart + preconnectProbeBatchSize < probePlan.length
           ? batchStart + preconnectProbeBatchSize
           : probePlan.length;
@@ -217,9 +229,11 @@ class AutoSelectPreconnectService {
             templateConfig: templateConfig,
             candidate: candidate,
             settings: settings,
+            abortReason: abortReason,
           ),
         ),
       );
+      _throwIfPreconnectAborted(abortReason);
 
       for (var index = 0; index < batchResults.length; index += 1) {
         final probeResult = batchResults[index];
@@ -252,6 +266,8 @@ class AutoSelectPreconnectService {
         break;
       }
     }
+
+    _throwIfPreconnectAborted(abortReason);
 
     if (successfulProbeResults.isEmpty) {
       final rankedProbeResults = _rankProbeResults(allProbeResults);
@@ -352,13 +368,16 @@ class AutoSelectPreconnectService {
     required String templateConfig,
     required AutoSelectConfigCandidate candidate,
     required AutoSelectSettings settings,
+    String? Function()? abortReason,
   }) async {
     try {
+      _throwIfPreconnectAborted(abortReason);
       return await _probeCandidate(
         profileId: profileId,
         templateConfig: templateConfig,
         candidate: candidate,
         settings: settings,
+        abortReason: abortReason,
       ).timeout(preconnectProbeTimeout);
     } on Object {
       return AutoSelectPreconnectProbeResult(
@@ -619,7 +638,9 @@ class _DetachedAutoSelectPreconnectProbe {
     required String templateConfig,
     required AutoSelectConfigCandidate candidate,
     required AutoSelectSettings settings,
+    String? Function()? abortReason,
   }) async {
+    _throwIfPreconnectAborted(abortReason);
     // Use a minimal config containing only this server's outbound behind a
     // mixed inbound — no DNS, no routing rules, no Clash API.  This starts
     // significantly faster than the full profile config and fails early when
@@ -678,16 +699,24 @@ class _DetachedAutoSelectPreconnectProbe {
       });
 
       return await (() async {
+        String? exitOrAbortReason() {
+          final externalAbort = abortReason?.call();
+          if (externalAbort != null) {
+            return externalAbort;
+          }
+          final exitCode = startupExitCode;
+          if (exitCode == null) {
+            return null;
+          }
+          return 'Detached pre-connect sing-box probe exited early with code $exitCode.';
+        }
+
         // Wait for the mixed port to accept connections instead of the Clash
         // API (the minimal config has no Clash API).
         final portReady = await waitForLocalPortReady(
           mixedPort,
           timeout: _startupTimeout,
-          abortReason: () {
-            final exitCode = startupExitCode;
-            if (exitCode == null) return null;
-            return 'Detached pre-connect sing-box probe exited early with code $exitCode.';
-          },
+          abortReason: exitOrAbortReason,
         );
         if (!portReady) {
           return AutoSelectPreconnectProbeResult(
@@ -700,33 +729,28 @@ class _DetachedAutoSelectPreconnectProbe {
         }
 
         final domainProbeTargets = [
-          for (
-            final candidateUrl in resolveAutoSelectDomainProbeUrls(
-              settings.domainProbeUrl,
-              rotationKey: '$profileId::${candidate.tag}::preconnect::domain',
-            )
-          )
+          for (final candidateUrl in resolveAutoSelectDomainProbeUrls(
+            settings.domainProbeUrl,
+            rotationKey: '$profileId::${candidate.tag}::preconnect::domain',
+          ))
             Uri.parse(candidateUrl),
         ];
         final ipProbeTargets = [
-          for (
-            final candidateUrl in resolveAutoSelectIpProbeUrls(
-              settings.ipProbeUrl,
-              rotationKey: '$profileId::${candidate.tag}::preconnect::ip',
-            )
-          )
+          for (final candidateUrl in resolveAutoSelectIpProbeUrls(
+            settings.ipProbeUrl,
+            rotationKey: '$profileId::${candidate.tag}::preconnect::ip',
+          ))
             Uri.parse(candidateUrl),
         ];
         final throughputProbeTargets = [
-          for (
-            final candidateUrl in resolveAutoSelectThroughputProbeUrls(
-              defaultAutoSelectThroughputProbeUrl,
-              rotationKey:
-                  '$profileId::${candidate.tag}::preconnect::throughput',
-            )
-          )
+          for (final candidateUrl in resolveAutoSelectThroughputProbeUrls(
+            defaultAutoSelectThroughputProbeUrl,
+            rotationKey: '$profileId::${candidate.tag}::preconnect::throughput',
+          ))
             Uri.parse(candidateUrl),
         ];
+
+        _throwIfPreconnectAborted(abortReason);
 
         late final bool domainProbeOk;
         late final bool ipProbeOk;
@@ -736,11 +760,13 @@ class _DetachedAutoSelectPreconnectProbe {
               mixedPort: mixedPort,
               urls: domainProbeTargets,
               timeout: _httpProbeTimeout,
+              abortReason: abortReason,
             ),
             probeHttpViaLocalProxyTargets(
               mixedPort: mixedPort,
               urls: ipProbeTargets,
               timeout: _httpProbeTimeout,
+              abortReason: abortReason,
             ),
           ]);
           domainProbeOk = probeResults[0];
@@ -750,6 +776,7 @@ class _DetachedAutoSelectPreconnectProbe {
             mixedPort: mixedPort,
             urls: domainProbeTargets,
             timeout: _httpProbeTimeout,
+            abortReason: abortReason,
           );
           ipProbeOk = true;
         }
@@ -771,6 +798,7 @@ class _DetachedAutoSelectPreconnectProbe {
               mixedPort: mixedPort,
               urls: throughputProbeTargets,
               timeout: _throughputTimeout,
+              abortReason: abortReason,
             );
 
         // urlTestDelay is not available from a minimal config (no Clash API /

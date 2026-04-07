@@ -134,21 +134,96 @@ void main() {
 
     expect(repository.loadedProfileIds, ['profile-2']);
   });
+
+  testWidgets(
+    'busy auto card still shows quick reconnect cache presence on RESET',
+    (tester) async {
+      final repository = _FakeProfileRepository(
+        responses: [const _TemplateLoadResponse.immediate('')],
+      );
+      final settingsRepository = _FakeAutoSelectSettingsRepository();
+      final recentSuccessfulAutoConnect = RecentSuccessfulAutoConnect(
+        profileId: 'profile-1',
+        tag: 'server-1',
+        until: DateTime.now().add(const Duration(minutes: 1)),
+      );
+      final controller = DashboardController(
+        repository: repository,
+        runtimeService: _FakeRuntimeService(),
+        autoSelectSettingsRepository: settingsRepository,
+        autoSelectPreconnectService: AutoSelectPreconnectService(
+          settingsRepository: settingsRepository,
+        ),
+        autoSelectorService: AutoSelectorService(),
+        initialState: _dashboardState(
+          busy: true,
+          recentSuccessfulAutoConnect: recentSuccessfulAutoConnect,
+        ),
+        loadOnInit: false,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          dashboardControllerProvider.overrideWith((ref) => controller),
+          profileRepositoryProvider.overrideWithValue(repository),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      tester.view.physicalSize = const Size(1600, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: Scaffold(body: ServersPanelWidget())),
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.text('RESET'), findsOneWidget);
+
+      final resetTooltips = tester
+          .widgetList<Tooltip>(find.byType(Tooltip))
+          .where(
+            (tooltip) =>
+                tooltip.message?.contains('Быстрый кеш переподключения') ??
+                false,
+          )
+          .toList();
+
+      expect(resetTooltips, hasLength(1));
+      expect(
+        resetTooltips.single.message,
+        'Быстрый кеш переподключения сохранён. Сброс будет доступен после завершения текущего действия.',
+      );
+
+      final resetButton = tester.widget<TextButton>(
+        find.widgetWithText(TextButton, 'RESET'),
+      );
+      expect(resetButton.onPressed, isNull);
+    },
+  );
 }
 
 DashboardState _dashboardState({
   String activeProfileId = 'profile-1',
   List<ProxyProfile>? profiles,
+  bool busy = false,
+  RecentSuccessfulAutoConnect? recentSuccessfulAutoConnect,
 }) {
   final now = DateTime(2026, 4, 5, 12);
   final resolvedProfiles = profiles ?? [_buildProfile('profile-1', now: now)];
   return DashboardState(
     bootstrapping: false,
+    busy: busy,
     runtimeMode: RuntimeMode.mixed,
     storage: StoredProfilesState(
       activeProfileId: activeProfileId,
       profiles: resolvedProfiles,
     ),
+    recentSuccessfulAutoConnect: recentSuccessfulAutoConnect,
   );
 }
 

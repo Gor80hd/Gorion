@@ -87,6 +87,17 @@ String _describeAutoSelectBestServerCheckInterval(int minutes) {
   return '$minutes ${minutes == 1 ? 'minute' : 'minutes'}';
 }
 
+class _CancelledConnectOperation implements Exception {
+  const _CancelledConnectOperation([
+    this.message = 'Connection attempt was cancelled.',
+  ]);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 DashboardState _normalizeDashboardState(DashboardState state) {
   return state.copyWith(runtimeMode: _normalizeRuntimeMode(state.runtimeMode));
 }
@@ -307,6 +318,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   final Future<void> Function(Duration duration) _pause;
   Timer? _autoSelectionTimer;
   bool _autoSelectionInFlight = false;
+  int _connectOperationId = 0;
 
   Duration get _currentAutoSelectionInterval =>
       state.autoSelectSettings.bestServerCheckInterval;
@@ -843,6 +855,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   Future<void> connect() async {
+    final connectOperationId = _beginConnectOperation();
     final profile = state.activeProfile;
     if (profile == null) {
       state = state.copyWith(
@@ -870,6 +883,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       final originalTemplateConfig = await _repository.loadTemplateConfig(
         profile,
       );
+      _throwIfConnectOperationCancelled(connectOperationId);
       final templateConfig = _applyConnectionTuningSettings(
         originalTemplateConfig,
       );
@@ -882,6 +896,7 @@ class DashboardController extends StateNotifier<DashboardState> {
               profile: profile,
               templateConfig: templateConfig,
             );
+        _throwIfConnectOperationCancelled(connectOperationId);
         if (preparedAutoSelection?.reusedRecentSuccessfulSelection ?? false) {
           state = state.copyWith(
             autoSelectActivity: AutoSelectActivityState(
@@ -898,15 +913,18 @@ class DashboardController extends StateNotifier<DashboardState> {
           preparedAutoSelection = await _autoSelectPreconnectService.prepare(
             profile: profile,
             templateConfig: templateConfig,
+            abortReason: () => _connectOperationAbortReason(connectOperationId),
             onProgress: (event) {
               _reportAutoSelectProgress('Pre-connect auto-select', event);
             },
           );
+          _throwIfConnectOperationCancelled(connectOperationId);
           _finishAutoSelectActivity('Pre-connect auto-select');
         }
         startupServerTag =
             preparedAutoSelection?.selectedServerTag ?? startupServerTag;
       }
+      _throwIfConnectOperationCancelled(connectOperationId);
       final session = await _runtimeService.start(
         profileId: profile.id,
         templateConfig: templateConfig,
@@ -919,12 +937,16 @@ class DashboardController extends StateNotifier<DashboardState> {
         mode: selectedMode,
         selectedServerTag: startupServerTag,
       );
+      _throwIfConnectOperationCancelled(connectOperationId);
       await _waitForSystemProxyStartupSettle(mode: selectedMode);
+      _throwIfConnectOperationCancelled(connectOperationId);
       final client = _createClashApiClient(session);
       final snapshot = await client.fetchSnapshot(
         selectorTag: session.manualSelectorTag,
       );
+      _throwIfConnectOperationCancelled(connectOperationId);
       final delays = await _safeLoadDelays(client, session);
+      _throwIfConnectOperationCancelled(connectOperationId);
       final connectedTag = snapshot.selectedTag ?? startupServerTag;
       var persistedStorage = snapshot.selectedTag == null
           ? state.storage
@@ -969,6 +991,7 @@ class DashboardController extends StateNotifier<DashboardState> {
               statusMessage: null,
               failureMessage: null,
             );
+      _throwIfConnectOperationCancelled(connectOperationId);
       persistedStorage = verification.storage;
       effectiveDelayByTag = verification.delayByTag;
       effectiveActiveServerTag = verification.activeServerTag;
@@ -1004,10 +1027,12 @@ class DashboardController extends StateNotifier<DashboardState> {
       if (profile.prefersAutoSelection &&
           autoSelectSettings.enabled &&
           effectiveActiveServerTag != null) {
+        _throwIfConnectOperationCancelled(connectOperationId);
         final recentSuccessfulAutoConnect = await _updateRecentAutoSelectCaches(
           profileId: profile.id,
           serverTag: effectiveActiveServerTag,
         );
+        _throwIfConnectOperationCancelled(connectOperationId);
         state = state.copyWith(
           recentSuccessfulAutoConnect: recentSuccessfulAutoConnect,
         );
@@ -1018,6 +1043,7 @@ class DashboardController extends StateNotifier<DashboardState> {
           : '${preparedAutoSelection.summary} ${_connectedStatus(session)}';
       final effectiveStatusMessage =
           verification.statusMessage ?? statusMessage;
+      _throwIfConnectOperationCancelled(connectOperationId);
 
       state = state.copyWith(
         busy: false,
@@ -1038,6 +1064,10 @@ class DashboardController extends StateNotifier<DashboardState> {
         _startAutoSelectionMonitoring();
       }
     } on Object catch (error) {
+      if (error is _CancelledConnectOperation ||
+          !_isConnectOperationCurrent(connectOperationId)) {
+        return;
+      }
       if (state.autoSelectActivity.active &&
           state.autoSelectActivity.label == 'Pre-connect auto-select') {
         _finishAutoSelectActivity(
@@ -1059,6 +1089,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   Future<void> shutdownForAppExit() async {
+    _cancelPendingConnectOperation();
     _stopAutoSelectionMonitoring();
     try {
       await _runtimeService.stop();
@@ -1068,6 +1099,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   Future<void> disconnect() async {
+    _cancelPendingConnectOperation();
     final previousSession = state.runtimeSession;
     final previousProfile = state.activeProfile;
     _stopAutoSelectionMonitoring();
@@ -1875,6 +1907,33 @@ class DashboardController extends StateNotifier<DashboardState> {
     return state.connectionStage == ConnectionStage.connected &&
         identical(state.runtimeSession, session) &&
         state.activeProfile?.id == profileId;
+  }
+
+  int _beginConnectOperation() {
+    _connectOperationId += 1;
+    return _connectOperationId;
+  }
+
+  void _cancelPendingConnectOperation() {
+    _connectOperationId += 1;
+  }
+
+  bool _isConnectOperationCurrent(int connectOperationId) {
+    return _connectOperationId == connectOperationId;
+  }
+
+  String? _connectOperationAbortReason(int connectOperationId) {
+    if (_isConnectOperationCurrent(connectOperationId)) {
+      return null;
+    }
+    return 'Connection attempt was cancelled.';
+  }
+
+  void _throwIfConnectOperationCancelled(int connectOperationId) {
+    final reason = _connectOperationAbortReason(connectOperationId);
+    if (reason != null) {
+      throw _CancelledConnectOperation(reason);
+    }
   }
 
   Future<void> _waitForSystemProxyStartupSettle({

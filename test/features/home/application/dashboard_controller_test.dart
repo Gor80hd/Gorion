@@ -717,6 +717,83 @@ void main() {
     );
 
     test(
+      'disconnect during pre-connect probing cancels the pending connect attempt',
+      () async {
+        final preconnectCompleter = Completer<PreparedAutoConnectSelection?>();
+        final runtimeService = _FakeRuntimeService(startSession: _session);
+        final controller = DashboardController(
+          repository: _FakeProfileRepository(
+            initialStorage: _storage,
+            templateConfig: _autoSelectTemplateConfig,
+          ),
+          runtimeService: runtimeService,
+          autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
+          autoSelectPreconnectService: _FakeAutoSelectPreconnectService(
+            preparedFuture: preconnectCompleter.future,
+          ),
+          autoSelectorService: _ScriptedAutoSelectorService(),
+          clashApiClientFactory: (_) => _FakeClashApiClient(
+            snapshot: const ClashApiSnapshot(
+              selectedTag: 'server-b',
+              delayByTag: {'server-b': 42},
+            ),
+            delays: const {'server-b': 42},
+          ),
+          initialState: DashboardState(
+            bootstrapping: false,
+            runtimeMode: RuntimeMode.mixed,
+            autoSelectSettings: const AutoSelectSettings(enabled: true),
+            storage: _storage,
+            selectedServerTag: autoSelectServerTag,
+            activeServerTag: 'server-a',
+          ),
+          loadOnInit: false,
+        );
+        addTearDown(controller.dispose);
+
+        final connectFuture = controller.connect();
+        await _flushAsync();
+
+        expect(runtimeService.startCallCount, 0);
+        expect(controller.state.connectionStage, ConnectionStage.starting);
+        expect(controller.state.autoSelectActivity.active, isTrue);
+
+        await controller.disconnect();
+
+        expect(runtimeService.stopCallCount, 1);
+        expect(controller.state.connectionStage, ConnectionStage.disconnected);
+        expect(controller.state.runtimeSession, isNull);
+        expect(controller.state.autoSelectActivity.active, isFalse);
+
+        preconnectCompleter.complete(
+          const PreparedAutoConnectSelection(
+            selectedServerTag: 'server-b',
+            delayByTag: {'server-b': 42},
+            probes: [
+              AutoSelectProbeResult(
+                serverTag: 'server-b',
+                urlTestDelay: 42,
+                domainProbeOk: true,
+                ipProbeOk: true,
+                throughputBytesPerSecond: 64 * 1024,
+              ),
+            ],
+            summary:
+                'Auto-selector chose server-b before connect (42 ms, 64 KB/s).',
+            reusedRecentSuccessfulSelection: false,
+            requiresImmediatePostConnectCheck: false,
+          ),
+        );
+        await connectFuture;
+
+        expect(runtimeService.startCallCount, 0);
+        expect(controller.state.connectionStage, ConnectionStage.disconnected);
+        expect(controller.state.runtimeSession, isNull);
+        expect(controller.state.errorMessage, isNull);
+      },
+    );
+
+    test(
       'connect cancels an auto-selected connection when no fully healthy server is confirmed',
       () async {
         final runtimeService = _FakeRuntimeService(startSession: _session);
@@ -972,6 +1049,7 @@ void main() {
                 required templateConfig,
                 required candidate,
                 required settings,
+                abortReason,
               }) async {
                 preconnectProbedTags.add(candidate.tag);
                 return switch (candidate.tag) {
@@ -1096,6 +1174,7 @@ void main() {
                 required templateConfig,
                 required candidate,
                 required settings,
+                abortReason,
               }) async {
                 preconnectProbedTags.add(candidate.tag);
                 return const AutoSelectPreconnectProbeResult(
@@ -1204,6 +1283,7 @@ void main() {
                 required templateConfig,
                 required candidate,
                 required settings,
+                abortReason,
               }) async {
                 return const AutoSelectPreconnectProbeResult(
                   serverTag: 'server-a',
@@ -1989,19 +2069,24 @@ class _ScriptedAutoSelectorService extends AutoSelectorService {
 }
 
 class _FakeAutoSelectPreconnectService extends AutoSelectPreconnectService {
-  _FakeAutoSelectPreconnectService({PreparedAutoConnectSelection? prepared})
-    : _prepared = prepared,
-      super(settingsRepository: _FakeAutoSelectSettingsRepository());
+  _FakeAutoSelectPreconnectService({
+    PreparedAutoConnectSelection? prepared,
+    Future<PreparedAutoConnectSelection?>? preparedFuture,
+  }) : _prepared = prepared,
+       _preparedFuture = preparedFuture,
+       super(settingsRepository: _FakeAutoSelectSettingsRepository());
 
   final PreparedAutoConnectSelection? _prepared;
+  final Future<PreparedAutoConnectSelection?>? _preparedFuture;
 
   @override
   Future<PreparedAutoConnectSelection?> prepare({
     required ProxyProfile profile,
     required String templateConfig,
     AutoSelectProgressReporter? onProgress,
+    String? Function()? abortReason,
   }) async {
-    return _prepared;
+    return _preparedFuture ?? _prepared;
   }
 }
 

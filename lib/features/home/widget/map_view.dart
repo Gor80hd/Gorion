@@ -285,7 +285,7 @@ class MapView extends HookConsumerWidget {
                 left: dstScreen.dx - outerR,
                 top: dstScreen.dy - outerR,
                 child: _LocationDot(
-                  color: scheme.primary,
+                  color: theme.brandAccent,
                   opacity: destinationOpacity,
                 ),
               ),

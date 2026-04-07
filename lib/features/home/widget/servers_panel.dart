@@ -231,6 +231,36 @@ Color _pingColor(int ms) {
   return const Color(0xFFEF4444);
 }
 
+Color _softAccentSurface(ThemeData theme, {double emphasis = 1.0}) {
+  final mix = theme.brightness == Brightness.dark ? 0.26 : 0.12;
+  return Color.lerp(
+    theme.colorScheme.surface,
+    theme.brandAccent,
+    (mix * emphasis).clamp(0.0, 1.0).toDouble(),
+  )!;
+}
+
+Color _softAccentFill(ThemeData theme, {double emphasis = 1.0}) {
+  final alpha = theme.brightness == Brightness.dark ? 0.18 : 0.08;
+  return theme.brandAccent.withValues(
+    alpha: (alpha * emphasis).clamp(0.0, 1.0).toDouble(),
+  );
+}
+
+Color _softAccentBorder(ThemeData theme, {double emphasis = 1.0}) {
+  final alpha = theme.brightness == Brightness.dark ? 0.28 : 0.14;
+  return theme.brandAccent.withValues(
+    alpha: (alpha * emphasis).clamp(0.0, 1.0).toDouble(),
+  );
+}
+
+Color _softAccentForeground(ThemeData theme, {double emphasis = 1.0}) {
+  final alpha = theme.brightness == Brightness.dark ? 0.96 : 0.92;
+  return theme.colorScheme.onSurface.withValues(
+    alpha: (alpha * emphasis).clamp(0.0, 1.0).toDouble(),
+  );
+}
+
 String _formatBytesCompact(int bytes) {
   if (bytes <= 0) return '0 B';
 
@@ -520,6 +550,34 @@ class ServersPanelWidget extends HookConsumerWidget {
         selectedPreview == null &&
         pendingSelection == null;
     final autoResetEnabled = autoReconnectCacheAvailable && !dashboardBusy;
+    const autoResetTagColor = Color(0xFFFFB86B);
+    const autoIntervalTagColor = Color(0xFF6DD3FF);
+    final autoTagInk = theme.brightness == Brightness.dark
+        ? Colors.white.withValues(alpha: 0.96)
+        : Colors.black.withValues(alpha: 0.88);
+    final autoTagDisabledInk = theme.brightness == Brightness.dark
+        ? Colors.white.withValues(alpha: 0.48)
+        : Colors.black.withValues(alpha: 0.42);
+    final autoResetTooltipMessage = autoReconnectCacheAvailable
+        ? dashboardBusy
+              ? 'Быстрый кеш переподключения сохранён. Сброс будет доступен после завершения текущего действия.'
+              : 'Сбросить быстрый кеш переподключения'
+        : 'Быстрый кеш переподключения уже пуст';
+    final autoResetDisabledInk = autoReconnectCacheAvailable
+        ? autoTagInk.withValues(
+            alpha: theme.brightness == Brightness.dark ? 0.72 : 0.62,
+          )
+        : autoTagDisabledInk;
+    final autoResetBackgroundColor = autoResetTagColor.withValues(
+      alpha: autoReconnectCacheAvailable
+          ? (autoResetEnabled ? 0.14 : 0.1)
+          : 0.07,
+    );
+    final autoResetBorderColor = autoResetTagColor.withValues(
+      alpha: autoReconnectCacheAvailable
+          ? (autoResetEnabled ? 0.35 : 0.24)
+          : 0.18,
+    );
     final activeProfileLabel = activeProfile?.name ?? 'Нет активной подписки';
     final updateState = ref
         .watch(foregroundProfilesUpdateNotifierProvider)
@@ -1023,9 +1081,10 @@ class ServersPanelWidget extends HookConsumerWidget {
             GlassPanel(
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
               borderRadius: 20,
-              backgroundColor: Colors.white,
+              backgroundColor: _softAccentSurface(theme, emphasis: 0.82),
               opacity: 0.08,
               strokeOpacity: 0.14,
+              strokeColor: theme.brandAccent,
               boxShadow: [
                 BoxShadow(
                   color: theme.shadowColor.withValues(alpha: 0.18),
@@ -1038,10 +1097,10 @@ class ServersPanelWidget extends HookConsumerWidget {
                   _GlassTextField(
                     controller: searchCtrl,
                     hint: 'Поиск',
-                    prefixIcon: const Icon(
+                    prefixIcon: Icon(
                       Icons.search_rounded,
                       size: 18,
-                      color: Color(0xFF8899AA),
+                      color: _softAccentForeground(theme, emphasis: 0.60),
                     ),
                   ),
                   const Gap(8),
@@ -1167,9 +1226,7 @@ class ServersPanelWidget extends HookConsumerWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Tooltip(
-                              message: autoResetEnabled
-                                  ? 'Сбросить быстрый кеш переподключения'
-                                  : 'Быстрый кеш переподключения уже пуст',
+                              message: autoResetTooltipMessage,
                               child: TextButton(
                                 onPressed: autoResetEnabled
                                     ? () async {
@@ -1189,24 +1246,13 @@ class ServersPanelWidget extends HookConsumerWidget {
                                     horizontal: 7,
                                     vertical: 2,
                                   ),
-                                  foregroundColor: autoResetEnabled
-                                      ? const Color(0xFFFFB86B)
-                                      : scheme.onSurface.withValues(alpha: 0.3),
-                                  backgroundColor: autoResetEnabled
-                                      ? const Color(
-                                          0xFFFFB86B,
-                                        ).withValues(alpha: 0.12)
-                                      : scheme.onSurface.withValues(
-                                          alpha: 0.04,
-                                        ),
+                                  foregroundColor: autoTagInk,
+                                  disabledForegroundColor: autoResetDisabledInk,
+                                  backgroundColor: autoResetBackgroundColor,
+                                  disabledBackgroundColor:
+                                      autoResetBackgroundColor,
                                   side: BorderSide(
-                                    color: autoResetEnabled
-                                        ? const Color(
-                                            0xFFFFB86B,
-                                          ).withValues(alpha: 0.35)
-                                        : scheme.onSurface.withValues(
-                                            alpha: 0.08,
-                                          ),
+                                    color: autoResetBorderColor,
                                     width: 0.7,
                                   ),
                                   shape: RoundedRectangleBorder(
@@ -1228,14 +1274,14 @@ class ServersPanelWidget extends HookConsumerWidget {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(
-                                  0xFF6DD3FF,
-                                ).withValues(alpha: 0.12),
+                                color: autoIntervalTagColor.withValues(
+                                  alpha: 0.14,
+                                ),
                                 borderRadius: BorderRadius.circular(6),
                                 border: Border.all(
-                                  color: const Color(
-                                    0xFF6DD3FF,
-                                  ).withValues(alpha: 0.35),
+                                  color: autoIntervalTagColor.withValues(
+                                    alpha: 0.35,
+                                  ),
                                   width: 0.7,
                                 ),
                               ),
@@ -1243,8 +1289,8 @@ class ServersPanelWidget extends HookConsumerWidget {
                                 _formatBestServerCheckIntervalBadge(
                                   autoSelectBestServerCheckIntervalMinutes,
                                 ),
-                                style: const TextStyle(
-                                  color: Color(0xFF6DD3FF),
+                                style: TextStyle(
+                                  color: autoTagInk,
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
                                   letterSpacing: 0.2,
@@ -1716,13 +1762,15 @@ class _GlassTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return GlassPanel(
       height: ServersPanelWidget.searchFieldHeight,
       borderRadius: ServersPanelWidget.searchFieldRadius,
-      backgroundColor: Colors.white,
-      opacity: 0.06,
+      backgroundColor: _softAccentSurface(theme, emphasis: 0.70),
+      opacity: 0.05,
       strokeOpacity: 0.04,
+      strokeColor: theme.brandAccent,
       child: TextField(
         controller: controller,
         textAlignVertical: TextAlignVertical.center,
@@ -1781,13 +1829,21 @@ class _SortDropdown extends StatelessWidget {
     final scheme = theme.colorScheme;
     final muted = theme.gorionTokens.onSurfaceMuted;
     final isActive = value != ServerSortMode.none;
+    final accentColor = _softAccentForeground(
+      theme,
+      emphasis: theme.brightness == Brightness.dark ? 1.0 : 0.92,
+    );
 
     return GlassPanel(
       height: 42,
       borderRadius: 15,
-      backgroundColor: Colors.white,
-      opacity: isActive ? 0.09 : 0.05,
+      backgroundColor: _softAccentSurface(
+        theme,
+        emphasis: isActive ? 0.95 : 0.74,
+      ),
+      opacity: isActive ? 0.08 : 0.05,
       strokeOpacity: isActive ? 0.12 : 0.04,
+      strokeColor: theme.brandAccent,
       child: PopupMenuButton<ServerSortMode>(
         initialValue: value,
         tooltip: 'Сортировка',
@@ -1808,7 +1864,7 @@ class _SortDropdown extends StatelessWidget {
               Icon(
                 Icons.tune_rounded,
                 size: 15,
-                color: isActive ? scheme.primary : muted.withValues(alpha: 0.9),
+                color: isActive ? accentColor : muted.withValues(alpha: 0.9),
               ),
               const Gap(8),
               Expanded(
@@ -1816,8 +1872,8 @@ class _SortDropdown extends StatelessWidget {
                   _label,
                   style: TextStyle(
                     color: isActive
-                        ? scheme.primary
-                        : scheme.onSurface.withValues(alpha: 0.7),
+                        ? accentColor
+                        : scheme.onSurface.withValues(alpha: 0.72),
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1892,7 +1948,7 @@ class _SmallGlassButton extends StatelessWidget {
     final iconColor = isStop
         ? scheme.error.withValues(alpha: 0.88)
         : enabled
-        ? scheme.onSurface.withValues(alpha: 0.75)
+        ? _softAccentForeground(theme, emphasis: 0.92)
         : theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.45);
 
     return Tooltip(
@@ -1903,9 +1959,12 @@ class _SmallGlassButton extends StatelessWidget {
           width: 42,
           height: 42,
           borderRadius: 15,
-          backgroundColor: isStop ? scheme.error : Colors.white,
-          opacity: isStop ? 0.1 : (enabled ? 0.07 : 0.03),
-          strokeOpacity: isStop ? 0.14 : (enabled ? 0.07 : 0.03),
+          backgroundColor: isStop
+              ? scheme.error
+              : _softAccentSurface(theme, emphasis: enabled ? 0.92 : 0.55),
+          opacity: isStop ? 0.1 : (enabled ? 0.06 : 0.03),
+          strokeOpacity: isStop ? 0.14 : (enabled ? 0.08 : 0.03),
+          strokeColor: isStop ? scheme.error : theme.brandAccent,
           child: Center(child: Icon(icon, size: 17, color: iconColor)),
         ),
       ),
@@ -1959,10 +2018,10 @@ class _PingTestProgress extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: scheme.onSurface.withValues(alpha: 0.06),
+                color: _softAccentFill(theme, emphasis: 0.95),
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: scheme.onSurface.withValues(alpha: 0.12),
+                  color: _softAccentBorder(theme, emphasis: 0.95),
                   width: 0.7,
                 ),
               ),
@@ -1984,7 +2043,7 @@ class _PingTestProgress extends StatelessWidget {
           child: LinearProgressIndicator(
             minHeight: 6,
             value: total > 0 ? progress : null,
-            backgroundColor: scheme.onSurface.withValues(alpha: 0.08),
+            backgroundColor: _softAccentFill(theme, emphasis: 0.9),
             valueColor: AlwaysStoppedAnimation(scheme.primary),
           ),
         ),
@@ -2035,9 +2094,10 @@ class _SubscriptionStrip extends StatelessWidget {
     return GlassPanel(
       padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
       borderRadius: 15,
-      backgroundColor: Colors.white,
+      backgroundColor: _softAccentSurface(theme, emphasis: 0.86),
       opacity: 0.06,
       strokeOpacity: 0.08,
+      strokeColor: theme.brandAccent,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2105,7 +2165,7 @@ class _SubscriptionStrip extends StatelessWidget {
               child: LinearProgressIndicator(
                 minHeight: 6,
                 value: progress,
-                backgroundColor: scheme.onSurface.withValues(alpha: 0.08),
+                backgroundColor: _softAccentFill(theme, emphasis: 0.9),
                 valueColor: AlwaysStoppedAnimation(scheme.primary),
               ),
             ),
@@ -2137,27 +2197,23 @@ class _SubscriptionCompactRow extends StatelessWidget {
     final scheme = theme.colorScheme;
     final muted = theme.gorionTokens.onSurfaceMuted;
     final accent = isActive
-        ? scheme.primary
+        ? _softAccentForeground(theme, emphasis: 0.96)
         : scheme.onSurface.withValues(alpha: 0.72);
     final badgeFill = isActive
-        ? scheme.primary.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.14 : 0.10,
-          )
-        : scheme.onSurface.withValues(alpha: 0.05);
+        ? _softAccentFill(theme, emphasis: 1.30)
+        : _softAccentFill(theme, emphasis: 0.78);
     final badgeBorder = isActive
-        ? scheme.primary.withValues(
-            alpha: theme.brightness == Brightness.dark ? 0.22 : 0.16,
-          )
-        : scheme.onSurface.withValues(alpha: 0.08);
+        ? _softAccentBorder(theme, emphasis: 1.20)
+        : _softAccentBorder(theme, emphasis: 0.82);
     final strokeColor = isActive
         ? Color.lerp(
-            scheme.primary,
+            theme.brandAccent,
             scheme.onSurface,
-            theme.brightness == Brightness.dark ? 0.30 : 0.18,
+            theme.brightness == Brightness.dark ? 0.26 : 0.12,
           )!
-        : Colors.white;
+        : theme.brandAccent;
     final countColor = isActive
-        ? scheme.primary.withValues(alpha: 0.92)
+        ? _softAccentForeground(theme, emphasis: 0.96)
         : muted.withValues(alpha: 0.84);
 
     return GestureDetector(
@@ -2166,7 +2222,10 @@ class _SubscriptionCompactRow extends StatelessWidget {
         height: 42,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         borderRadius: 14,
-        backgroundColor: Colors.white,
+        backgroundColor: _softAccentSurface(
+          theme,
+          emphasis: isActive ? 0.96 : 0.78,
+        ),
         opacity: isActive ? 0.06 : 0.04,
         strokeOpacity: isActive ? 0.10 : 0.04,
         strokeColor: strokeColor,
@@ -2262,16 +2321,19 @@ class _SubscriptionActionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final color = scheme.onSurface.withValues(alpha: 0.82);
+    final theme = Theme.of(context);
+    final color = _softAccentForeground(theme, emphasis: 0.86);
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: scheme.onSurface.withValues(alpha: 0.06),
+          color: _softAccentFill(theme, emphasis: 1.05),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.18), width: 0.7),
+          border: Border.all(
+            color: _softAccentBorder(theme, emphasis: 1.05),
+            width: 0.7,
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -2300,13 +2362,15 @@ class _SubscriptionsHiddenHint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return GlassPanel(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       borderRadius: 15,
-      backgroundColor: Colors.white,
+      backgroundColor: _softAccentSurface(theme, emphasis: 0.74),
       opacity: 0.05,
       strokeOpacity: 0.07,
+      strokeColor: theme.brandAccent,
       child: Row(
         children: [
           Expanded(
@@ -2443,6 +2507,7 @@ class _ServerCard extends HookConsumerWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final muted = theme.gorionTokens.onSurfaceMuted;
+    final isLightTheme = theme.brightness == Brightness.light;
 
     final pulseCtrl = useAnimationController(
       duration: const Duration(milliseconds: 900),
@@ -2465,15 +2530,82 @@ class _ServerCard extends HookConsumerWidget {
     final displayedName = cc != null ? _stripCountryPrefix(name) : name;
     final type = server.type.isNotEmpty ? server.type.toUpperCase() : 'PROXY';
     final ping = pingOverride ?? server.urlTestDelay;
-    final typeColor = _typeColor(server.type, scheme.primary);
+    final showAccent = isSelected;
+    final selectedPrimaryInk = (isLightTheme ? Colors.black : Colors.white)
+        .withValues(alpha: isLightTheme ? 0.88 : 0.96);
+    final selectedSecondaryInk = (isLightTheme ? Colors.black : Colors.white)
+        .withValues(alpha: isLightTheme ? 0.72 : 0.84);
+    final selectedTertiaryInk = (isLightTheme ? Colors.black : Colors.white)
+        .withValues(alpha: isLightTheme ? 0.62 : 0.76);
+    final selectedMetricInk = (isLightTheme ? Colors.black : Colors.white)
+        .withValues(alpha: isLightTheme ? 0.82 : 0.92);
+    final typeColor = _typeColor(server.type, theme.brandAccent);
     final pingColor = _pingColor(ping);
     final throughput = speedOverride;
     final speedColor = switch (throughput ?? -1) {
       < 1 => const Color(0xFFEF4444),
       < 256 * 1024 => const Color(0xFFF59E0B),
       < 1024 * 1024 => const Color(0xFF22C55E),
-      _ => scheme.primary,
+      _ => theme.brandAccent,
     };
+    final darkNeutralCardSurface = Color.lerp(
+      const Color(0xFF050706),
+      scheme.onSurface,
+      0.05,
+    )!;
+    final baseCardBackgroundColor = isLightTheme
+        ? isBenchmarking
+              ? scheme.onSurface.withValues(alpha: 0.050)
+              : isSelected
+              ? scheme.onSurface.withValues(alpha: 0.036)
+              : scheme.onSurface.withValues(alpha: 0.022)
+        : darkNeutralCardSurface.withValues(
+            alpha: isBenchmarking ? 0.92 : (isSelected ? 0.88 : 0.80),
+          );
+    final cardBackgroundColor = showAccent && !isBenchmarking
+        ? Color.lerp(
+            baseCardBackgroundColor,
+            theme.brandAccent,
+            isLightTheme ? 0.10 : 0.18,
+          )!
+        : baseCardBackgroundColor;
+    final baseCardBorderColor = isLightTheme
+        ? isBenchmarking
+              ? scheme.onSurface.withValues(alpha: 0.22)
+              : scheme.onSurface.withValues(alpha: isSelected ? 0.16 : 0.12)
+        : scheme.onSurface.withValues(
+            alpha: isBenchmarking ? 0.18 : (isSelected ? 0.16 : 0.10),
+          );
+    final cardBorderColor = showAccent && !isBenchmarking
+        ? Color.lerp(
+            baseCardBorderColor,
+            theme.brandAccent,
+            isLightTheme ? 0.50 : 0.72,
+          )!
+        : baseCardBorderColor;
+    final cardShadowColor = showAccent
+        ? theme.brandAccent.withValues(alpha: isLightTheme ? 0.12 : 0.18)
+        : isLightTheme
+        ? scheme.onSurface.withValues(alpha: 0.06)
+        : Colors.black.withValues(alpha: 0.22);
+    final actionsButtonFillColor = showAccent
+        ? theme.brandAccent.withValues(alpha: isLightTheme ? 0.14 : 0.22)
+        : scheme.onSurface.withValues(alpha: isLightTheme ? 0.05 : 0.08);
+    final actionsButtonBorderColor = showAccent
+        ? theme.brandAccent.withValues(alpha: isLightTheme ? 0.28 : 0.42)
+        : scheme.onSurface.withValues(alpha: isLightTheme ? 0.12 : 0.14);
+    final actionsButtonIconColor = showAccent
+        ? selectedPrimaryInk
+        : scheme.onSurface.withValues(alpha: 0.88);
+    final typeTagFillColor = showAccent
+        ? theme.brandAccent.withValues(alpha: isLightTheme ? 0.92 : 0.96)
+        : typeColor.withValues(alpha: 0.13);
+    final typeTagBorderColor = showAccent
+        ? theme.brandAccent
+        : typeColor.withValues(alpha: 0.35);
+    final typeTagTextColor = showAccent
+        ? selectedPrimaryInk
+        : scheme.onSurface.withValues(alpha: 0.88);
     final hasActionsMenu =
         onShowDetails != null || onToggleAutoExclusion != null;
 
@@ -2504,23 +2636,15 @@ class _ServerCard extends HookConsumerWidget {
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
-                color: isBenchmarking
-                    ? scheme.onSurface.withValues(alpha: 0.09)
-                    : (isSelected
-                          ? scheme.onSurface.withValues(alpha: 0.08)
-                          : scheme.onSurface.withValues(alpha: 0.045)),
+                color: cardBackgroundColor,
                 border: Border.all(
-                  color: isBenchmarking
-                      ? scheme.primary.withValues(alpha: 0.55)
-                      : scheme.onSurface.withValues(
-                          alpha: isSelected ? 0.14 : 0.08,
-                        ),
+                  color: cardBorderColor,
                   width: isBenchmarking ? 1.3 : 0.7,
                 ),
                 boxShadow: (isSelected && !isBenchmarking)
                     ? [
                         BoxShadow(
-                          color: scheme.primary.withValues(alpha: 0.08),
+                          color: cardShadowColor,
                           blurRadius: 18,
                           spreadRadius: -2,
                         ),
@@ -2534,7 +2658,7 @@ class _ServerCard extends HookConsumerWidget {
                       left: 0,
                       top: 0,
                       bottom: 0,
-                      child: Container(width: 2.5, color: scheme.primary),
+                      child: Container(width: 3.5, color: theme.brandAccent),
                     ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -2562,7 +2686,7 @@ class _ServerCard extends HookConsumerWidget {
                                       displayedName,
                                       style: TextStyle(
                                         color: isSelected
-                                            ? scheme.onSurface
+                                            ? selectedPrimaryInk
                                             : scheme.onSurface.withValues(
                                                 alpha: 0.9,
                                               ),
@@ -2583,7 +2707,9 @@ class _ServerCard extends HookConsumerWidget {
                                 Text(
                                   groupName,
                                   style: TextStyle(
-                                    color: muted.withValues(alpha: 0.78),
+                                    color: isSelected
+                                        ? selectedSecondaryInk
+                                        : muted.withValues(alpha: 0.78),
                                     fontSize: 12,
                                   ),
                                   maxLines: 3,
@@ -2600,7 +2726,9 @@ class _ServerCard extends HookConsumerWidget {
                                   Text(
                                     detailLines[index],
                                     style: TextStyle(
-                                      color: muted.withValues(alpha: 0.95),
+                                      color: isSelected
+                                          ? selectedTertiaryInk
+                                          : muted.withValues(alpha: 0.95),
                                       fontSize: 11,
                                       fontWeight: FontWeight.w500,
                                       height: 1.25,
@@ -2652,10 +2780,12 @@ class _ServerCard extends HookConsumerWidget {
                                     height: 4,
                                     child: LinearProgressIndicator(
                                       value: selectionProgress!.value,
-                                      backgroundColor: scheme.onSurface
-                                          .withValues(alpha: 0.08),
+                                      backgroundColor: _softAccentFill(
+                                        theme,
+                                        emphasis: 0.92,
+                                      ),
                                       valueColor: AlwaysStoppedAnimation<Color>(
-                                        scheme.primary,
+                                        theme.brandAccent,
                                       ),
                                     ),
                                   ),
@@ -2692,7 +2822,9 @@ class _ServerCard extends HookConsumerWidget {
                                     child: Text(
                                       'TEST',
                                       style: TextStyle(
-                                        color: scheme.primary,
+                                        color: scheme.onSurface.withValues(
+                                          alpha: 0.88,
+                                        ),
                                         fontSize: 10,
                                         fontWeight: FontWeight.w800,
                                         letterSpacing: 0.5,
@@ -2708,19 +2840,17 @@ class _ServerCard extends HookConsumerWidget {
                                       vertical: 2,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: typeColor.withValues(alpha: 0.13),
+                                      color: typeTagFillColor,
                                       borderRadius: BorderRadius.circular(6),
                                       border: Border.all(
-                                        color: typeColor.withValues(
-                                          alpha: 0.35,
-                                        ),
+                                        color: typeTagBorderColor,
                                         width: 0.7,
                                       ),
                                     ),
                                     child: Text(
                                       type,
                                       style: TextStyle(
-                                        color: typeColor,
+                                        color: typeTagTextColor,
                                         fontSize: 11,
                                         fontWeight: FontWeight.w700,
                                         letterSpacing: 0.4,
@@ -2805,18 +2935,14 @@ class _ServerCard extends HookConsumerWidget {
                                       width: 28,
                                       height: 28,
                                       decoration: BoxDecoration(
-                                        color: scheme.onSurface.withValues(
-                                          alpha: 0.06,
-                                        ),
+                                        color: actionsButtonFillColor,
                                         borderRadius: BorderRadius.circular(8),
                                         border: Border.all(
                                           color: isAutoExcluded
                                               ? const Color(
                                                   0xFFEF4444,
                                                 ).withValues(alpha: 0.22)
-                                              : scheme.onSurface.withValues(
-                                                  alpha: 0.08,
-                                                ),
+                                              : actionsButtonBorderColor,
                                           width: 0.7,
                                         ),
                                       ),
@@ -2829,7 +2955,7 @@ class _ServerCard extends HookConsumerWidget {
                                             ? const Color(
                                                 0xFFFF8A8A,
                                               ).withValues(alpha: 0.96)
-                                            : muted.withValues(alpha: 0.95),
+                                            : actionsButtonIconColor,
                                       ),
                                     ),
                                   ),
@@ -2850,10 +2976,12 @@ class _ServerCard extends HookConsumerWidget {
                                     ),
                                   ),
                                   const Gap(4),
-                                  const Text(
+                                  Text(
                                     'NO',
                                     style: TextStyle(
-                                      color: Color(0xFFEF4444),
+                                      color: isSelected
+                                          ? selectedMetricInk
+                                          : const Color(0xFFEF4444),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w700,
                                       letterSpacing: 0.5,
@@ -2878,7 +3006,9 @@ class _ServerCard extends HookConsumerWidget {
                                   Text(
                                     '$ping ms',
                                     style: TextStyle(
-                                      color: pingColor,
+                                      color: isSelected
+                                          ? selectedMetricInk
+                                          : pingColor,
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -2906,7 +3036,9 @@ class _ServerCard extends HookConsumerWidget {
                                     ? _formatRate(throughput)
                                     : 'FAIL',
                                 style: TextStyle(
-                                  color: throughput != null && throughput > 0
+                                  color: isSelected
+                                      ? selectedPrimaryInk
+                                      : throughput != null && throughput > 0
                                       ? speedColor
                                       : const Color(0xFFEF4444),
                                   fontSize: 13,
@@ -2919,7 +3051,9 @@ class _ServerCard extends HookConsumerWidget {
                                     ? 'live throughput'
                                     : 'throughput',
                                 style: TextStyle(
-                                  color: muted.withValues(alpha: 0.82),
+                                  color: isSelected
+                                      ? selectedSecondaryInk
+                                      : muted.withValues(alpha: 0.82),
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
                                   letterSpacing: 0.4,

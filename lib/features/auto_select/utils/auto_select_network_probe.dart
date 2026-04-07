@@ -37,7 +37,13 @@ Future<bool> probeHttpViaLocalProxy({
   required int mixedPort,
   required Uri url,
   Duration timeout = const Duration(seconds: 6),
+  String? Function()? abortReason,
 }) async {
+  final reason = abortReason?.call();
+  if (reason != null) {
+    throw Exception(reason);
+  }
+
   final client = HttpClient()
     ..connectionTimeout = timeout
     ..findProxy = ((_) => 'PROXY 127.0.0.1:$mixedPort')
@@ -53,6 +59,10 @@ Future<bool> probeHttpViaLocalProxy({
             response.statusCode < HttpStatus.multipleChoices);
     return acceptedStatus;
   } on Object {
+    final abort = abortReason?.call();
+    if (abort != null) {
+      throw Exception(abort);
+    }
     return false;
   } finally {
     client.close(force: true);
@@ -63,12 +73,18 @@ Future<bool> probeHttpViaLocalProxyTargets({
   required int mixedPort,
   required Iterable<Uri> urls,
   Duration timeout = const Duration(seconds: 6),
+  String? Function()? abortReason,
 }) async {
   for (final url in urls) {
+    final reason = abortReason?.call();
+    if (reason != null) {
+      throw Exception(reason);
+    }
     final ok = await probeHttpViaLocalProxy(
       mixedPort: mixedPort,
       url: url,
       timeout: timeout,
+      abortReason: abortReason,
     );
     if (ok) {
       return true;
@@ -81,7 +97,13 @@ Future<int> measureDownloadThroughputViaLocalProxy({
   required int mixedPort,
   required Uri url,
   Duration timeout = const Duration(seconds: 3),
+  String? Function()? abortReason,
 }) async {
+  final reason = abortReason?.call();
+  if (reason != null) {
+    throw Exception(reason);
+  }
+
   final client = HttpClient()
     ..connectionTimeout = timeout
     ..findProxy = ((_) => 'PROXY 127.0.0.1:$mixedPort')
@@ -108,6 +130,10 @@ Future<int> measureDownloadThroughputViaLocalProxy({
     }
     return ((bytes * 1000) / elapsedMs).round();
   } on Object {
+    final abort = abortReason?.call();
+    if (abort != null) {
+      throw Exception(abort);
+    }
     return 0;
   } finally {
     stopwatch.stop();
@@ -119,12 +145,18 @@ Future<int> measureDownloadThroughputViaLocalProxyTargets({
   required int mixedPort,
   required Iterable<Uri> urls,
   Duration timeout = const Duration(seconds: 3),
+  String? Function()? abortReason,
 }) async {
   for (final url in urls) {
+    final reason = abortReason?.call();
+    if (reason != null) {
+      throw Exception(reason);
+    }
     final throughput = await measureDownloadThroughputViaLocalProxy(
       mixedPort: mixedPort,
       url: url,
       timeout: timeout,
+      abortReason: abortReason,
     );
     if (throughput > 0) {
       return throughput;

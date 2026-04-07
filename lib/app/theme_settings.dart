@@ -8,7 +8,7 @@ AppThemeModePreference appThemeModePreferenceFromStorageValue(String? value) {
   return switch (value) {
     'light' => AppThemeModePreference.light,
     'dark' => AppThemeModePreference.dark,
-    _ => AppThemeModePreference.system,
+    _ => AppThemeModePreference.dark,
   };
 }
 
@@ -73,7 +73,7 @@ extension AppThemePaletteX on AppThemePalette {
 
 class AppThemeSettings {
   const AppThemeSettings({
-    this.mode = AppThemeModePreference.system,
+    this.mode = AppThemeModePreference.dark,
     this.palette = AppThemePalette.emerald,
   });
 
