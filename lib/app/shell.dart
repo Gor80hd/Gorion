@@ -590,18 +590,8 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final muted = theme.gorionTokens.onSurfaceMuted;
-    final isDark = theme.brightness == Brightness.dark;
-    final controlIconColor = isDark
-        ? scheme.onSurface
-        : theme.isMonochromeLightGorion
-        ? scheme.onSurface
-        : muted;
-    final closeIconColor = isDark
-        ? scheme.onSurface
-        : theme.isMonochromeLightGorion
-        ? scheme.onSurface
-        : Colors.white;
+    const controlIconColor = Colors.white;
+    const closeIconColor = Colors.white;
 
     return GlassPanel(
       height: _TitleBar._height,
@@ -761,7 +751,7 @@ class _Dock extends StatelessWidget {
         opacity: 0.05,
         backgroundColor: scheme.onSurface,
         strokeColor: scheme.onSurface,
-        strokeOpacity: 0.0,
+        strokeOpacity: 0.08,
         strokeWidth: 1,
         showGlow: false,
         glowBlur: 10,

@@ -669,7 +669,7 @@ class _ServerInfoPopup extends HookConsumerWidget {
           backgroundColor: Colors.white,
           opacity: 0.05,
           strokeColor: Colors.white,
-          strokeOpacity: 0.0,
+          strokeOpacity: 0.08,
           strokeWidth: 1,
           showGlow: false,
           glowBlur: 8,

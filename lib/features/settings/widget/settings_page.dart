@@ -1439,7 +1439,7 @@ class _SettingsGroupCard extends StatelessWidget {
       opacity: 0.06,
       backgroundColor: Colors.white,
       strokeColor: group.accentColor,
-      strokeOpacity: 0.14,
+      strokeOpacity: 0.07,
       strokeWidth: 1,
       showGlow: false,
       child: Material(
@@ -1549,7 +1549,7 @@ class _SettingsSection extends StatelessWidget {
       opacity: 0.06,
       backgroundColor: Colors.white,
       strokeColor: Colors.white,
-      strokeOpacity: 0.08,
+      strokeOpacity: 0.04,
       strokeWidth: 1,
       showGlow: false,
       child: Column(

@@ -343,6 +343,10 @@ class _GradientStrokePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0 || strokeWidth <= 0) {
+      return;
+    }
+
     final inset = strokeWidth / 2 - strokeOutset;
     final rect = Rect.fromLTWH(
       inset,
@@ -354,25 +358,90 @@ class _GradientStrokePainter extends CustomPainter {
       rect,
       Radius.circular(borderRadius + strokeOutset),
     );
-    final shader = _createSharedShader();
+    final edgeShader = _createStrokeShader(rect);
+    final bevelShader = _createBevelShader(rect);
 
     if (showGlow && glowBlur > 0) {
       final glowPaint = Paint()
-        ..shader = shader
+        ..shader = edgeShader
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeWidth
         ..maskFilter = MaskFilter.blur(BlurStyle.outer, glowBlur);
       canvas.drawRRect(rRect, glowPaint);
     }
 
+    final baseStrokePaint = Paint()
+      ..color = strokeColor.withValues(
+        alpha: _resolveStrokeAlpha(0.55, minAlpha: 0.035, maxAlpha: 0.14),
+      )
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+    canvas.drawRRect(rRect, baseStrokePaint);
+
     final strokePaint = Paint()
-      ..shader = shader
+      ..shader = bevelShader
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth;
     canvas.drawRRect(rRect, strokePaint);
+
+    final edgeStrokePaint = Paint()
+      ..shader = edgeShader
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+    canvas.drawRRect(rRect, edgeStrokePaint);
   }
 
-  Shader _createSharedShader() {
+  Shader _createStrokeShader(Rect rect) {
+    final useBalancedGlassEdge =
+        gradientBegin == Alignment.topLeft &&
+        gradientEnd == Alignment.bottomRight;
+
+    if (useBalancedGlassEdge) {
+      return ui.Gradient.linear(
+        rect.centerLeft,
+        rect.centerRight,
+        [
+          strokeColor.withValues(
+            alpha: _resolveStrokeAlpha(1.35, minAlpha: 0.10, maxAlpha: 0.38),
+          ),
+          strokeColor.withValues(
+            alpha: _resolveStrokeAlpha(0.75, minAlpha: 0.05, maxAlpha: 0.22),
+          ),
+          strokeColor.withValues(
+            alpha: _resolveStrokeAlpha(0.75, minAlpha: 0.05, maxAlpha: 0.22),
+          ),
+          strokeColor.withValues(
+            alpha: _resolveStrokeAlpha(1.35, minAlpha: 0.10, maxAlpha: 0.38),
+          ),
+        ],
+        const [0.0, 0.22, 0.78, 1.0],
+      );
+    }
+
+    return _createViewportStrokeShader();
+  }
+
+  Shader _createBevelShader(Rect rect) {
+    return ui.Gradient.linear(
+      rect.topCenter,
+      rect.bottomCenter,
+      [
+        strokeColor.withValues(
+          alpha: _resolveStrokeAlpha(1.10, minAlpha: 0.08, maxAlpha: 0.28),
+        ),
+        strokeColor.withValues(
+          alpha: _resolveStrokeAlpha(0.55, minAlpha: 0.04, maxAlpha: 0.14),
+        ),
+        strokeColor.withValues(
+          alpha: _resolveStrokeAlpha(0.28, minAlpha: 0.02, maxAlpha: 0.08),
+        ),
+        strokeColor.withValues(alpha: 0),
+      ],
+      const [0.0, 0.18, 0.62, 1.0],
+    );
+  }
+
+  Shader _createViewportStrokeShader() {
     final colors = [
       strokeColor.withValues(alpha: strokeOpacity),
       strokeColor.withValues(alpha: strokeOpacity * 0.72),
@@ -419,6 +488,18 @@ class _GradientStrokePainter extends CustomPainter {
       stops,
       TileMode.mirror,
     );
+  }
+
+  double _resolveStrokeAlpha(
+    double factor, {
+    double minAlpha = 0,
+    double maxAlpha = 1,
+  }) {
+    if (strokeOpacity <= 0) {
+      return 0;
+    }
+
+    return (strokeOpacity * factor).clamp(minAlpha, maxAlpha).toDouble();
   }
 
   @override

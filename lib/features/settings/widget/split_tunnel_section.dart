@@ -38,7 +38,7 @@ class SplitTunnelSection extends StatelessWidget {
       opacity: 0.06,
       backgroundColor: Colors.white,
       strokeColor: Colors.white,
-      strokeOpacity: 0.08,
+      strokeOpacity: 0.04,
       strokeWidth: 1,
       showGlow: false,
       child: Column(

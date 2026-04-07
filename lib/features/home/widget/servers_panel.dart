@@ -1025,7 +1025,7 @@ class ServersPanelWidget extends HookConsumerWidget {
               borderRadius: 20,
               backgroundColor: Colors.white,
               opacity: 0.08,
-              strokeOpacity: 0.22,
+              strokeOpacity: 0.14,
               boxShadow: [
                 BoxShadow(
                   color: theme.shadowColor.withValues(alpha: 0.18),
@@ -1722,7 +1722,7 @@ class _GlassTextField extends StatelessWidget {
       borderRadius: ServersPanelWidget.searchFieldRadius,
       backgroundColor: Colors.white,
       opacity: 0.06,
-      strokeOpacity: 0.0,
+      strokeOpacity: 0.04,
       child: TextField(
         controller: controller,
         textAlignVertical: TextAlignVertical.center,
@@ -1787,7 +1787,7 @@ class _SortDropdown extends StatelessWidget {
       borderRadius: 15,
       backgroundColor: Colors.white,
       opacity: isActive ? 0.09 : 0.05,
-      strokeOpacity: isActive ? 0.2 : 0.08,
+      strokeOpacity: isActive ? 0.12 : 0.04,
       child: PopupMenuButton<ServerSortMode>(
         initialValue: value,
         tooltip: 'Сортировка',
@@ -1905,7 +1905,7 @@ class _SmallGlassButton extends StatelessWidget {
           borderRadius: 15,
           backgroundColor: isStop ? scheme.error : Colors.white,
           opacity: isStop ? 0.1 : (enabled ? 0.07 : 0.03),
-          strokeOpacity: isStop ? 0.22 : (enabled ? 0.14 : 0.06),
+          strokeOpacity: isStop ? 0.14 : (enabled ? 0.07 : 0.03),
           child: Center(child: Icon(icon, size: 17, color: iconColor)),
         ),
       ),
@@ -2037,7 +2037,7 @@ class _SubscriptionStrip extends StatelessWidget {
       borderRadius: 15,
       backgroundColor: Colors.white,
       opacity: 0.06,
-      strokeOpacity: 0.14,
+      strokeOpacity: 0.08,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2135,24 +2135,56 @@ class _SubscriptionCompactRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
     final accent = isActive
         ? scheme.primary
-        : scheme.onSurface.withValues(alpha: 0.78);
+        : scheme.onSurface.withValues(alpha: 0.72);
+    final badgeFill = isActive
+        ? scheme.primary.withValues(
+            alpha: theme.brightness == Brightness.dark ? 0.14 : 0.10,
+          )
+        : scheme.onSurface.withValues(alpha: 0.05);
+    final badgeBorder = isActive
+        ? scheme.primary.withValues(
+            alpha: theme.brightness == Brightness.dark ? 0.22 : 0.16,
+          )
+        : scheme.onSurface.withValues(alpha: 0.08);
+    final strokeColor = isActive
+        ? Color.lerp(
+            scheme.primary,
+            scheme.onSurface,
+            theme.brightness == Brightness.dark ? 0.30 : 0.18,
+          )!
+        : Colors.white;
+    final countColor = isActive
+        ? scheme.primary.withValues(alpha: 0.92)
+        : muted.withValues(alpha: 0.84);
 
     return GestureDetector(
       onTap: onTap,
       child: GlassPanel(
-        height: 38,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        borderRadius: 12,
+        height: 42,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        borderRadius: 14,
         backgroundColor: Colors.white,
-        opacity: isActive ? 0.08 : 0.05,
-        strokeOpacity: isActive ? 0.22 : 0.14,
-        strokeColor: isActive ? scheme.primary : Colors.white,
+        opacity: isActive ? 0.06 : 0.04,
+        strokeOpacity: isActive ? 0.10 : 0.04,
+        strokeColor: strokeColor,
+        gradientBegin: const Alignment(-1, -0.95),
+        gradientEnd: const Alignment(0.82, 1),
         child: Row(
           children: [
-            Icon(Icons.layers_rounded, size: 13, color: accent),
-            const Gap(8),
+            Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: badgeFill,
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(color: badgeBorder, width: 0.8),
+              ),
+              child: Icon(Icons.layers_rounded, size: 12.5, color: accent),
+            ),
+            const Gap(10),
             Expanded(
               child: Text(
                 name,
@@ -2160,7 +2192,8 @@ class _SubscriptionCompactRow extends StatelessWidget {
                   color: scheme.onSurface,
                   fontSize: 13,
                   fontWeight: isActive ? FontWeight.w800 : FontWeight.w700,
-                  letterSpacing: 0.2,
+                  height: 1,
+                  letterSpacing: 0.15,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -2169,21 +2202,22 @@ class _SubscriptionCompactRow extends StatelessWidget {
             Text(
               '$serverCount',
               style: TextStyle(
-                color: theme.gorionTokens.onSurfaceMuted.withValues(
-                  alpha: 0.75,
-                ),
+                color: countColor,
                 fontSize: 12,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w700,
+                height: 1,
               ),
             ),
-            const Gap(6),
+            const Gap(8),
             AnimatedRotation(
               turns: isExpanded ? 0.25 : 0,
               duration: const Duration(milliseconds: 200),
               child: Icon(
                 Icons.chevron_right_rounded,
-                size: 18,
-                color: theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.8),
+                size: 16,
+                color: isActive
+                    ? scheme.primary.withValues(alpha: 0.82)
+                    : muted.withValues(alpha: 0.72),
               ),
             ),
           ],
@@ -2272,7 +2306,7 @@ class _SubscriptionsHiddenHint extends StatelessWidget {
       borderRadius: 15,
       backgroundColor: Colors.white,
       opacity: 0.05,
-      strokeOpacity: 0.14,
+      strokeOpacity: 0.07,
       child: Row(
         children: [
           Expanded(
@@ -2342,7 +2376,7 @@ class _EmptyServersCard extends StatelessWidget {
       borderRadius: 15,
       backgroundColor: Colors.white,
       opacity: 0.05,
-      strokeOpacity: 0.16,
+      strokeOpacity: 0.09,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -2960,7 +2994,7 @@ class _ServerSettingsDialog extends StatelessWidget {
         borderRadius: 24,
         backgroundColor: scheme.surface,
         opacity: 0.9,
-        strokeOpacity: 0.22,
+        strokeOpacity: 0.14,
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
         child: SizedBox(
           width: 560,
@@ -2998,7 +3032,7 @@ class _ServerSettingsDialog extends StatelessWidget {
                     borderRadius: 16,
                     backgroundColor: Colors.white,
                     opacity: 0.04,
-                    strokeOpacity: 0.08,
+                    strokeOpacity: 0.04,
                     padding: const EdgeInsets.all(12),
                     child: SelectableText(
                       prettyJson,
