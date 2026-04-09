@@ -1,0 +1,45 @@
+{
+  "version": "0.9.4.7",
+  "sourceUrl": "https://github.com/bol-van/zapret2/releases/download/v0.9.4.7/zapret2-v0.9.4.7.zip",
+  "generatedAt": "2026-04-07T20:44:34.7464904Z",
+  "sharedPrefixes": [
+    "lua/",
+    "files/fake/",
+    "init.d/windivert.filter.examples/"
+  ],
+  "generatedFiles": [
+    "files/ipset-exclude.txt",
+    "files/list-exclude.txt",
+    "files/list-general.txt",
+    "files/list-google.txt",
+    "files/list-youtube.txt"
+  ],
+  "targets": [
+    {
+      "output": "windows/x64",
+      "binaryRoot": "binaries/windows-x86_64",
+      "files": [
+        "winws2.exe",
+        "cygwin1.dll",
+        "WinDivert.dll",
+        "WinDivert64.sys",
+        "mdig.exe",
+        "ip2net.exe",
+        "killall.exe"
+      ]
+    },
+    {
+      "output": "windows/x86",
+      "binaryRoot": "binaries/windows-x86",
+      "files": [
+        "winws2.exe",
+        "cygwin1.dll",
+        "WinDivert.dll",
+        "WinDivert32.sys",
+        "mdig.exe",
+        "ip2net.exe",
+        "killall.exe"
+      ]
+    }
+  ]
+}

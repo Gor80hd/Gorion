@@ -1,6 +1,6 @@
 import 'dart:io';
 
-enum GorionConsoleSection { preconnect, bestServer, connect }
+enum GorionConsoleSection { preconnect, bestServer, connect, zapret }
 
 class GorionConsoleLog {
   static const _reset = '\x1B[0m';
@@ -10,6 +10,7 @@ class GorionConsoleLog {
   static const _yellow = '\x1B[33m';
   static const _green = '\x1B[32m';
   static const _red = '\x1B[31m';
+  static const _blue = '\x1B[34m';
   static const _pink = '\x1B[95m';
 
   static GorionConsoleSection? _lastSection;
@@ -86,6 +87,26 @@ class GorionConsoleLog {
     );
   }
 
+  static void zapret(String message, {bool isError = false}) {
+    final trimmed = message.trim();
+    if (trimmed.isEmpty) {
+      return;
+    }
+
+    final isRuntimeLine =
+        trimmed.startsWith('STDOUT ') || trimmed.startsWith('STDERR ');
+    final display = isRuntimeLine
+        ? 'WWS ${trimmed.replaceFirst(RegExp(r'^STD(?:OUT|ERR)\s+'), '')}'
+        : trimmed;
+
+    _write(
+      section: GorionConsoleSection.zapret,
+      message: display,
+      isError: isError,
+      subtle: isRuntimeLine && !isError,
+    );
+  }
+
   static void _write({
     required GorionConsoleSection section,
     required String message,
@@ -134,6 +155,7 @@ class GorionConsoleLog {
       GorionConsoleSection.preconnect => 'PRECONNECT',
       GorionConsoleSection.bestServer => 'BEST-SERVER',
       GorionConsoleSection.connect => 'CONNECT',
+      GorionConsoleSection.zapret => 'ZAPRET',
     };
   }
 
@@ -142,6 +164,7 @@ class GorionConsoleLog {
       GorionConsoleSection.preconnect => _cyan,
       GorionConsoleSection.bestServer => _yellow,
       GorionConsoleSection.connect => _green,
+      GorionConsoleSection.zapret => _blue,
     };
   }
 

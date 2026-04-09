@@ -8,12 +8,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gorion_clean/app/theme.dart';
+import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/app/windows_tray_controller.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
+import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
+import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
+import 'package:gorion_clean/features/zapret/widget/zapret_page.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -38,9 +43,11 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   _DockPage _currentPage = _DockPage.home;
   AppLifecycleListener? _appLifecycleListener;
   ProviderSubscription<DashboardState>? _dashboardSubscription;
+  ProviderSubscription<ZapretState>? _zapretSubscription;
   Future<void>? _shutdownFuture;
   WindowsTrayController? _trayController;
   bool _startupAutoConnectHandled = false;
+  bool _startupZapretHandled = false;
   bool _windowDestroyInProgress = false;
 
   bool get _isDesktop =>
@@ -51,6 +58,7 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   @override
   void initState() {
     super.initState();
+    ref.read(zapretControllerProvider.notifier);
     _appLifecycleListener = AppLifecycleListener(
       onExitRequested: _handleAppExitRequest,
     );
@@ -58,6 +66,13 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       dashboardControllerProvider,
       (previous, next) {
         unawaited(_handleDashboardStateChanged(next));
+      },
+      fireImmediately: true,
+    );
+    _zapretSubscription = ref.listenManual<ZapretState>(
+      zapretControllerProvider,
+      (previous, next) {
+        unawaited(_handleZapretStateChanged(next));
       },
       fireImmediately: true,
     );
@@ -73,6 +88,7 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   @override
   void dispose() {
     _dashboardSubscription?.close();
+    _zapretSubscription?.close();
     if (_isDesktop) {
       windowManager.removeListener(this);
     }
@@ -155,10 +171,38 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   Future<void> _handleDashboardStateChanged(DashboardState state) async {
     await _syncTrayState(state: state);
     await _maybeAutoConnectOnStartup(state);
+    await _syncZapretTunConflict(ref.read(dashboardControllerProvider));
+    await _maybeAutoStartZapretOnStartup();
+  }
+
+  Future<void> _handleZapretStateChanged(ZapretState _) async {
+    if (!mounted) {
+      return;
+    }
+    await _syncZapretTunConflict(ref.read(dashboardControllerProvider));
+    await _maybeAutoStartZapretOnStartup();
   }
 
   Future<void> _maybeAutoConnectOnStartup(DashboardState state) async {
     if (_startupAutoConnectHandled || state.bootstrapping) {
+      return;
+    }
+
+    final launchRequest = ref.read(appLaunchRequestProvider);
+    if (launchRequest.pendingElevatedAction ==
+        PendingElevatedLaunchAction.connectTun) {
+      _startupAutoConnectHandled = true;
+      if (state.activeProfile == null ||
+          state.busy ||
+          state.connectionStage != ConnectionStage.disconnected) {
+        return;
+      }
+
+      final controller = ref.read(dashboardControllerProvider.notifier);
+      if (state.runtimeMode != RuntimeMode.tun) {
+        await controller.setRuntimeMode(RuntimeMode.tun);
+      }
+      await controller.connect();
       return;
     }
 
@@ -172,6 +216,64 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     }
 
     await ref.read(dashboardControllerProvider.notifier).connect();
+  }
+
+  Future<void> _maybeAutoStartZapretOnStartup() async {
+    if (_startupZapretHandled) {
+      return;
+    }
+
+    final launchRequest = ref.read(appLaunchRequestProvider);
+    final pendingZapretStart =
+        launchRequest.pendingElevatedAction ==
+        PendingElevatedLaunchAction.startZapret;
+    final dashboardState = ref.read(dashboardControllerProvider);
+    final zapretState = ref.read(zapretControllerProvider);
+    if (dashboardState.bootstrapping || zapretState.bootstrapping) {
+      return;
+    }
+
+    if (!Platform.isWindows ||
+        (!pendingZapretStart && !zapretState.settings.startOnAppLaunch)) {
+      _startupZapretHandled = true;
+      return;
+    }
+
+    if (!pendingZapretStart && !zapretState.settings.hasInstallDirectory) {
+      _startupZapretHandled = true;
+      return;
+    }
+
+    if (_isTunActive(dashboardState) || zapretState.tunConflictActive) {
+      _startupZapretHandled = true;
+      return;
+    }
+
+    if (dashboardState.connectionStage == ConnectionStage.starting) {
+      return;
+    }
+
+    if (zapretState.stage == ZapretStage.running || zapretState.busy) {
+      _startupZapretHandled = true;
+      return;
+    }
+
+    _startupZapretHandled = true;
+    await ref.read(zapretControllerProvider.notifier).start();
+  }
+
+  Future<void> _syncZapretTunConflict(DashboardState state) {
+    return ref
+        .read(zapretControllerProvider.notifier)
+        .syncTunConflict(active: _isTunActive(state));
+  }
+
+  bool _isTunActive(DashboardState state) {
+    if (state.runtimeSession?.mode.usesTun ?? false) {
+      return true;
+    }
+    return state.connectionStage == ConnectionStage.starting &&
+        state.runtimeMode.usesTun;
   }
 
   Future<void> _syncTrayState({DashboardState? state}) async {
@@ -285,6 +387,12 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
 
   Future<void> _performShutdown() async {
     try {
+      await ref.read(zapretControllerProvider.notifier).shutdownForAppExit();
+    } on Object {
+      // Keep app exit best-effort: do not block the main runtime shutdown.
+    }
+
+    try {
       await ref.read(dashboardControllerProvider.notifier).shutdownForAppExit();
     } on Object {
       return;
@@ -316,9 +424,9 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       _dockLeftMargin,
       viewPadding.left + _dockLeftMargin,
     );
-    final contentTopInset = _currentPage == _DockPage.settings
-        ? topInset + _titleBarHeight + _dockTopGap
-        : topInset + 8;
+    final contentTopInset = _currentPage == _DockPage.home
+        ? topInset + 8
+        : topInset + _titleBarHeight + _dockTopGap;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -339,9 +447,13 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
               ),
               child: KeyedSubtree(
                 key: ValueKey(_currentPage),
-                child: _currentPage == _DockPage.home
-                    ? widget.child
-                    : const SettingsPage(animateOnMount: false),
+                child: switch (_currentPage) {
+                  _DockPage.home => widget.child,
+                  _DockPage.zapret => const ZapretPage(animateOnMount: false),
+                  _DockPage.settings => const SettingsPage(
+                    animateOnMount: false,
+                  ),
+                },
               ),
             ),
             Positioned(
@@ -508,8 +620,9 @@ class _TitleContent extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final brandAccent = theme.brandAccent;
-    final versionInk =
-      theme.brightness == Brightness.dark ? Colors.white : Colors.black;
+    final versionInk = theme.brightness == Brightness.dark
+        ? Colors.white
+        : Colors.black;
 
     return Padding(
       padding: const EdgeInsets.only(left: 1, right: 4),
@@ -739,7 +852,7 @@ class _RestorePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-enum _DockPage { home, settings }
+enum _DockPage { home, zapret, settings }
 
 class _Dock extends StatelessWidget {
   const _Dock({required this.current, required this.onSelect});
@@ -780,11 +893,15 @@ class _Dock extends StatelessWidget {
               onTap: () => onSelect(_DockPage.home),
             ),
             const SizedBox(height: 12),
-            Container(
-              width: 18,
-              height: 1,
-              color: scheme.onSurface.withValues(alpha: 0.1),
+            const _DockDivider(),
+            const SizedBox(height: 12),
+            _DockBtn(
+              icon: Icons.shield_outlined,
+              label: 'Zapret 2',
+              selected: current == _DockPage.zapret,
+              onTap: () => onSelect(_DockPage.zapret),
             ),
+            const SizedBox(height: 12),
             const Spacer(),
             _DockBtn(
               icon: Icons.settings_outlined,
@@ -796,6 +913,20 @@ class _Dock extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DockDivider extends StatelessWidget {
+  const _DockDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 18,
+      height: 1,
+      color: scheme.onSurface.withValues(alpha: 0.1),
     );
   }
 }

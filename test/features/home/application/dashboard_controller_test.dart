@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
@@ -119,6 +121,47 @@ const _keepCurrentOutcome = AutoSelectOutcome(
 
 void main() {
   group('DashboardController', () {
+    test('requests elevated relaunch before starting TUN mode', () async {
+      if (!Platform.isWindows) {
+        return;
+      }
+
+      final runtimeService = _FakeRuntimeService();
+      final elevationService = _FakeWindowsElevationService(elevated: false);
+      final controller = DashboardController(
+        repository: _FakeProfileRepository(initialStorage: _manualStorage),
+        runtimeService: runtimeService,
+        autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(
+          initialState: const StoredAutoSelectState(
+            settings: AutoSelectSettings(enabled: false),
+          ),
+        ),
+        autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+        autoSelectorService: _ScriptedAutoSelectorService(),
+        elevationService: elevationService,
+        initialState: DashboardState(
+          bootstrapping: false,
+          runtimeMode: RuntimeMode.tun,
+          autoSelectSettings: const AutoSelectSettings(enabled: false),
+          storage: _manualStorage,
+          selectedServerTag: 'server-a',
+          activeServerTag: 'server-a',
+        ),
+        loadOnInit: false,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.connect();
+
+      expect(elevationService.relaunchCallCount, 1);
+      expect(
+        elevationService.lastAction,
+        PendingElevatedLaunchAction.connectTun,
+      );
+      expect(runtimeService.startCallCount, 0);
+      expect(controller.state.statusMessage, contains('UAC'));
+    });
+
     test(
       'immediate maintenance arms the next pass only after the current pass finishes',
       () async {
@@ -2003,6 +2046,27 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   @override
   Future<void> stop() async {
     stopCallCount += 1;
+  }
+}
+
+class _FakeWindowsElevationService implements WindowsElevationService {
+  _FakeWindowsElevationService({required this.elevated});
+
+  final bool elevated;
+  int relaunchCallCount = 0;
+  PendingElevatedLaunchAction? lastAction;
+
+  @override
+  Future<bool> isElevated() async {
+    return elevated;
+  }
+
+  @override
+  Future<void> relaunchAsAdministrator({
+    required PendingElevatedLaunchAction action,
+  }) async {
+    relaunchCallCount += 1;
+    lastAction = action;
   }
 }
 

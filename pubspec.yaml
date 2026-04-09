@@ -110,6 +110,13 @@ flutter:
     - assets/singbox/android/arm64-v8a/
     - assets/singbox/android/x86/
     - assets/singbox/android/x86_64/
+    - assets/zapret/manifest.json
+    - assets/zapret/common/lua/
+    - assets/zapret/common/files/
+    - assets/zapret/common/files/fake/
+    - assets/zapret/common/init.d/windivert.filter.examples/
+    - assets/zapret/windows/x64/binaries/windows-x86_64/
+    - assets/zapret/windows/x86/binaries/windows-x86/
 
   fonts:
     - family: IBMPlexSans

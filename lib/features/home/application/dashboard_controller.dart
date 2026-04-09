@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/core/logging/gorion_console_log.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
@@ -117,6 +118,7 @@ final dashboardControllerProvider =
           autoSelectPreconnectServiceProvider,
         ),
         autoSelectorService: ref.read(autoSelectorServiceProvider),
+        elevationService: ref.read(windowsElevationServiceProvider),
         systemProxyStartupSettleDelay: Platform.isWindows
             ? systemProxyStartupSettleDelay
             : Duration.zero,
@@ -267,6 +269,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     ConnectionTuningSettingsRepository? connectionTuningSettingsRepository,
     required AutoSelectPreconnectService autoSelectPreconnectService,
     required AutoSelectorService autoSelectorService,
+    WindowsElevationService? elevationService,
     ClashApiClientFactory? clashApiClientFactory,
     Duration systemProxyStartupSettleDelay = Duration.zero,
     Timer Function(Duration duration, void Function() callback)? createTimer,
@@ -281,6 +284,8 @@ class DashboardController extends StateNotifier<DashboardState> {
            ConnectionTuningSettingsRepository(),
        _autoSelectPreconnectService = autoSelectPreconnectService,
        _autoSelectorService = autoSelectorService,
+       _elevationService =
+           elevationService ?? const NoopWindowsElevationService(),
        _createClashApiClient =
            clashApiClientFactory ?? ClashApiClient.fromSession,
        _systemProxyStartupSettleDelay = systemProxyStartupSettleDelay,
@@ -311,6 +316,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   final ConnectionTuningSettingsRepository _connectionTuningSettingsRepository;
   final AutoSelectPreconnectService _autoSelectPreconnectService;
   final AutoSelectorService _autoSelectorService;
+  final WindowsElevationService _elevationService;
   final ClashApiClientFactory _createClashApiClient;
   final Duration _systemProxyStartupSettleDelay;
   final Timer Function(Duration duration, void Function() callback)
@@ -862,6 +868,10 @@ class DashboardController extends StateNotifier<DashboardState> {
         errorMessage: 'Add a subscription before connecting.',
         clearStatusMessage: true,
       );
+      return;
+    }
+
+    if (await _maybeRelaunchForTunElevation()) {
       return;
     }
 
@@ -2305,6 +2315,10 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   String _connectionError(Object error, RuntimeMode mode) {
+    if (error is ProcessException && _isElevationRequired(error)) {
+      return 'Запуск TUN требует прав администратора. Подтвердите UAC-запрос или перезапустите Gorion от имени администратора.';
+    }
+
     final message = error.toString();
     return switch (_effectiveRuntimeMode(mode)) {
       RuntimeMode.tun =>
@@ -2313,5 +2327,58 @@ class DashboardController extends StateNotifier<DashboardState> {
         '$message System proxy mode is currently implemented only on Windows.',
       _ => message,
     };
+  }
+
+  Future<bool> _maybeRelaunchForTunElevation() async {
+    if (!Platform.isWindows || state.runtimeMode != RuntimeMode.tun) {
+      return false;
+    }
+
+    bool isElevated;
+    try {
+      isElevated = await _elevationService.isElevated();
+    } on Object {
+      return false;
+    }
+
+    if (isElevated) {
+      return false;
+    }
+
+    try {
+      await _elevationService.relaunchAsAdministrator(
+        action: PendingElevatedLaunchAction.connectTun,
+      );
+      state = state.copyWith(
+        statusMessage:
+            'Запрошены права администратора. После подтверждения UAC Gorion перезапустится и продолжит запуск TUN.',
+        clearErrorMessage: true,
+      );
+    } on ElevationRequestCancelledException {
+      state = state.copyWith(
+        errorMessage: 'Запрос прав администратора был отменён. TUN не запущен.',
+        clearStatusMessage: true,
+      );
+    } on Object catch (error) {
+      state = state.copyWith(
+        errorMessage:
+            'Не удалось запросить права администратора для TUN: $error',
+        clearStatusMessage: true,
+      );
+    }
+
+    return true;
+  }
+
+  bool _isElevationRequired(ProcessException error) {
+    if (error.errorCode == 740) {
+      return true;
+    }
+
+    final details = '${error.message} ${error.toString()}'.toLowerCase();
+    return details.contains('requested operation requires elevation') ||
+        details.contains('requires elevation') ||
+        details.contains('require elevation') ||
+        details.contains('требует повышения');
   }
 }

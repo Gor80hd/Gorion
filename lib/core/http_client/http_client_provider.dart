@@ -6,6 +6,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 enum NetworkRequestMode { auto, proxy, direct }
 
+enum HttpProbeMethod { head, get }
+
+class HttpProbeResponse {
+  const HttpProbeResponse({
+    required this.statusCode,
+    required this.latencyMs,
+    this.location,
+    this.effectiveUrl,
+    this.body,
+  });
+
+  final int? statusCode;
+  final int latencyMs;
+  final String? location;
+  final String? effectiveUrl;
+  final String? body;
+}
+
 class DioHttpClient {
   DioHttpClient({
     required Duration timeout,
@@ -49,21 +67,100 @@ class DioHttpClient {
     NetworkRequestMode requestMode = NetworkRequestMode.auto,
     Duration timeout = const Duration(seconds: 10),
   }) async {
+    final response = await probeHttp(
+      url,
+      method: HttpProbeMethod.head,
+      requestMode: requestMode,
+      timeout: timeout,
+    );
+    return response?.latencyMs ?? -1;
+  }
+
+  Future<HttpProbeResponse?> probeHttp(
+    String url, {
+    HttpProbeMethod method = HttpProbeMethod.head,
+    NetworkRequestMode requestMode = NetworkRequestMode.auto,
+    Duration timeout = const Duration(seconds: 10),
+    bool followRedirects = true,
+    int maxRedirects = 5,
+    Map<String, String>? headers,
+  }) async {
     final useProxy = requestMode == NetworkRequestMode.proxy;
     final dio = _buildDio(useProxy: useProxy);
     try {
       final start = DateTime.now();
-      await dio.head<void>(
+      final response = await dio.request<String>(
         url,
         options: Options(
+          method: method == HttpProbeMethod.head ? 'HEAD' : 'GET',
+          responseType: ResponseType.plain,
           receiveTimeout: timeout,
           sendTimeout: timeout,
+          followRedirects: followRedirects,
+          maxRedirects: maxRedirects,
           validateStatus: (_) => true,
+          headers: headers,
         ),
       );
-      return DateTime.now().difference(start).inMilliseconds;
+      return HttpProbeResponse(
+        statusCode: response.statusCode,
+        latencyMs: DateTime.now().difference(start).inMilliseconds,
+        location: response.headers.value('location'),
+        effectiveUrl: response.realUri.toString(),
+        body: response.data,
+      );
     } catch (_) {
-      return -1;
+      return null;
+    } finally {
+      dio.close(force: true);
+    }
+  }
+
+  Future<HttpProbeResponse?> probeDownload(
+    String url, {
+    NetworkRequestMode requestMode = NetworkRequestMode.auto,
+    Duration timeout = const Duration(seconds: 10),
+    bool followRedirects = true,
+    int maxRedirects = 5,
+    int readBytes = 1024,
+    Map<String, String>? headers,
+  }) async {
+    final useProxy = requestMode == NetworkRequestMode.proxy;
+    final dio = _buildDio(useProxy: useProxy);
+    try {
+      final start = DateTime.now();
+      final response = await dio.get<ResponseBody>(
+        url,
+        options: Options(
+          responseType: ResponseType.stream,
+          receiveTimeout: timeout,
+          sendTimeout: timeout,
+          followRedirects: followRedirects,
+          maxRedirects: maxRedirects,
+          validateStatus: (_) => true,
+          headers: headers,
+        ),
+      );
+
+      var receivedBytes = 0;
+      if (response.data case final responseBody?) {
+        await for (final chunk in responseBody.stream) {
+          receivedBytes += chunk.length;
+          if (receivedBytes >= readBytes) {
+            break;
+          }
+        }
+      }
+
+      return HttpProbeResponse(
+        statusCode: response.statusCode,
+        latencyMs: DateTime.now().difference(start).inMilliseconds,
+        location: response.headers.value('location'),
+        effectiveUrl: response.realUri.toString(),
+        body: receivedBytes > 0 ? 'bytes=$receivedBytes' : null,
+      );
+    } catch (_) {
+      return null;
     } finally {
       dio.close(force: true);
     }
