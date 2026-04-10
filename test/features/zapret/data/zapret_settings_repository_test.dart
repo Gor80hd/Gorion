@@ -23,8 +23,10 @@ void main() {
   });
 
   test('persists zapret settings across repository instances', () async {
-    const savedSettings = ZapretSettings(
+    final savedSettings = ZapretSettings(
       installDirectory: r'E:\Tools\zapret2',
+      configFileName: 'general (ALT10).conf',
+      gameFilterMode: ZapretGameFilterMode.tcp,
       preset: ZapretPreset.combined,
       strategyProfile: ZapretStrategyProfile.combinedStrong,
       customProfile: ZapretCustomProfile(
@@ -32,7 +34,6 @@ void main() {
         discordVariant: ZapretFlowsealVariant.hostfakesplit,
         genericVariant: ZapretFlowsealVariant.multidisorder,
       ),
-      gameFilterEnabled: true,
       ipSetFilterMode: ZapretIpSetFilterMode.any,
       startOnAppLaunch: true,
       autoStopOnTun: true,
@@ -62,11 +63,45 @@ void main() {
     final loaded = await repository.load();
 
     expect(loaded.installDirectory, 'C:/zapret2');
+    expect(loaded.effectiveConfigFileName, 'general.conf');
     expect(loaded.preset, ZapretPreset.discord);
     expect(loaded.strategyProfile, isNull);
     expect(loaded.gameFilterEnabled, isFalse);
+    expect(loaded.gameFilterMode, ZapretGameFilterMode.disabled);
     expect(loaded.ipSetFilterMode, ZapretIpSetFilterMode.none);
     expect(loaded.startOnAppLaunch, isTrue);
     expect(loaded.autoStopOnTun, isTrue);
   });
+
+  test(
+    'loads legacy customProfile variant keys as enabled block profiles',
+    () async {
+      final stateFile = File(
+        '${tempDir.path}${Platform.pathSeparator}zapret-settings.json',
+      );
+      await stateFile.writeAsString('''
+      {
+        "installDirectory":"C:/zapret2",
+        "customProfile":{
+          "youtubeVariant":"multisplit",
+          "discordVariant":"simplefake",
+          "genericVariant":"simplefake-maxru"
+        }
+      }
+      ''');
+
+      final loaded = await repository.load();
+
+      expect(loaded.customProfile?.youtubeEnabled, isTrue);
+      expect(
+        loaded.customProfile?.youtubeVariant,
+        ZapretFlowsealVariant.multisplit,
+      );
+      expect(loaded.customProfile?.discordEnabled, isTrue);
+      expect(
+        loaded.customProfile?.genericVariant,
+        ZapretFlowsealVariant.simpleFakeMaxRu,
+      );
+    },
+  );
 }

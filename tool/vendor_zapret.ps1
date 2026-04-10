@@ -134,6 +134,12 @@ try {
     New-Item -ItemType Directory -Path (Split-Path -Parent $youtubeListPath) -Force | Out-Null
     $youtubeHostlist | Set-Content -Path $youtubeListPath -Encoding UTF8
 
+    $ipsetAllPath = Join-Path $commonRoot 'files\ipset-all.txt'
+    @(
+        '0.0.0.0/0',
+        '::/0'
+    ) | Set-Content -Path $ipsetAllPath -Encoding UTF8
+
     $manifestTargets = @()
 
     foreach ($target in $targets) {
@@ -162,7 +168,7 @@ try {
         sourceUrl = $archiveUrl
         generatedAt = (Get-Date).ToUniversalTime().ToString('o')
         sharedPrefixes = $sharedPrefixes
-        generatedFiles = @('files/list-youtube.txt')
+        generatedFiles = @('files/list-youtube.txt', 'files/ipset-all.txt')
         targets = $manifestTargets
     }
 

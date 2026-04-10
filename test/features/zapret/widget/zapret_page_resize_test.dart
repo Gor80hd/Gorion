@@ -22,31 +22,38 @@ void main() {
         runtimeService: _FakeZapretRuntimeService(),
         initialState: ZapretState(
           bootstrapping: false,
-          settings: const ZapretSettings(
+          settings: ZapretSettings(
             installDirectory: r'E:\Tools\zapret2',
-            customProfile: ZapretCustomProfile(
-              youtubeVariant: ZapretFlowsealVariant.multisplit,
-              discordVariant: ZapretFlowsealVariant.hostfakesplit,
-              genericVariant: ZapretFlowsealVariant.multidisorder,
-            ),
+            configFileName: 'general (ALT10).conf',
+            gameFilterMode: ZapretGameFilterMode.tcp,
             startOnAppLaunch: true,
           ),
+          availableConfigs: const [
+            ZapretConfigOption(
+              fileName: 'general.conf',
+              path: r'E:\Tools\zapret2\profiles\general.conf',
+            ),
+            ZapretConfigOption(
+              fileName: 'general (ALT10).conf',
+              path: r'E:\Tools\zapret2\profiles\general (ALT10).conf',
+            ),
+          ],
           stage: ZapretStage.running,
           runtimeSession: ZapretRuntimeSession(
-            executablePath: r'E:\Tools\zapret2\winws2.exe',
-            workingDirectory: r'E:\Tools\zapret2',
+            executablePath: r'E:\Tools\zapret2\bin\winws.exe',
+            workingDirectory: r'E:\Tools\zapret2\bin',
             processId: 17240,
             startedAt: DateTime(2026, 4, 8, 13, 45),
-            arguments: const ['--wf-tcp=80,443'],
+            arguments: const ['--wf-tcp=80,443,1024-65535'],
             commandPreview:
-                'winws2.exe --wf-tcp=80,443 --filter-udp=443 --dpi-desync=fake --dpi-desync-split-pos=1',
+                'winws.exe --wf-tcp=80,443,1024-65535 --wf-udp=443,12',
           ),
           generatedConfigPreview:
-              'winws2.exe --wf-tcp=80,443 --filter-udp=443 --dpi-desync=fake --dpi-desync-split-pos=1',
-          generatedConfigSummary: 'YouTube + Discord + HTTPS fallback',
-          statusMessage: 'zapret2 работает с Flowseal-профилем.',
+              'winws.exe --wf-tcp=80,443,1024-65535 --wf-udp=443,12',
+          generatedConfigSummary: 'general (ALT10)',
+          statusMessage: 'zapret запущен с выбранным конфигом.',
           logs: const [
-            '[13:45:02] Starting winws2',
+            '[13:45:02] Starting winws',
             '[13:45:03] DNS filter applied',
             '[13:45:05] QUIC profile active',
             '[13:45:07] Process is healthy',
@@ -94,7 +101,7 @@ void main() {
         );
         expect(find.byType(SingleChildScrollView), findsNothing);
         expect(find.text('Каталог и генерация'), findsOneWidget);
-        expect(find.text('Flowseal-профиль'), findsOneWidget);
+        expect(find.text('Конфиг и фильтр'), findsOneWidget);
         expect(find.text('Процесс и лента'), findsOneWidget);
         expect(find.text('Пресет'), findsNothing);
       }
@@ -106,6 +113,64 @@ void main() {
       await pumpAtSize(const Size(640, 420));
     },
   );
+
+  testWidgets('zapret page shows Off block labels for disabled blocks', (
+    WidgetTester tester,
+  ) async {
+    final zapretController = ZapretController(
+      repository: _FakeZapretSettingsRepository(),
+      runtimeService: _FakeZapretRuntimeService(),
+      initialState: ZapretState(
+        bootstrapping: false,
+        settings: ZapretSettings(
+          installDirectory: r'E:\Tools\zapret2',
+          configFileName: 'general.conf',
+          gameFilterMode: ZapretGameFilterMode.disabled,
+        ),
+        availableConfigs: const [
+          ZapretConfigOption(
+            fileName: 'general.conf',
+            path: r'E:\Tools\zapret2\profiles\general.conf',
+          ),
+        ],
+      ),
+      loadOnInit: false,
+    );
+    final desktopController = DesktopSettingsController(
+      repository: _FakeDesktopSettingsRepository(),
+      launchAtStartupService: const NoopLaunchAtStartupService(),
+      initialState: const DesktopSettingsState(launchAtStartupEnabled: true),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        zapretControllerProvider.overrideWith((ref) => zapretController),
+        desktopSettingsControllerProvider.overrideWith(
+          (ref) => desktopController,
+        ),
+      ],
+    );
+
+    addTearDown(container.dispose);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildGorionTheme(
+            brightness: Brightness.dark,
+            palette: AppThemePalette.emerald,
+          ),
+          home: const Scaffold(body: ZapretPage(animateOnMount: false)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Конфиг и фильтр'), findsOneWidget);
+    expect(find.text('general'), findsWidgets);
+    expect(find.text('Отключён'), findsWidgets);
+  });
 }
 
 class _FakeZapretSettingsRepository extends ZapretSettingsRepository {}

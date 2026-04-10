@@ -183,10 +183,10 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
     final stageColor = _stageColor(theme, state.stage);
     final ultraCompact = layout.ultraCompact;
     final subtitle = !Platform.isWindows
-        ? 'Управление отдельным процессом zapret2 доступно только в Windows.'
+        ? 'Управление отдельным процессом zapret доступно только в Windows.'
         : state.tunConflictActive
-        ? 'Сейчас активен TUN, поэтому запуск zapret2 временно заблокирован.'
-        : 'Статус, запуск и автогенерация конфигурации собраны на одном экране.';
+        ? 'Сейчас активен TUN, поэтому запуск zapret временно заблокирован.'
+        : 'Статус, запуск и встроенные конфиги собраны на одном экране.';
     final bannerText = state.errorMessage ?? state.statusMessage;
     final bannerColor = state.errorMessage != null
         ? const Color(0xFFFF8A8A)
@@ -330,7 +330,7 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
     final compactFallback = layout.scaleFallback;
     final currentPath = state.settings.normalizedInstallDirectory;
     final installNote = currentPath.isEmpty
-        ? 'Пустое поле вернёт встроенный runtime-комплект.'
+        ? 'Укажите каталог Zapret 2 с `binaries`, `bin` или `lists`; встроенные конфиги подтянутся автоматически.'
         : 'Текущий путь: ${_middleEllipsis(currentPath, 40)}';
 
     return _buildPanel(
@@ -349,7 +349,7 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
                   icon: Icons.folder_outlined,
                   title: 'Каталог и генерация',
                   description:
-                      'Можно оставить встроенный комплект или указать свой каталог zapret2.',
+                      'Нужен каталог установки Zapret 2; профили поставляются вместе с приложением.',
                   accentColor: theme.brandAccent,
                 ),
           SizedBox(height: compactFallback ? 8 : layout.innerGap),
@@ -383,7 +383,7 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
             maxLines: 1,
             decoration: const InputDecoration(
               isDense: true,
-              labelText: 'Каталог zapret2',
+              labelText: 'Каталог Zapret 2',
               hintText: r'E:\Tools\zapret2',
             ),
             onSubmitted: (_) => _applyInstallDirectory(),
@@ -442,16 +442,16 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
     final controller = ref.read(zapretControllerProvider.notifier);
     final accentColor = _profileAccentColor(theme);
     final compactFallback = layout.scaleFallback;
-    final canAutoTune =
-        Platform.isWindows &&
-        !state.bootstrapping &&
-        !state.busy &&
-        !state.tunConflictActive;
     final ultraCompact = layout.ultraCompact;
-    final profile = state.settings.effectiveCustomProfile;
+    final denseRows = layout.compact || layout.scaleFallback;
+    final selectedConfigLabel = state.settings.effectiveConfigLabel;
+    final availableConfigs = state.availableConfigs;
+    final configDescription = availableConfigs.isEmpty
+        ? 'В каталоге пока не найдены встроенные конфиги.'
+        : '${availableConfigs.length} встроенных конфигов для Zapret 2.';
     final profileText = layout.scaleFallback
-        ? 'Core: ${profile.summaryLabel}'
-        : 'Flowseal-style core blocks • ${profile.summaryLabel}';
+        ? 'Конфиг: $selectedConfigLabel'
+        : 'Конфиг и Game Filter берутся из встроенного набора профилей Zapret 2.';
 
     return _buildPanel(
       layout: layout,
@@ -459,149 +459,127 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
       padding: EdgeInsets.all(
         layout.compact ? layout.cardPadding - 2 : layout.cardPadding - 1,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _CompactPanelHeading(
-            icon: Icons.auto_awesome_outlined,
-            title: 'Flowseal-профиль',
-            accentColor: accentColor,
-          ),
-          SizedBox(height: compactFallback ? 6 : 8),
-          if (!ultraCompact && !layout.compact) ...[
-            Text(
-              profileText,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface,
-                fontSize: compactFallback ? 13 : null,
-                height: 1.3,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'YouTube, Discord и HTTPS fallback настраиваются независимо; overlays подключаются отдельно.',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.gorionTokens.onSurfaceMuted,
-                fontSize: compactFallback ? 12.5 : null,
-                height: 1.3,
-              ),
-            ),
-            const SizedBox(height: 8),
-          ] else if (!ultraCompact) ...[
-            Text(
-              profileText,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.gorionTokens.onSurfaceMuted,
-                fontSize: compactFallback ? 12.5 : null,
-                height: 1.3,
-              ),
-            ),
-            SizedBox(height: layout.compact ? 6 : 8),
-          ] else
-            SizedBox(height: layout.compact ? 6 : 10),
-          _buildVariantRow(
-            theme: theme,
-            accentColor: const Color(0xFFFF7A59),
-            icon: Icons.ondemand_video_outlined,
-            label: 'YouTube',
-            value: profile.youtubeVariant,
-            dense: layout.compact,
-            enabled: !state.busy,
-            onSelected: controller.setYoutubeVariant,
-          ),
-          SizedBox(height: layout.compact ? 6 : 8),
-          _buildVariantRow(
-            theme: theme,
-            accentColor: const Color(0xFF72A8FF),
-            icon: Icons.headset_mic_outlined,
-            label: 'Discord',
-            value: profile.discordVariant,
-            dense: layout.compact,
-            enabled: !state.busy,
-            onSelected: controller.setDiscordVariant,
-          ),
-          SizedBox(height: layout.compact ? 6 : 8),
-          _buildVariantRow(
-            theme: theme,
-            accentColor: theme.brandAccent,
-            icon: Icons.language_outlined,
-            label: 'HTTPS',
-            value: profile.genericVariant,
-            dense: layout.compact,
-            enabled: !state.busy,
-            onSelected: controller.setGenericVariant,
-          ),
-          SizedBox(height: layout.compact ? 8 : 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final tightHeight = constraints.maxHeight < 440;
+          final rowDense = denseRows || tightHeight;
+          final sectionGap = tightHeight ? 4.0 : (layout.compact ? 6.0 : 8.0);
+          final buttonGap = tightHeight ? 4.0 : (layout.compact ? 8.0 : 10.0);
+          final showExtendedIntro = !ultraCompact && !denseRows && !tightHeight;
+          final showCompactIntro = !ultraCompact && !tightHeight;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              FilterChip(
-                label: const Text('Game Filter'),
-                selected: state.settings.gameFilterEnabled,
-                onSelected: state.busy
-                    ? null
-                    : (value) => controller.setGameFilterEnabled(value),
-                avatar: Icon(
-                  Icons.sports_esports_outlined,
-                  size: 16,
-                  color: state.settings.gameFilterEnabled
-                      ? accentColor
-                      : theme.gorionTokens.onSurfaceMuted,
-                ),
-                selectedColor: accentColor.withValues(alpha: 0.16),
-                checkmarkColor: accentColor,
-                side: BorderSide(color: accentColor.withValues(alpha: 0.18)),
+              _CompactPanelHeading(
+                icon: Icons.auto_awesome_outlined,
+                title: 'Конфиг и фильтр',
+                accentColor: accentColor,
               ),
-              PopupMenuButton<ZapretIpSetFilterMode>(
+              SizedBox(height: tightHeight ? 4 : (compactFallback ? 6 : 8)),
+              if (showExtendedIntro) ...[
+                Text(
+                  profileText,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                    fontSize: compactFallback ? 13 : null,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  configDescription,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.gorionTokens.onSurfaceMuted,
+                    fontSize: compactFallback ? 12.5 : null,
+                    height: 1.3,
+                  ),
+                ),
+                SizedBox(height: sectionGap),
+              ] else if (showCompactIntro) ...[
+                Text(
+                  profileText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.gorionTokens.onSurfaceMuted,
+                    fontSize: compactFallback ? 12.5 : null,
+                    height: 1.3,
+                  ),
+                ),
+                SizedBox(height: sectionGap),
+              ] else
+                SizedBox(height: tightHeight ? 4 : (layout.compact ? 6 : 10)),
+              _buildSelectionRow<String>(
+                theme: theme,
+                accentColor: const Color(0xFFFF7A59),
+                icon: Icons.description_outlined,
+                label: 'Конфиг',
+                value: selectedConfigLabel,
+                description: configDescription,
+                dense: rowDense,
+                enabled: !state.busy && availableConfigs.isNotEmpty,
+                items: [
+                  for (final option in availableConfigs)
+                    PopupMenuItem<String>(
+                      value: option.fileName,
+                      child: Text(option.label),
+                    ),
+                ],
+                onSelected: controller.setConfigFileName,
+              ),
+              SizedBox(height: sectionGap),
+              _buildSelectionRow<ZapretGameFilterMode>(
+                theme: theme,
+                accentColor: const Color(0xFF72A8FF),
+                icon: Icons.headset_mic_outlined,
+                label: 'Game Filter',
+                value: state.settings.gameFilterMode.label,
+                description:
+                    'Режимы совпадают с эталонными профилями: отключён, TCP и UDP, только TCP, только UDP.',
+                dense: rowDense,
                 enabled: !state.busy,
-                onSelected: controller.setIpSetFilterMode,
-                itemBuilder: (context) => [
-                  for (final mode in ZapretIpSetFilterMode.values)
-                    PopupMenuItem<ZapretIpSetFilterMode>(
+                items: [
+                  for (final mode in ZapretGameFilterMode.values)
+                    PopupMenuItem<ZapretGameFilterMode>(
                       value: mode,
                       child: Text(mode.label),
                     ),
                 ],
-                child: _MetaPill(
-                  label: ultraCompact
-                      ? 'IPSet'
-                      : 'IPSet: ${state.settings.ipSetFilterMode.label}',
-                  color:
-                      state.settings.ipSetFilterMode ==
-                          ZapretIpSetFilterMode.none
-                      ? theme.gorionTokens.onSurfaceMuted
-                      : accentColor,
-                ),
+                onSelected: controller.setGameFilterMode,
               ),
+              SizedBox(height: sectionGap),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MetaPill(
+                    label: ultraCompact
+                        ? 'CFG ${availableConfigs.length}'
+                        : 'Найдено конфигов: ${availableConfigs.length}',
+                    color: availableConfigs.isEmpty
+                        ? theme.gorionTokens.onSurfaceMuted
+                        : accentColor,
+                  ),
+                  _MetaPill(
+                    label: ultraCompact
+                        ? state.settings.gameFilterMode.label
+                        : 'Game Filter: ${state.settings.gameFilterMode.label}',
+                    color: state.settings.gameFilterMode.enabled
+                        ? const Color(0xFF72A8FF)
+                        : theme.gorionTokens.onSurfaceMuted,
+                  ),
+                ],
+              ),
+              SizedBox(height: buttonGap),
+              const Spacer(),
             ],
-          ),
-          const Spacer(),
-          FilledButton.icon(
-            onPressed: canAutoTune
-                ? controller.autoTuneForBlockedResources
-                : null,
-            icon: state.autotuneRunning
-                ? SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        theme.colorScheme.onPrimary,
-                      ),
-                    ),
-                  )
-                : const Icon(Icons.tune_rounded),
-            label: Text(layout.compact ? 'Подбор блоков' : 'Автоподбор блоков'),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -632,7 +610,7 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
               : const _PanelHeading(
                   icon: Icons.desktop_windows_outlined,
                   title: 'Запуск и защита',
-                  description: 'Автостарт Gorion и zapret2 плюс защита от TUN.',
+                  description: 'Автостарт Gorion и zapret плюс защита от TUN.',
                   accentColor: accentColor,
                 ),
           SizedBox(height: layout.compact ? 6 : 8),
@@ -659,7 +637,7 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
                       : 6,
                 ),
                 _ToggleTile(
-                  title: 'Старт zapret2',
+                  title: 'Старт zapret',
                   value: state.settings.startOnAppLaunch,
                   onChanged: state.busy
                       ? null
@@ -698,7 +676,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
   ) {
     final theme = Theme.of(context);
     final session = state.runtimeSession;
-    final probeReport = state.lastProbeReport;
     final stageColor = _stageColor(theme, state.stage);
     final compactFallback = layout.scaleFallback;
     final ultraCompact = layout.ultraCompact;
@@ -818,31 +795,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
               ),
             ],
           ),
-          if (probeReport != null) ...[
-            SizedBox(height: layout.innerGap),
-            Text(
-              probeReport.summary,
-              maxLines: compactFallback ? 2 : 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.gorionTokens.onSurfaceMuted,
-                height: 1.35,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final result in probeReport.results)
-                  _MetaPill(
-                    label:
-                        '${result.target.label}${result.latencyMs == null ? '' : ' ${result.latencyMs}ms'}',
-                    color: _probeColor(theme, result),
-                  ),
-              ],
-            ),
-          ],
           SizedBox(height: layout.innerGap),
           Expanded(
             child: compactFallback
@@ -895,7 +847,7 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
                           subtitle: preview == null
                               ? 'Сначала сохраните путь или сгенерируйте предпросмотр.'
                               : state.generatedConfigSummary ??
-                                    'Предпросмотр запуска winws2.',
+                                    'Предпросмотр запуска winws.',
                           child: SelectableText(
                             preview ??
                                 'Команда появится после генерации предпросмотра или запуска текущего профиля.',
@@ -963,7 +915,7 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
 
   List<String> _visibleLogs(List<String> logs, int maxLines) {
     if (logs.isEmpty) {
-      return const ['Логи zapret2 пока пусты.'];
+      return const ['Логи zapret пока пусты.'];
     }
     if (logs.length <= maxLines) {
       return logs;
@@ -989,22 +941,24 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
   }
 
   String _profileSummary(ZapretState state) {
-    return 'Flowseal • ${state.settings.effectiveCustomProfile.summaryLabel}';
+    return state.settings.effectiveConfigLabel;
   }
 
   Color _profileAccentColor(ThemeData theme) {
     return theme.brandAccent;
   }
 
-  Widget _buildVariantRow({
+  Widget _buildSelectionRow<T>({
     required ThemeData theme,
     required Color accentColor,
     required IconData icon,
     required String label,
-    required ZapretFlowsealVariant value,
+    required String value,
+    required String description,
     required bool dense,
     required bool enabled,
-    required Future<void> Function(ZapretFlowsealVariant variant) onSelected,
+    required List<PopupMenuEntry<T>> items,
+    required Future<void> Function(T value) onSelected,
   }) {
     return Container(
       padding: EdgeInsets.symmetric(
@@ -1039,7 +993,7 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
                 if (!dense) ...[
                   const SizedBox(height: 2),
                   Text(
-                    value.description,
+                    description,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -1051,20 +1005,20 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
               ],
             ),
           ),
-          const SizedBox(width: 10),
-          PopupMenuButton<ZapretFlowsealVariant>(
-            enabled: enabled,
-            onSelected: onSelected,
-            itemBuilder: (context) => [
-              for (final variant in ZapretFlowsealVariant.values)
-                PopupMenuItem<ZapretFlowsealVariant>(
-                  value: variant,
-                  child: Text(variant.label),
-                ),
-            ],
-            child: _MetaPill(
-              label: value.label,
-              color: enabled ? accentColor : theme.gorionTokens.onSurfaceMuted,
+          SizedBox(width: dense ? 8 : 10),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: dense ? 102 : 128),
+            child: PopupMenuButton<T>(
+              enabled: enabled,
+              onSelected: onSelected,
+              itemBuilder: (context) => items,
+              child: _MetaPill(
+                label: value,
+                color: enabled
+                    ? accentColor
+                    : theme.gorionTokens.onSurfaceMuted,
+                compact: dense,
+              ),
             ),
           ),
         ],
@@ -1080,16 +1034,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
       ZapretStage.pausedByTun => const Color(0xFF72A8FF),
       ZapretStage.stopped => theme.brandAccent,
     };
-  }
-
-  Color _probeColor(ThemeData theme, ZapretProbeResult result) {
-    if (result.success) {
-      return const Color(0xFF1EFFAC);
-    }
-    if (!result.target.requiredForSuccess) {
-      return const Color(0xFFFFC857);
-    }
-    return const Color(0xFFFF8A8A);
   }
 }
 
@@ -1121,10 +1065,10 @@ class _ZapretDashboardLayout {
     final ultraCompact = width < 720 || height < 460;
     final scaleFallback = width < 1320 || height < 860;
     final fallbackHeight = ultraCompact
-        ? 1380.0
+        ? 1720.0
         : compact
-        ? 1260.0
-        : 980.0;
+        ? 1560.0
+        : 1100.0;
     final fallbackAspectRatio = (width / height).clamp(1.48, 1.72);
     final fallbackWidth = fallbackHeight * fallbackAspectRatio;
 
@@ -1484,16 +1428,24 @@ class _StatusBanner extends StatelessWidget {
 }
 
 class _MetaPill extends StatelessWidget {
-  const _MetaPill({required this.label, required this.color});
+  const _MetaPill({
+    required this.label,
+    required this.color,
+    this.compact = false,
+  });
 
   final String label;
   final Color color;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 10 : 12,
+        vertical: compact ? 5 : 6,
+      ),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
         color: color.withValues(alpha: 0.12),
@@ -1501,9 +1453,12 @@ class _MetaPill extends StatelessWidget {
       ),
       child: Text(
         label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        softWrap: false,
         style: theme.textTheme.labelLarge?.copyWith(
           color: color,
-          fontSize: 13,
+          fontSize: compact ? 12 : 13,
           fontWeight: FontWeight.w700,
         ),
       ),

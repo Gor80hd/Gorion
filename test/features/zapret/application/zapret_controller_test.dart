@@ -1,10 +1,8 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_probe_service.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
@@ -32,36 +30,37 @@ void main() {
       expect(runtimeService.startCalls, 1);
       expect(controller.state.stage, ZapretStage.running);
       expect(controller.state.runtimeSession?.processId, 4242);
-      expect(
-        controller.state.generatedConfigSummary,
-        contains('Рекомендуемый'),
-      );
+      expect(runtimeService.lastStartedSettings?.customProfile, isNull);
+      expect(controller.state.settings.customProfile, isNull);
+      expect(controller.state.generatedConfigSummary, 'general');
     },
   );
 
-  test(
-    'hydrates the bundled zapret path before start when none is saved',
-    () async {
-      final runtimeService = _FakeZapretRuntimeService();
-      final controller = ZapretController(
-        repository: _FakeZapretSettingsRepository(),
-        runtimeService: runtimeService,
-        elevationService: _FakeWindowsElevationService(elevated: true),
-        initialState: const ZapretState(
-          bootstrapping: false,
-          settings: ZapretSettings(),
-        ),
-        loadOnInit: false,
-      );
-      addTearDown(controller.dispose);
+  test('shows a path error when no zapret directory is saved', () async {
+    final runtimeService = _FakeZapretRuntimeService();
+    final controller = ZapretController(
+      repository: _FakeZapretSettingsRepository(),
+      runtimeService: runtimeService,
+      elevationService: _FakeWindowsElevationService(elevated: true),
+      initialState: const ZapretState(
+        bootstrapping: false,
+        settings: ZapretSettings(),
+      ),
+      loadOnInit: false,
+    );
+    addTearDown(controller.dispose);
 
-      await controller.start();
+    await controller.start();
 
-      expect(runtimeService.hydrateCalls, 1);
-      expect(controller.state.settings.installDirectory, r'E:\Bundled\zapret2');
-      expect(controller.state.stage, ZapretStage.running);
-    },
-  );
+    expect(runtimeService.hydrateCalls, 1);
+    expect(controller.state.settings.installDirectory, isEmpty);
+    expect(runtimeService.startCalls, 0);
+    expect(controller.state.stage, ZapretStage.stopped);
+    expect(
+      controller.state.errorMessage,
+      'Сначала укажите каталог установки zapret.',
+    );
+  });
 
   test('auto-stops a running zapret session when TUN becomes active', () async {
     final runtimeService = _FakeZapretRuntimeService();
@@ -115,11 +114,11 @@ void main() {
     expect(controller.state.statusMessage, contains('UAC'));
   });
 
-  test('shows a friendly message when winws2 requires elevation', () async {
+  test('shows a friendly message when winws requires elevation', () async {
     final runtimeService = _FakeZapretRuntimeService()
       ..startError = ProcessException(
-        'winws2.exe',
-        const ['--dry-run'],
+        'winws.exe',
+        const ['--wf-tcp=80,443'],
         'Запрошенная операция требует повышения',
         740,
       );
@@ -140,11 +139,11 @@ void main() {
     expect(controller.state.stage, ZapretStage.failed);
     expect(
       controller.state.errorMessage,
-      'Запуск winws2 требует прав администратора. Перезапустите Gorion от имени администратора и попробуйте снова.',
+      'Запуск winws требует прав администратора. Перезапустите Gorion от имени администратора и попробуйте снова.',
     );
   });
 
-  test('explains invalid parameter exit code from winws2', () async {
+  test('explains invalid parameter exit code from winws', () async {
     final runtimeService = _FakeZapretRuntimeService();
     final controller = ZapretController(
       repository: _FakeZapretSettingsRepository(),
@@ -164,11 +163,11 @@ void main() {
     expect(controller.state.stage, ZapretStage.failed);
     expect(
       controller.state.errorMessage,
-      'zapret2 отклонил параметры запуска (код 87 / ERROR_INVALID_PARAMETER). Значит, winws2 не принял один из аргументов текущего пресета.',
+      'zapret отклонил параметры запуска (код 87 / ERROR_INVALID_PARAMETER). Значит, winws не принял один из аргументов текущего конфига.',
     );
   });
 
-  test('explains DLL initialization failure exit code from winws2', () async {
+  test('explains DLL initialization failure exit code from winws', () async {
     final runtimeService = _FakeZapretRuntimeService();
     final controller = ZapretController(
       repository: _FakeZapretSettingsRepository(),
@@ -188,315 +187,9 @@ void main() {
     expect(controller.state.stage, ZapretStage.failed);
     expect(
       controller.state.errorMessage,
-      'zapret2 не смог инициализироваться (код -1073741502 / 0xC0000142). Обычно это сбой инициализации DLL или процесса; сначала попробуйте запустить Gorion от имени администратора.',
+      'zapret не смог инициализироваться (код -1073741502 / 0xC0000142). Обычно это сбой инициализации DLL или процесса; сначала попробуйте запустить Gorion от имени администратора.',
     );
   });
-
-  test(
-    'autotune varies generic TLS during Discord stage and keeps the winner running',
-    () async {
-      if (!Platform.isWindows) {
-        return;
-      }
-
-      final runtimeService = _FakeZapretRuntimeService();
-      final probeService = _FakeZapretProbeService(
-        currentSettings: () => runtimeService.lastStartedSettings!,
-        buildReport: (targets, settings) {
-          final targetIds = {for (final target in targets) target.id};
-          final profile = settings.effectiveCustomProfile;
-
-          if (_sameTargetIds(targetIds, const {'youtube'})) {
-            final success =
-                profile.youtubeVariant == ZapretFlowsealVariant.multisplit;
-            return _reportFor(
-              targets,
-              successIds: success ? targetIds : const {},
-              baseLatencyMs: success ? 110 : 220,
-            );
-          }
-
-          if (_sameTargetIds(targetIds, const {'discord'})) {
-            final success =
-                profile.genericVariant == ZapretFlowsealVariant.hostfakesplit;
-            return _reportFor(
-              targets,
-              successIds: success ? targetIds : const {},
-              baseLatencyMs: 96,
-            );
-          }
-
-          if (_sameTargetIds(targetIds, const {'google', 'cloudflare'})) {
-            final success =
-                profile.genericVariant == ZapretFlowsealVariant.hostfakesplit;
-            return _reportFor(
-              targets,
-              successIds: success ? targetIds : const {},
-              baseLatencyMs: 101,
-            );
-          }
-
-          if (_sameTargetIds(targetIds, _fullAutotuneTargetIds)) {
-            final success =
-                profile.youtubeVariant == ZapretFlowsealVariant.multisplit &&
-                profile.genericVariant == ZapretFlowsealVariant.hostfakesplit;
-            return _reportFor(
-              targets,
-              successIds: success ? targetIds : const {},
-              baseLatencyMs: 88,
-            );
-          }
-
-          return _reportFor(targets, successIds: const {});
-        },
-      );
-      final controller = ZapretController(
-        repository: _FakeZapretSettingsRepository(),
-        runtimeService: runtimeService,
-        probeService: probeService,
-        elevationService: _FakeWindowsElevationService(elevated: true),
-        probeSettleDuration: Duration.zero,
-        initialState: const ZapretState(
-          bootstrapping: false,
-          settings: ZapretSettings(installDirectory: r'E:\Tools\zapret2'),
-        ),
-        loadOnInit: false,
-      );
-      addTearDown(controller.dispose);
-
-      await controller.autoTuneForBlockedResources();
-
-      expect(controller.state.autotuneRunning, isFalse);
-      expect(controller.state.stage, ZapretStage.running);
-      expect(controller.state.settings.customProfile, isNotNull);
-      expect(
-        controller.state.settings.customProfile?.youtubeVariant,
-        ZapretFlowsealVariant.multisplit,
-      );
-      expect(
-        controller.state.settings.customProfile?.genericVariant,
-        ZapretFlowsealVariant.hostfakesplit,
-      );
-      expect(controller.state.lastProbeReport?.allRequiredPassed, isTrue);
-      expect(
-        runtimeService.startedSettings.any(
-          (settings) =>
-              settings.effectiveCustomProfile.genericVariant ==
-              ZapretFlowsealVariant.hostfakesplit,
-        ),
-        isTrue,
-      );
-    },
-  );
-
-  test(
-    'autotune keeps multiple YouTube seeds and can recover from a greedy miss',
-    () async {
-      if (!Platform.isWindows) {
-        return;
-      }
-
-      final runtimeService = _FakeZapretRuntimeService();
-      final probeService = _FakeZapretProbeService(
-        currentSettings: () => runtimeService.lastStartedSettings!,
-        buildReport: (targets, settings) {
-          final targetIds = {for (final target in targets) target.id};
-          final profile = settings.effectiveCustomProfile;
-
-          if (_sameTargetIds(targetIds, const {'youtube'})) {
-            final successIds = switch (profile.youtubeVariant) {
-              ZapretFlowsealVariant.multisplit => const {'youtube'},
-              ZapretFlowsealVariant.fakedsplit => const {'youtube'},
-              _ => const <String>{},
-            };
-            final baseLatencyMs =
-                profile.youtubeVariant == ZapretFlowsealVariant.multisplit
-                ? 92
-                : 145;
-            return _reportFor(
-              targets,
-              successIds: successIds,
-              baseLatencyMs: baseLatencyMs,
-            );
-          }
-
-          if (_sameTargetIds(targetIds, const {'discord'})) {
-            final success =
-                (profile.youtubeVariant == ZapretFlowsealVariant.multisplit &&
-                    profile.genericVariant ==
-                        ZapretFlowsealVariant.hostfakesplit) ||
-                (profile.youtubeVariant == ZapretFlowsealVariant.fakedsplit &&
-                    profile.genericVariant ==
-                        ZapretFlowsealVariant.multidisorder);
-            return _reportFor(
-              targets,
-              successIds: success ? targetIds : const {},
-              baseLatencyMs:
-                  profile.youtubeVariant == ZapretFlowsealVariant.multisplit
-                  ? 96
-                  : 109,
-            );
-          }
-
-          if (_sameTargetIds(targetIds, const {'google', 'cloudflare'})) {
-            final success =
-                profile.youtubeVariant == ZapretFlowsealVariant.fakedsplit &&
-                profile.genericVariant == ZapretFlowsealVariant.multidisorder;
-            return _reportFor(
-              targets,
-              successIds: success ? targetIds : const {},
-              baseLatencyMs: 103,
-            );
-          }
-
-          if (_sameTargetIds(targetIds, _fullAutotuneTargetIds)) {
-            final success =
-                profile.youtubeVariant == ZapretFlowsealVariant.fakedsplit &&
-                profile.genericVariant == ZapretFlowsealVariant.multidisorder;
-            return _reportFor(
-              targets,
-              successIds: success ? targetIds : const {},
-              baseLatencyMs: 87,
-            );
-          }
-
-          return _reportFor(targets, successIds: const {});
-        },
-      );
-
-      final controller = ZapretController(
-        repository: _FakeZapretSettingsRepository(),
-        runtimeService: runtimeService,
-        probeService: probeService,
-        elevationService: _FakeWindowsElevationService(elevated: true),
-        probeSettleDuration: Duration.zero,
-        initialState: const ZapretState(
-          bootstrapping: false,
-          settings: ZapretSettings(installDirectory: r'E:\Tools\zapret2'),
-        ),
-        loadOnInit: false,
-      );
-      addTearDown(controller.dispose);
-
-      await controller.autoTuneForBlockedResources();
-
-      expect(controller.state.stage, ZapretStage.running);
-      expect(
-        controller.state.settings.customProfile?.youtubeVariant,
-        ZapretFlowsealVariant.fakedsplit,
-      );
-      expect(
-        controller.state.settings.customProfile?.genericVariant,
-        ZapretFlowsealVariant.multidisorder,
-      );
-    },
-  );
-
-  test('autotune failure message prefers the broader partial report', () async {
-    if (!Platform.isWindows) {
-      return;
-    }
-
-    final runtimeService = _FakeZapretRuntimeService();
-    final probeService = _FakeZapretProbeService(
-      currentSettings: () => runtimeService.lastStartedSettings!,
-      buildReport: (targets, settings) {
-        final targetIds = {for (final target in targets) target.id};
-        final profile = settings.effectiveCustomProfile;
-
-        if (_sameTargetIds(targetIds, const {'youtube'})) {
-          final success =
-              profile.youtubeVariant == ZapretFlowsealVariant.multisplit;
-          return _reportFor(
-            targets,
-            successIds: success ? targetIds : const {},
-            baseLatencyMs: 112,
-          );
-        }
-
-        if (_sameTargetIds(targetIds, const {'discord'})) {
-          final success =
-              profile.genericVariant == ZapretFlowsealVariant.hostfakesplit;
-          return _reportFor(
-            targets,
-            successIds: success ? targetIds : const {},
-            baseLatencyMs: 97,
-          );
-        }
-
-        if (_sameTargetIds(targetIds, const {'google', 'cloudflare'})) {
-          final successIds =
-              profile.genericVariant == ZapretFlowsealVariant.hostfakesplit
-              ? const {'google'}
-              : const <String>{};
-          return _reportFor(
-            targets,
-            successIds: successIds,
-            baseLatencyMs: 132,
-          );
-        }
-
-        return _reportFor(targets, successIds: const {});
-      },
-    );
-
-    final controller = ZapretController(
-      repository: _FakeZapretSettingsRepository(),
-      runtimeService: runtimeService,
-      probeService: probeService,
-      elevationService: _FakeWindowsElevationService(elevated: true),
-      probeSettleDuration: Duration.zero,
-      initialState: const ZapretState(
-        bootstrapping: false,
-        settings: ZapretSettings(installDirectory: r'E:\Tools\zapret2'),
-      ),
-      loadOnInit: false,
-    );
-    addTearDown(controller.dispose);
-
-    await controller.autoTuneForBlockedResources();
-
-    expect(controller.state.stage, ZapretStage.failed);
-    expect(controller.state.errorMessage, contains('Лучший кандидат'));
-    expect(controller.state.errorMessage, contains('(1/2)'));
-    expect(controller.state.errorMessage, contains('Google'));
-    expect(controller.state.errorMessage, contains('Cloudflare'));
-  });
-}
-
-const _fullAutotuneTargetIds = <String>{
-  'youtube',
-  'discord',
-  'google',
-  'cloudflare',
-};
-
-bool _sameTargetIds(Set<String> actual, Set<String> expected) {
-  if (actual.length != expected.length) {
-    return false;
-  }
-  return actual.containsAll(expected);
-}
-
-ZapretProbeReport _reportFor(
-  Iterable<ZapretProbeTarget> targets, {
-  required Set<String> successIds,
-  int baseLatencyMs = 130,
-}) {
-  var index = 0;
-  return ZapretProbeReport(
-    results: [
-      for (final target in targets)
-        ZapretProbeResult(
-          target: target,
-          success: successIds.contains(target.id),
-          latencyMs: successIds.contains(target.id)
-              ? baseLatencyMs + (index++ * 7)
-              : null,
-          details: successIds.contains(target.id) ? 'ok' : 'timeout',
-        ),
-    ],
-  );
 }
 
 class _FakeZapretSettingsRepository extends ZapretSettingsRepository {
@@ -528,11 +221,11 @@ class _FakeZapretRuntimeService extends ZapretRuntimeService {
   ZapretSettings? lastStartedSettings;
   final List<ZapretSettings> startedSettings = <ZapretSettings>[];
   final ZapretRuntimeSession sessionTemplate = ZapretRuntimeSession(
-    executablePath: r'E:\Tools\zapret2\winws2.exe',
-    workingDirectory: r'E:\Tools\zapret2',
+    executablePath: r'E:\Tools\zapret2\bin\winws.exe',
+    workingDirectory: r'E:\Tools\zapret2\bin',
     processId: 4242,
     startedAt: DateTime(2026, 4, 7, 10),
-    arguments: const ['--debug=1'],
+    arguments: const ['--wf-tcp=80,443,12'],
     commandPreview: 'preview',
   );
 
@@ -545,21 +238,37 @@ class _FakeZapretRuntimeService extends ZapretRuntimeService {
   @override
   Future<ZapretSettings> hydrateSettings(ZapretSettings settings) async {
     hydrateCalls += 1;
-    if (settings.hasInstallDirectory) {
-      return settings;
-    }
-    return settings.copyWith(installDirectory: r'E:\Bundled\zapret2');
+    return settings;
   }
 
   @override
   ZapretLaunchConfiguration buildPreview(ZapretSettings settings) {
     return const ZapretLaunchConfiguration(
-      workingDirectory: r'E:\Tools\zapret2',
-      arguments: ['--debug=1'],
+      executablePath: r'E:\Tools\zapret2\bin\winws.exe',
+      workingDirectory: r'E:\Tools\zapret2\bin',
+      arguments: ['--wf-tcp=80,443,12'],
       requiredFiles: [],
       preview: 'preview',
-      summary: 'Рекомендуемый: preview',
+      summary: 'general',
     );
+  }
+
+  @override
+  List<ZapretConfigOption> listAvailableProfiles(String installDirectory) {
+    return const [
+      ZapretConfigOption(
+        fileName: 'general.conf',
+        path: r'E:\Tools\zapret2\profiles\general.conf',
+      ),
+    ];
+  }
+
+  @override
+  String resolveSelectedConfigFileName(
+    String installDirectory,
+    String preferredFileName,
+  ) {
+    return preferredFileName.isEmpty ? 'general.conf' : preferredFileName;
   }
 
   @override
@@ -588,37 +297,6 @@ class _FakeZapretRuntimeService extends ZapretRuntimeService {
   Future<void> stop() async {
     stopCalls += 1;
     _activeSession = null;
-  }
-}
-
-typedef _ProbeReportBuilder =
-    ZapretProbeReport Function(
-      List<ZapretProbeTarget> targets,
-      ZapretSettings settings,
-    );
-
-class _FakeZapretProbeService extends ZapretProbeService {
-  _FakeZapretProbeService({
-    required this.currentSettings,
-    required this.buildReport,
-  });
-
-  final ZapretSettings Function() currentSettings;
-  final _ProbeReportBuilder buildReport;
-
-  @override
-  Future<ZapretProbeReport> runProbes({
-    List<ZapretProbeTarget>? targets,
-    void Function(String line)? onLog,
-  }) async {
-    final probeTargets = List<ZapretProbeTarget>.unmodifiable(
-      targets ?? ZapretProbeService.defaultTargets,
-    );
-    final report = buildReport(probeTargets, currentSettings());
-    for (final result in report.results) {
-      onLog?.call(result.summary);
-    }
-    return report;
   }
 }
 

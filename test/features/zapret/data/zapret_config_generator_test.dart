@@ -9,366 +9,336 @@ import 'package:path/path.dart' as p;
 void main() {
   const generator = ZapretConfigGenerator();
 
-  test(
-    'builds a combined preset with YouTube, Discord, and generic fallback',
-    () {
-      final config = generator.build(
-        const ZapretSettings(
-          installDirectory: r'E:\Tools\zapret2',
-          preset: ZapretPreset.combined,
-        ),
-      );
+  test('lists config files with the same names and natural order', () async {
+    final packageDir = await _createZapretPackage();
+    addTearDown(() => packageDir.delete(recursive: true));
 
-      expect(config.summary, contains('Комбинированный усиленный'));
-      expect(
-        config.preview,
-        contains('--wf-udp-out=443,19294-19344,50000-50100'),
-      );
-      expect(config.preview, contains('--filter-l7=tls'));
-      expect(config.preview, contains('--filter-udp=19294-19344,50000-50100'));
-      expect(config.preview, contains('--filter-l7=stun,discord'));
-      expect(config.preview, contains('--new=generic_tls'));
-      expect(
-        config.preview,
-        contains(
-          '--lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000:repeats=6:tls_mod=rnd,rndsni,dupsid',
-        ),
-      );
-      expect(config.preview, isNot(contains('discord_ip_discovery')));
-      expect(config.preview, isNot(contains('--lua-init=fake_default_tls=')));
-      expect(
-        config.requiredFiles,
-        contains(p.join(r'E:\Tools\zapret2', 'lua', 'zapret-lib.lua')),
-      );
-      expect(
-        config.requiredFiles,
-        contains(p.join(r'E:\Tools\zapret2', 'files', 'list-youtube.txt')),
-      );
-    },
-  );
+    await _writeConfig(packageDir, 'general (ALT10).conf', _sampleConfigBody());
+    await _writeConfig(packageDir, 'general (ALT2).conf', _sampleConfigBody());
+    await _writeConfig(packageDir, 'general (ALT).conf', _sampleConfigBody());
 
-  test('does not emit unsupported discord payload aliases', () {
-    final config = generator.build(
-      const ZapretSettings(
-        installDirectory: r'E:\Tools\zapret2',
-        preset: ZapretPreset.discord,
-      ),
-    );
+    final profiles = generator.listAvailableProfiles(packageDir.path);
 
-    expect(config.arguments, contains('--filter-l7=stun,discord'));
-    expect(
-      config.arguments,
-      isNot(contains('--payload=stun,discord_ip_discovery')),
-    );
+    expect(profiles.map((profile) => profile.fileName), [
+      'general.conf',
+      'general (ALT).conf',
+      'general (ALT2).conf',
+      'general (ALT10).conf',
+    ]);
   });
 
   test(
-    'builds a Flowseal-style custom profile without legacy preset coupling',
-    () {
-      final config = generator.build(
-        const ZapretSettings(
-          installDirectory: r'E:\Tools\zapret2',
-          customProfile: ZapretCustomProfile(
-            youtubeVariant: ZapretFlowsealVariant.multisplit,
-            discordVariant: ZapretFlowsealVariant.hostfakesplit,
-            genericVariant: ZapretFlowsealVariant.multidisorder,
-          ),
+    'builds launch args from selected general.conf with disabled game filter',
+    () async {
+      final packageDir = await _createZapretPackage();
+      addTearDown(() => packageDir.delete(recursive: true));
+
+      final configuration = generator.build(
+        ZapretSettings(
+          installDirectory: packageDir.path,
+          configFileName: 'general.conf',
         ),
       );
 
-      expect(config.summary, contains('Flowseal:'));
-      expect(config.arguments, contains('--new=discord_media'));
-      expect(config.arguments, contains('--hostlist-domains=discord.media'));
       expect(
-        config.arguments,
-        contains('--filter-udp=19294-19344,50000-50100'),
+        configuration.executablePath,
+        p.join(packageDir.path, 'binaries', 'windows-x86_64', 'winws2.exe'),
       );
       expect(
-        config.arguments,
+        configuration.workingDirectory,
+        p.join(packageDir.path, 'binaries', 'windows-x86_64'),
+      );
+      expect(configuration.summary, 'general');
+      expect(configuration.arguments, contains('--wf-tcp-out=80,443'));
+      expect(configuration.arguments, contains('--wf-udp-out=443'));
+      expect(
+        configuration.arguments,
+        contains('--payload=quic_initial'),
+      );
+      expect(
+        configuration.arguments,
         contains(
-          '--blob=tls_google:@${p.join(r'E:\Tools\zapret2', 'files', 'fake', 'tls_clienthello_www_google_com.bin')}',
+          '--lua-init=@${p.join(packageDir.path, 'lua', 'zapret-lib.lua')}',
         ),
       );
       expect(
-        config.arguments,
-        contains('--lua-desync=hostfakesplit:host=www.google.com:altorder=1'),
+        configuration.arguments,
+        contains(
+          '--hostlist=${p.join(packageDir.path, 'files', 'list-general.txt')}',
+        ),
       );
       expect(
-        config.arguments,
-        contains('--lua-desync=multidisorder:pos=1,midsld'),
+        configuration.requiredFiles,
+        contains(p.join(packageDir.path, 'files', 'list-general-user.txt')),
+      );
+      expect(
+        configuration.requiredFiles,
+        contains(p.join(packageDir.path, 'lua', 'zapret-antidpi.lua')),
       );
     },
   );
 
   test(
-    'scopes Flowseal fallback blocks by hostlists when list files exist',
+    'applies the same service.bat game filter modes to TCP and UDP placeholders',
     () async {
-      final tempDir = await Directory.systemTemp.createTemp(
-        'gorion-zapret-flowseal-lists-',
-      );
-      addTearDown(() async {
-        if (await tempDir.exists()) {
-          await tempDir.delete(recursive: true);
-        }
-      });
+      final packageDir = await _createZapretPackage();
+      addTearDown(() => packageDir.delete(recursive: true));
 
-      Future<void> touch(String relativePath) async {
+      final tcpOnly = generator.build(
+        ZapretSettings(
+          installDirectory: packageDir.path,
+          gameFilterMode: ZapretGameFilterMode.tcp,
+        ),
+      );
+      final udpOnly = generator.build(
+        ZapretSettings(
+          installDirectory: packageDir.path,
+          gameFilterMode: ZapretGameFilterMode.udp,
+        ),
+      );
+      final allTraffic = generator.build(
+        ZapretSettings(
+          installDirectory: packageDir.path,
+          gameFilterMode: ZapretGameFilterMode.all,
+        ),
+      );
+
+      expect(tcpOnly.arguments, contains('--wf-tcp-out=80,443,1024-65535'));
+      expect(tcpOnly.arguments, contains('--wf-udp-out=443'));
+      expect(udpOnly.arguments, contains('--wf-tcp-out=80,443'));
+      expect(udpOnly.arguments, contains('--wf-udp-out=443,1024-65535'));
+      expect(allTraffic.arguments, contains('--wf-tcp-out=80,443,1024-65535'));
+      expect(allTraffic.arguments, contains('--wf-udp-out=443,1024-65535'));
+    },
+  );
+
+  test(
+    'translates legacy split2 badseq strategy into winws2 multisplit',
+    () async {
+      final packageDir = await _createZapretPackage();
+      addTearDown(() => packageDir.delete(recursive: true));
+
+      await _writeConfig(
+        packageDir,
+        'general (ALT2).conf',
+        '''
+--wf-tcp=443
+--filter-tcp=443 --hostlist="%LISTS%list-google.txt" --dpi-desync=split2 --dpi-desync-split-pos=1,midsld --dpi-desync-fooling=badseq
+''',
+      );
+
+      final configuration = generator.build(
+        ZapretSettings(
+          installDirectory: packageDir.path,
+          configFileName: 'general (ALT2).conf',
+        ),
+      );
+
+      expect(configuration.arguments, contains('--filter-l7=tls'));
+      expect(configuration.arguments, contains('--payload=tls_client_hello'));
+      expect(
+        configuration.arguments,
+        contains('--lua-desync=multisplit:tcp_seq=-10000:tcp_ack=-66000:pos=1,midsld'),
+      );
+    },
+  );
+
+  test(
+    'creates missing companion user lists just like service.bat load_user_lists',
+    () async {
+      final packageDir = await _createZapretPackage(createUserLists: false);
+      addTearDown(() => packageDir.delete(recursive: true));
+
+      final filesIpSetAll = File(p.join(packageDir.path, 'files', 'ipset-all.txt'));
+      if (filesIpSetAll.existsSync()) {
+        filesIpSetAll.deleteSync();
+      }
+
+      generator.build(
+        ZapretSettings(
+          installDirectory: packageDir.path,
+          configFileName: 'general.conf',
+        ),
+      );
+
+      expect(
+        File(
+          p.join(packageDir.path, 'lists', 'list-general-user.txt'),
+        ).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(
+          p.join(packageDir.path, 'lists', 'list-exclude-user.txt'),
+        ).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(
+          p.join(packageDir.path, 'lists', 'ipset-exclude-user.txt'),
+        ).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(p.join(packageDir.path, 'lists', 'ipset-all.txt')).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(
+          p.join(packageDir.path, 'files', 'ipset-exclude-user.txt'),
+        ).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(p.join(packageDir.path, 'files', 'ipset-all.txt')).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(
+          p.join(packageDir.path, 'files', 'ipset-all.txt'),
+        ).readAsStringSync(),
+        contains('0.0.0.0/0'),
+      );
+    },
+  );
+
+  test(
+    'uses canonical files/fake and files directories for .conf profiles',
+    () async {
+      final packageDir = await Directory.systemTemp.createTemp(
+        'gorion-zapret-canonical-',
+      );
+      addTearDown(() => packageDir.delete(recursive: true));
+
+      Future<void> touch(String relativePath, {String contents = ''}) async {
         final file = File(
-          p.joinAll([tempDir.path, ...relativePath.split('/')]),
+          p.joinAll([packageDir.path, ...relativePath.split('/')]),
         );
         await file.parent.create(recursive: true);
-        await file.writeAsString('');
+        await file.writeAsString(contents);
       }
 
-      await touch('lua/zapret-lib.lua');
-      await touch('lua/zapret-antidpi.lua');
-      await touch('files/list-youtube.txt');
-      await touch('files/list-google.txt');
+      await touch('binaries/windows-x86_64/winws2.exe');
+      await touch('files/fake/quic_initial_www_google_com.bin');
       await touch('files/list-general.txt');
       await touch('files/list-exclude.txt');
+      await touch('files/ipset-all.txt');
       await touch('files/ipset-exclude.txt');
-      await touch('files/fake/quic_initial_www_google_com.bin');
-      await touch('files/fake/tls_clienthello_www_google_com.bin');
-      await touch('files/fake/tls_clienthello_iana_org.bin');
-      await touch(
-        'init.d/windivert.filter.examples/windivert_part.discord_media.txt',
-      );
-      await touch('init.d/windivert.filter.examples/windivert_part.stun.txt');
-      await touch(
-        'init.d/windivert.filter.examples/windivert_part.quic_initial_ietf.txt',
-      );
+      await _writeConfig(packageDir, 'general.conf', _sampleConfigBody());
 
-      final config = generator.build(
+      final configuration = generator.build(
         ZapretSettings(
-          installDirectory: tempDir.path,
-          customProfile: const ZapretCustomProfile(
-            youtubeVariant: ZapretFlowsealVariant.multisplit,
-            discordVariant: ZapretFlowsealVariant.fakedsplit,
-            genericVariant: ZapretFlowsealVariant.multidisorder,
-          ),
+          installDirectory: packageDir.path,
+          configFileName: 'general.conf',
         ),
       );
 
-      expect(config.arguments, contains('--new=google_tls'));
       expect(
-        config.arguments,
+        configuration.arguments,
         contains(
-          '--hostlist=${p.join(tempDir.path, 'files', 'list-google.txt')}',
+          '--hostlist=${p.join(packageDir.path, 'files', 'list-general.txt')}',
         ),
       );
       expect(
-        config.arguments,
+        configuration.arguments,
         contains(
-          '--hostlist=${p.join(tempDir.path, 'files', 'list-general.txt')}',
+          '--blob=quic_initial_www_google_com:@${p.join(packageDir.path, 'files', 'fake', 'quic_initial_www_google_com.bin')}',
         ),
       );
       expect(
-        config.arguments,
+        configuration.arguments,
         contains(
-          '--hostlist-exclude=${p.join(tempDir.path, 'files', 'list-exclude.txt')}',
-        ),
-      );
-      expect(
-        config.arguments,
-        contains(
-          '--ipset-exclude=${p.join(tempDir.path, 'files', 'ipset-exclude.txt')}',
+          '--lua-desync=fake:blob=quic_initial_www_google_com:repeats=6',
         ),
       );
     },
   );
 
-  test('does not rely on startup lua init to mutate fake_default_tls', () {
-    final config = generator.build(
-      const ZapretSettings(
-        installDirectory: r'E:\Tools\zapret2',
-        preset: ZapretPreset.youtube,
-      ),
+  test('prefers winws2 and keeps legacy winws.exe only as fallback', () async {
+    final packageDir = await Directory.systemTemp.createTemp(
+      'gorion-zapret-exe-',
     );
+    addTearDown(() => packageDir.delete(recursive: true));
+
+    final fallbackWinws2 = File(
+      p.join(packageDir.path, 'binaries', 'windows-x86_64', 'winws2.exe'),
+    );
+    await fallbackWinws2.parent.create(recursive: true);
+    await fallbackWinws2.writeAsString('');
 
     expect(
-      config.arguments,
-      isNot(
-        contains(
-          "--lua-init=fake_default_tls=tls_mod(fake_default_tls,'rnd,rndsni')",
-        ),
-      ),
+      generator.resolveExecutablePath(packageDir.path),
+      fallbackWinws2.path,
+    );
+
+    final preferredWinws = File(p.join(packageDir.path, 'bin', 'winws.exe'));
+    await preferredWinws.parent.create(recursive: true);
+    await preferredWinws.writeAsString('');
+
+    expect(
+      generator.resolveExecutablePath(packageDir.path),
+      fallbackWinws2.path,
     );
   });
 
-  test('prefers upstream zapret2 companion paths when they exist', () async {
-    final tempDir = await Directory.systemTemp.createTemp(
-      'gorion-zapret-layout-',
-    );
-    addTearDown(() async {
-      if (await tempDir.exists()) {
-        await tempDir.delete(recursive: true);
-      }
-    });
-
-    Future<void> touch(String relativePath) async {
-      final file = File(p.joinAll([tempDir.path, ...relativePath.split('/')]));
-      await file.parent.create(recursive: true);
-      await file.writeAsString('');
-    }
-
-    await touch('lua/zapret-lib.lua');
-    await touch('lua/zapret-antidpi.lua');
-    await touch('files/list-youtube.txt');
-    await touch('files/fake/quic_initial_www_google_com.bin');
-    await touch(
-      'init.d/windivert.filter.examples/windivert_part.discord_media.txt',
-    );
-    await touch('init.d/windivert.filter.examples/windivert_part.stun.txt');
-    await touch(
-      'init.d/windivert.filter.examples/windivert_part.quic_initial_ietf.txt',
-    );
-
-    final config = generator.build(
-      ZapretSettings(
-        installDirectory: tempDir.path,
-        preset: ZapretPreset.combined,
-      ),
-    );
+  test('normalizes legacy .bat name to matching .conf profile', () async {
+    final packageDir = await _createZapretPackage();
+    addTearDown(() => packageDir.delete(recursive: true));
 
     expect(
-      config.requiredFiles,
-      contains(
-        p.join(
-          tempDir.path,
-          'files',
-          'fake',
-          'quic_initial_www_google_com.bin',
-        ),
-      ),
+      generator.resolveSelectedConfigFileName(packageDir.path, 'general.bat'),
+      'general.conf',
     );
     expect(
-      config.requiredFiles,
-      contains(
-        p.join(
-          tempDir.path,
-          'init.d',
-          'windivert.filter.examples',
-          'windivert_part.stun.txt',
-        ),
+      generator.resolveSelectedConfigFileName(
+        packageDir.path,
+        'general (ALT10).bat',
       ),
+      'general.conf',
     );
   });
+}
 
-  test('adds Game Filter and optional IPSet overlay when enabled', () async {
-    final tempDir = await Directory.systemTemp.createTemp(
-      'gorion-zapret-game-ipset-',
-    );
-    addTearDown(() async {
-      if (await tempDir.exists()) {
-        await tempDir.delete(recursive: true);
-      }
-    });
+Future<Directory> _createZapretPackage({bool createUserLists = true}) async {
+  final root = await Directory.systemTemp.createTemp('gorion-zapret-package-');
 
-    Future<void> touch(String relativePath) async {
-      final file = File(p.joinAll([tempDir.path, ...relativePath.split('/')]));
-      await file.parent.create(recursive: true);
-      await file.writeAsString('');
-    }
+  Future<void> touch(String relativePath, {String contents = ''}) async {
+    final file = File(p.joinAll([root.path, ...relativePath.split('/')]));
+    await file.parent.create(recursive: true);
+    await file.writeAsString(contents);
+  }
 
-    await touch('lua/zapret-lib.lua');
-    await touch('lua/zapret-antidpi.lua');
-    await touch('files/list-youtube.txt');
-    await touch('files/list-exclude.txt');
-    await touch('files/ipset-exclude.txt');
-    await touch('files/fake/quic_initial_www_google_com.bin');
-    await touch('files/ipset-all.txt');
-    await touch(
-      'init.d/windivert.filter.examples/windivert_part.discord_media.txt',
-    );
-    await touch('init.d/windivert.filter.examples/windivert_part.stun.txt');
-    await touch(
-      'init.d/windivert.filter.examples/windivert_part.quic_initial_ietf.txt',
-    );
+  await touch('binaries/windows-x86_64/winws2.exe');
+  await touch('lua/zapret-lib.lua');
+  await touch('lua/zapret-antidpi.lua');
+  await touch('files/fake/quic_initial_www_google_com.bin');
+  await touch('files/fake/tls_clienthello_4pda_to.bin');
+  await touch('files/fake/tls_clienthello_max_ru.bin');
+  await touch('files/fake/tls_clienthello_www_google_com.bin');
+  await touch('files/fake/stun.bin');
+  await touch('files/list-general.txt');
+  await touch('files/list-exclude.txt');
+  await touch('files/ipset-all.txt');
+  await touch('files/ipset-exclude.txt');
+  if (createUserLists) {
+    await touch('files/list-general-user.txt');
+    await touch('files/list-exclude-user.txt');
+    await touch('files/ipset-exclude-user.txt');
+  }
+  await _writeConfig(root, 'general.conf', _sampleConfigBody());
 
-    final config = generator.build(
-      ZapretSettings(
-        installDirectory: tempDir.path,
-        preset: ZapretPreset.combined,
-        strategyProfile: ZapretStrategyProfile.combinedStrong,
-        gameFilterEnabled: true,
-        ipSetFilterMode: ZapretIpSetFilterMode.any,
-      ),
-    );
+  return root;
+}
 
-    expect(config.arguments, contains('--wf-tcp-out=80,443,1024-65535'));
-    expect(
-      config.arguments,
-      contains('--wf-udp-out=443,19294-19344,50000-50100,1024-65535'),
-    );
-    expect(config.arguments, contains('--new=game_filter'));
-    expect(
-      config.arguments,
-      contains('--ipset=${p.join(tempDir.path, 'files', 'ipset-all.txt')}'),
-    );
-    expect(
-      config.arguments,
-      contains(
-        '--hostlist-exclude=${p.join(tempDir.path, 'files', 'list-exclude.txt')}',
-      ),
-    );
-    expect(
-      config.arguments,
-      contains(
-        '--ipset-exclude=${p.join(tempDir.path, 'files', 'ipset-exclude.txt')}',
-      ),
-    );
-    expect(config.summary, contains('Game Filter'));
-    expect(config.summary, contains('IPSet any'));
-  });
+Future<void> _writeConfig(Directory root, String fileName, String body) async {
+  final file = File(p.join(root.path, 'profiles', fileName));
+  await file.parent.create(recursive: true);
+  await file.writeAsString(body);
+}
 
-  test('builds a detailed split strategy with fakedsplit fallback', () {
-    final config = generator.build(
-      const ZapretSettings(
-        installDirectory: r'E:\Tools\zapret2',
-        preset: ZapretPreset.recommended,
-        strategyProfile: ZapretStrategyProfile.balancedSplit,
-      ),
-    );
-
-    expect(config.summary, contains('Баланс split'));
-    expect(
-      config.arguments,
-      contains('--wf-udp-out=443,19294-19344,50000-50100'),
-    );
-    expect(
-      config.arguments,
-      contains('--lua-desync=fakedsplit:pos=midsld+1:seqovl=1'),
-    );
-    expect(config.arguments, contains('--new=generic_tls'));
-  });
-
-  test('resolves winws2.exe from supported bundle layouts', () async {
-    final tempDir = await Directory.systemTemp.createTemp('gorion-zapret-bin-');
-    addTearDown(() async {
-      if (await tempDir.exists()) {
-        await tempDir.delete(recursive: true);
-      }
-    });
-
-    final upstreamExe = File(
-      p.join(tempDir.path, 'binaries', 'windows-x86_64', 'winws2.exe'),
-    );
-    await upstreamExe.parent.create(recursive: true);
-    await upstreamExe.writeAsString('');
-
-    expect(
-      p.normalize(generator.resolveExecutablePath(tempDir.path)!),
-      p.normalize(upstreamExe.path),
-    );
-
-    final nestedDir = Directory(p.join(tempDir.path, 'nfq2'));
-    await nestedDir.create(recursive: true);
-    final nestedExe = File(p.join(nestedDir.path, 'winws2.exe'));
-    await nestedExe.writeAsString('');
-
-    final rootExe = File(p.join(tempDir.path, 'winws2.exe'));
-    await rootExe.writeAsString('');
-
-    expect(generator.resolveExecutablePath(tempDir.path), rootExe.path);
-  });
+String _sampleConfigBody() {
+  return '''
+--wf-tcp=80,443,%GameFilterTCP% --wf-udp=443,%GameFilterUDP%
+--filter-udp=443 --hostlist="%LISTS%list-general.txt" --hostlist="%LISTS%list-general-user.txt" --hostlist-exclude="%LISTS%list-exclude.txt" --hostlist-exclude="%LISTS%list-exclude-user.txt" --ipset="%LISTS%ipset-all.txt" --ipset-exclude="%LISTS%ipset-exclude.txt" --ipset-exclude="%LISTS%ipset-exclude-user.txt" --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fake-quic="%BIN%quic_initial_www_google_com.bin"
+''';
 }

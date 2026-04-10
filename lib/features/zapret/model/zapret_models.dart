@@ -1,3 +1,16 @@
+import 'package:path/path.dart' as p;
+
+String formatZapretConfigLabel(String fileName) {
+  final trimmed = p.basename(fileName.trim());
+  final normalized = trimmed.toLowerCase();
+  for (final suffix in <String>['.conf', '.bat']) {
+    if (normalized.endsWith(suffix)) {
+      return trimmed.substring(0, trimmed.length - suffix.length);
+    }
+  }
+  return trimmed;
+}
+
 enum ZapretPreset {
   recommended(
     'recommended',
@@ -104,6 +117,21 @@ enum ZapretStrategyProfile {
 }
 
 enum ZapretFlowsealVariant {
+  simpleFake(
+    'simplefake',
+    'SimpleFake',
+    'Чистый fake без split/disorder follow-up, как в рабочих Flowseal SIMPLE FAKE профилях.',
+  ),
+  simpleFakeMaxRu(
+    'simplefake-maxru',
+    'SimpleFake MaxRu',
+    'Чистый fake; для общего HTTPS-блока использует max.ru blob без tls_mod, как в SIMPLE FAKE ALT2.',
+  ),
+  simpleFake4Pda(
+    'simplefake-4pda',
+    'SimpleFake 4PDA',
+    'Чистый fake; для общего HTTPS-блока использует 4pda/max.ru blob без tls_mod, как в ALT10.',
+  ),
   fakedsplit(
     'fakedsplit',
     'FakeSplit',
@@ -112,7 +140,12 @@ enum ZapretFlowsealVariant {
   multisplit(
     'multisplit',
     'MultiSplit',
-    'multisplit с отдельным seqovl pattern без лишних follow-up блоков.',
+    'Flowseal-style fake + multisplit с seqovl pattern на TLS fake blob.',
+  ),
+  multisplitMaxRu(
+    'multisplit-maxru',
+    'MultiSplit MaxRu',
+    'Flowseal-style fake + multisplit; для общего HTTPS-блока использует max.ru blob, как в ALT11.',
   ),
   hostfakesplit(
     'hostfakesplit',
@@ -138,20 +171,49 @@ enum ZapretFlowsealVariant {
         return variant;
       }
     }
-    return ZapretFlowsealVariant.fakedsplit;
+    return ZapretFlowsealVariant.simpleFake;
   }
 }
 
 class ZapretCustomProfile {
-  const ZapretCustomProfile({
-    this.youtubeVariant = ZapretFlowsealVariant.fakedsplit,
-    this.discordVariant = ZapretFlowsealVariant.fakedsplit,
-    this.genericVariant = ZapretFlowsealVariant.fakedsplit,
+  factory ZapretCustomProfile({
+    ZapretFlowsealBlockProfile? youtube,
+    ZapretFlowsealBlockProfile? discord,
+    ZapretFlowsealBlockProfile? generic,
+    ZapretFlowsealVariant youtubeVariant = ZapretFlowsealVariant.simpleFake,
+    ZapretFlowsealVariant discordVariant = ZapretFlowsealVariant.simpleFake,
+    ZapretFlowsealVariant genericVariant = ZapretFlowsealVariant.simpleFake,
+  }) {
+    return ZapretCustomProfile._(
+      youtube:
+          youtube ??
+          ZapretFlowsealBlockProfile(enabled: true, variant: youtubeVariant),
+      discord:
+          discord ??
+          ZapretFlowsealBlockProfile(enabled: true, variant: discordVariant),
+      generic:
+          generic ??
+          ZapretFlowsealBlockProfile(enabled: true, variant: genericVariant),
+    );
+  }
+
+  const ZapretCustomProfile._({
+    required this.youtube,
+    required this.discord,
+    required this.generic,
   });
 
-  final ZapretFlowsealVariant youtubeVariant;
-  final ZapretFlowsealVariant discordVariant;
-  final ZapretFlowsealVariant genericVariant;
+  final ZapretFlowsealBlockProfile youtube;
+  final ZapretFlowsealBlockProfile discord;
+  final ZapretFlowsealBlockProfile generic;
+
+  ZapretFlowsealVariant get youtubeVariant => youtube.variant;
+  ZapretFlowsealVariant get discordVariant => discord.variant;
+  ZapretFlowsealVariant get genericVariant => generic.variant;
+
+  bool get youtubeEnabled => youtube.enabled;
+  bool get discordEnabled => discord.enabled;
+  bool get genericEnabled => generic.enabled;
 
   static ZapretCustomProfile fromLegacy({
     required ZapretPreset preset,
@@ -163,7 +225,7 @@ class ZapretCustomProfile {
       ZapretStrategyProfile.balancedDisorder ||
       ZapretStrategyProfile.combinedDisorder =>
         ZapretFlowsealVariant.multidisorder,
-      _ => ZapretFlowsealVariant.fakedsplit,
+      _ => ZapretFlowsealVariant.simpleFake,
     };
     final discordVariant = switch (strategy) {
       ZapretStrategyProfile.balancedDisorder ||
@@ -174,8 +236,8 @@ class ZapretCustomProfile {
         ZapretFlowsealVariant.hostfakesplit,
       _ =>
         preset == ZapretPreset.youtube
-            ? ZapretFlowsealVariant.fakedsplit
-            : ZapretFlowsealVariant.hostfakesplit,
+            ? ZapretFlowsealVariant.simpleFake
+            : ZapretFlowsealVariant.simpleFake,
     };
     final genericVariant = switch (strategy) {
       ZapretStrategyProfile.balancedStrong ||
@@ -185,65 +247,156 @@ class ZapretCustomProfile {
         ZapretFlowsealVariant.multidisorder,
       _ =>
         preset == ZapretPreset.combined
-            ? ZapretFlowsealVariant.multidisorder
-            : ZapretFlowsealVariant.fakedsplit,
+            ? ZapretFlowsealVariant.simpleFakeMaxRu
+            : ZapretFlowsealVariant.simpleFake,
     };
     return ZapretCustomProfile(
-      youtubeVariant: youtubeVariant,
-      discordVariant: discordVariant,
-      genericVariant: genericVariant,
+      youtube: ZapretFlowsealBlockProfile(
+        enabled: true,
+        variant: youtubeVariant,
+      ),
+      discord: ZapretFlowsealBlockProfile(
+        enabled: true,
+        variant: discordVariant,
+      ),
+      generic: ZapretFlowsealBlockProfile(
+        enabled: true,
+        variant: genericVariant,
+      ),
     );
   }
 
   String get summaryLabel {
-    return 'YT ${youtubeVariant.label} • Discord ${discordVariant.label} • HTTPS ${genericVariant.label}';
+    return 'YT ${youtube.summaryLabel} • Discord ${discord.summaryLabel} • HTTPS ${generic.summaryLabel}';
   }
 
   ZapretCustomProfile copyWith({
+    ZapretFlowsealBlockProfile? youtube,
+    ZapretFlowsealBlockProfile? discord,
+    ZapretFlowsealBlockProfile? generic,
     ZapretFlowsealVariant? youtubeVariant,
     ZapretFlowsealVariant? discordVariant,
     ZapretFlowsealVariant? genericVariant,
+    bool? youtubeEnabled,
+    bool? discordEnabled,
+    bool? genericEnabled,
   }) {
     return ZapretCustomProfile(
-      youtubeVariant: youtubeVariant ?? this.youtubeVariant,
-      discordVariant: discordVariant ?? this.discordVariant,
-      genericVariant: genericVariant ?? this.genericVariant,
+      youtube:
+          youtube ??
+          this.youtube.copyWith(
+            enabled: youtubeEnabled,
+            variant: youtubeVariant,
+          ),
+      discord:
+          discord ??
+          this.discord.copyWith(
+            enabled: discordEnabled,
+            variant: discordVariant,
+          ),
+      generic:
+          generic ??
+          this.generic.copyWith(
+            enabled: genericEnabled,
+            variant: genericVariant,
+          ),
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      'youtubeVariant': youtubeVariant.jsonValue,
-      'discordVariant': discordVariant.jsonValue,
-      'genericVariant': genericVariant.jsonValue,
+      'youtube': youtube.toJson(),
+      'discord': discord.toJson(),
+      'generic': generic.toJson(),
     };
   }
 
   factory ZapretCustomProfile.fromJson(Map<String, dynamic> json) {
+    ZapretFlowsealBlockProfile parseBlock(String key, String legacyKey) {
+      final nested = json[key];
+      if (nested is Map<String, dynamic>) {
+        return ZapretFlowsealBlockProfile.fromJson(nested);
+      }
+      if (nested is Map) {
+        return ZapretFlowsealBlockProfile.fromJson(
+          Map<String, dynamic>.from(nested.cast<String, dynamic>()),
+        );
+      }
+      return ZapretFlowsealBlockProfile(
+        enabled: true,
+        variant: ZapretFlowsealVariant.fromJsonValue(json[legacyKey]),
+      );
+    }
+
     return ZapretCustomProfile(
-      youtubeVariant: ZapretFlowsealVariant.fromJsonValue(
-        json['youtubeVariant'],
-      ),
-      discordVariant: ZapretFlowsealVariant.fromJsonValue(
-        json['discordVariant'],
-      ),
-      genericVariant: ZapretFlowsealVariant.fromJsonValue(
-        json['genericVariant'],
-      ),
+      youtube: parseBlock('youtube', 'youtubeVariant'),
+      discord: parseBlock('discord', 'discordVariant'),
+      generic: parseBlock('generic', 'genericVariant'),
     );
   }
 
   @override
   bool operator ==(Object other) {
     return other is ZapretCustomProfile &&
-        other.youtubeVariant == youtubeVariant &&
-        other.discordVariant == discordVariant &&
-        other.genericVariant == genericVariant;
+        other.youtube == youtube &&
+        other.discord == discord &&
+        other.generic == generic;
   }
 
   @override
-  int get hashCode =>
-      Object.hash(youtubeVariant, discordVariant, genericVariant);
+  int get hashCode => Object.hash(youtube, discord, generic);
+}
+
+class ZapretFlowsealBlockProfile {
+  const ZapretFlowsealBlockProfile({
+    required this.enabled,
+    required this.variant,
+  });
+
+  final bool enabled;
+  final ZapretFlowsealVariant variant;
+
+  String get summaryLabel => enabled ? variant.label : 'Off';
+
+  String get description {
+    if (!enabled) {
+      return 'Блок отключён.';
+    }
+    return variant.description;
+  }
+
+  ZapretFlowsealBlockProfile copyWith({
+    bool? enabled,
+    ZapretFlowsealVariant? variant,
+  }) {
+    return ZapretFlowsealBlockProfile(
+      enabled: enabled ?? this.enabled,
+      variant: variant ?? this.variant,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {'enabled': enabled, 'variant': variant.jsonValue};
+  }
+
+  factory ZapretFlowsealBlockProfile.fromJson(Map<String, dynamic> json) {
+    return ZapretFlowsealBlockProfile(
+      enabled: json['enabled'] as bool? ?? true,
+      variant: ZapretFlowsealVariant.fromJsonValue(
+        json['variant'] ?? json['youtubeVariant'] ?? json['discordVariant'],
+      ),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is ZapretFlowsealBlockProfile &&
+        other.enabled == enabled &&
+        other.variant == variant;
+  }
+
+  @override
+  int get hashCode => Object.hash(enabled, variant);
 }
 
 enum ZapretIpSetFilterMode {
@@ -264,6 +417,69 @@ enum ZapretIpSetFilterMode {
     }
     return ZapretIpSetFilterMode.none;
   }
+}
+
+enum ZapretGameFilterMode {
+  disabled('disabled', 'Отключён', '12', '12'),
+  all('all', 'TCP и UDP', '1024-65535', '1024-65535'),
+  tcp('tcp', 'Только TCP', '1024-65535', '12'),
+  udp('udp', 'Только UDP', '12', '1024-65535');
+
+  const ZapretGameFilterMode(
+    this.jsonValue,
+    this.label,
+    this.tcpValue,
+    this.udpValue,
+  );
+
+  final String jsonValue;
+  final String label;
+  final String tcpValue;
+  final String udpValue;
+
+  bool get enabled => this != ZapretGameFilterMode.disabled;
+
+  static ZapretGameFilterMode fromJsonValue(dynamic value) {
+    if (value is bool) {
+      return value ? ZapretGameFilterMode.all : ZapretGameFilterMode.disabled;
+    }
+
+    final normalized = value?.toString().trim().toLowerCase();
+    for (final mode in values) {
+      if (mode.jsonValue == normalized) {
+        return mode;
+      }
+    }
+
+    return switch (normalized) {
+      'true' => ZapretGameFilterMode.all,
+      'false' ||
+      'none' ||
+      'off' ||
+      'disable' ||
+      'disabled' => ZapretGameFilterMode.disabled,
+      _ => ZapretGameFilterMode.disabled,
+    };
+  }
+}
+
+class ZapretConfigOption {
+  const ZapretConfigOption({required this.fileName, required this.path});
+
+  final String fileName;
+  final String path;
+
+  String get label => formatZapretConfigLabel(fileName);
+
+  @override
+  bool operator ==(Object other) {
+    return other is ZapretConfigOption &&
+        other.fileName == fileName &&
+        other.path == path;
+  }
+
+  @override
+  int get hashCode => Object.hash(fileName, path);
 }
 
 enum ZapretStage {
@@ -316,13 +532,13 @@ class ZapretProbeResult {
   final String? details;
 
   String get summary {
-    final suffix = latencyMs == null ? null : '${latencyMs} ms';
+    final suffix = latencyMs == null ? null : '$latencyMs ms';
     final detailText = details == null || details!.trim().isEmpty
         ? null
         : details!.trim();
     final description = [
-      if (suffix != null) suffix,
-      if (detailText != null) detailText,
+      if (suffix case final suffix?) suffix,
+      if (detailText case final detailText?) detailText,
     ].join(' • ');
     if (description.isEmpty) {
       return '${target.label}: ${success ? 'ok' : 'fail'}';
@@ -395,6 +611,7 @@ class ZapretRuntimeSession {
 
 class ZapretLaunchConfiguration {
   const ZapretLaunchConfiguration({
+    required this.executablePath,
     required this.workingDirectory,
     required this.arguments,
     required this.requiredFiles,
@@ -402,6 +619,7 @@ class ZapretLaunchConfiguration {
     required this.summary,
   });
 
+  final String executablePath;
   final String workingDirectory;
   final List<String> arguments;
   final List<String> requiredFiles;

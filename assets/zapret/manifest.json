@@ -8,6 +8,7 @@
     "init.d/windivert.filter.examples/"
   ],
   "generatedFiles": [
+    "files/ipset-all.txt",
     "files/ipset-exclude.txt",
     "files/list-exclude.txt",
     "files/list-general.txt",
