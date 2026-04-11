@@ -438,24 +438,38 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
           fit: StackFit.expand,
           children: [
             _BackgroundAtmosphere(),
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                leftInset + _dockWidth + _dockGap,
-                contentTopInset,
-                rightInset,
-                bottomInset,
-              ),
-              child: KeyedSubtree(
-                key: ValueKey(_currentPage),
-                child: switch (_currentPage) {
-                  _DockPage.home => widget.child,
-                  _DockPage.zapret => const ZapretPage(animateOnMount: false),
-                  _DockPage.settings => const SettingsPage(
-                    animateOnMount: false,
+            if (_currentPage == _DockPage.zapret)
+              KeyedSubtree(
+                key: const ValueKey(_DockPage.zapret),
+                child: ZapretPage(
+                  animateOnMount: false,
+                  contentPadding: EdgeInsets.fromLTRB(
+                    leftInset + _dockWidth + _dockGap,
+                    contentTopInset,
+                    viewPadding.right,
+                    bottomInset,
                   ),
-                },
+                ),
+              )
+            else
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  leftInset + _dockWidth + _dockGap,
+                  contentTopInset,
+                  rightInset,
+                  bottomInset,
+                ),
+                child: KeyedSubtree(
+                  key: ValueKey(_currentPage),
+                  child: switch (_currentPage) {
+                    _DockPage.home => widget.child,
+                    _DockPage.zapret => const SizedBox.shrink(),
+                    _DockPage.settings => const SettingsPage(
+                      animateOnMount: false,
+                    ),
+                  },
+                ),
               ),
-            ),
             Positioned(
               top: 0,
               left: 0,

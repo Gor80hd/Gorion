@@ -96,12 +96,14 @@ void main() {
 
       await pumpAtSize(const Size(1440, 900));
       await tester.tap(find.byTooltip('Настройки'));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
       expect(find.text('Настройки'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Zapret 2'));
-      await tester.pumpAndSettle();
-      expect(find.text('Zapret 2'), findsOneWidget);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(find.text('Gorion Boost'), findsOneWidget);
 
       await pumpAtSize(const Size(1100, 760));
       await pumpAtSize(const Size(900, 560));

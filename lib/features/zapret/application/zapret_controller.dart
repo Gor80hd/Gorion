@@ -7,6 +7,7 @@ import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_settings.dart';
+import 'package:path/path.dart' as p;
 
 final zapretSettingsRepositoryProvider = Provider<ZapretSettingsRepository>(
   (ref) => ZapretSettingsRepository(),
@@ -240,6 +241,65 @@ class ZapretController extends StateNotifier<ZapretState> {
 
   Future<void> setStartOnAppLaunch(bool enabled) {
     return _saveSettings(state.settings.copyWith(startOnAppLaunch: enabled));
+  }
+
+  Future<void> refreshConfigs() async {
+    if (state.bootstrapping || state.busy) {
+      return;
+    }
+
+    state = state.copyWith(busy: true, clearErrorMessage: true);
+    try {
+      final settings = _normalizeSettingsModel(await _ensureHydratedSettings());
+      final availableConfigs = _runtimeService.listAvailableProfiles(
+        settings.normalizedInstallDirectory,
+      );
+      final configuration = _tryBuildPreview(settings);
+      state = state.copyWith(
+        busy: false,
+        settings: settings,
+        availableConfigs: availableConfigs,
+        generatedConfigPreview: configuration?.preview,
+        clearGeneratedConfigPreview: configuration == null,
+        generatedConfigSummary: configuration?.summary,
+        clearGeneratedConfigSummary: configuration == null,
+        statusMessage: availableConfigs.isEmpty
+            ? 'Конфиги не найдены. Откройте папку профилей и добавьте свой .conf.'
+            : 'Список конфигов обновлён.',
+        logs: _runtimeService.logs,
+      );
+    } on Object catch (error) {
+      state = state.copyWith(
+        busy: false,
+        errorMessage: _describeError(error),
+        clearStatusMessage: true,
+      );
+    }
+  }
+
+  Future<String?> prepareProfilesDirectory() async {
+    if (state.bootstrapping || state.busy) {
+      return null;
+    }
+
+    try {
+      final settings = _normalizeSettingsModel(await _ensureHydratedSettings());
+      if (!settings.hasInstallDirectory) {
+        return null;
+      }
+
+      final profilesDirectory = Directory(
+        p.join(settings.normalizedInstallDirectory, 'profiles'),
+      );
+      await profilesDirectory.create(recursive: true);
+      return profilesDirectory.path;
+    } on Object catch (error) {
+      state = state.copyWith(
+        errorMessage: _describeError(error),
+        clearStatusMessage: true,
+      );
+      return null;
+    }
   }
 
   Future<void> generateConfiguration() async {

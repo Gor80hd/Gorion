@@ -3,9 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/app/theme_settings.dart';
-import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
-import 'package:gorion_clean/features/settings/data/desktop_settings_repository.dart';
-import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
@@ -15,7 +12,7 @@ import 'package:gorion_clean/features/zapret/widget/zapret_page.dart';
 
 void main() {
   testWidgets(
-    'zapret page keeps the bento layout without page scroll during resize',
+    'zapret page keeps the boost layout without page scroll during resize',
     (WidgetTester tester) async {
       final zapretController = ZapretController(
         repository: _FakeZapretSettingsRepository(),
@@ -61,17 +58,9 @@ void main() {
         ),
         loadOnInit: false,
       );
-      final desktopController = DesktopSettingsController(
-        repository: _FakeDesktopSettingsRepository(),
-        launchAtStartupService: const NoopLaunchAtStartupService(),
-        initialState: const DesktopSettingsState(launchAtStartupEnabled: true),
-      );
       final container = ProviderContainer(
         overrides: [
           zapretControllerProvider.overrideWith((ref) => zapretController),
-          desktopSettingsControllerProvider.overrideWith(
-            (ref) => desktopController,
-          ),
         ],
       );
 
@@ -96,15 +85,17 @@ void main() {
 
         expect(tester.takeException(), isNull);
         expect(
-          find.byKey(const ValueKey('zapret-bento-dashboard')),
+          find.byKey(const ValueKey('zapret-boost-scene')),
           findsOneWidget,
         );
         expect(find.byType(SingleChildScrollView), findsNothing);
-        expect(find.text('Каталог и генерация'), findsOneWidget);
-        expect(find.text('Конфиг и фильтр'), findsOneWidget);
-        expect(find.text('Процесс и лента'), findsOneWidget);
-        expect(find.text('Запуск и защита'), findsNothing);
-        expect(find.text('Пресет'), findsNothing);
+        expect(find.text('Gorion Boost'), findsOneWidget);
+        expect(find.text('Подключение Boost'), findsOneWidget);
+        expect(find.text('Статус работы'), findsOneWidget);
+        expect(find.text('Выбранный конфиг'), findsOneWidget);
+        expect(find.text('GameFilter'), findsWidgets);
+        expect(find.byTooltip('Обновить конфиги'), findsOneWidget);
+        expect(find.byTooltip('Открыть папку конфигов'), findsOneWidget);
       }
 
       await pumpAtSize(const Size(1440, 900));
@@ -137,17 +128,9 @@ void main() {
       ),
       loadOnInit: false,
     );
-    final desktopController = DesktopSettingsController(
-      repository: _FakeDesktopSettingsRepository(),
-      launchAtStartupService: const NoopLaunchAtStartupService(),
-      initialState: const DesktopSettingsState(launchAtStartupEnabled: true),
-    );
     final container = ProviderContainer(
       overrides: [
         zapretControllerProvider.overrideWith((ref) => zapretController),
-        desktopSettingsControllerProvider.overrideWith(
-          (ref) => desktopController,
-        ),
       ],
     );
 
@@ -168,8 +151,8 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Конфиг и фильтр'), findsOneWidget);
-    expect(find.text('Запуск и защита'), findsNothing);
+    expect(find.text('Gorion Boost'), findsOneWidget);
+    expect(find.text('Выбранный конфиг'), findsOneWidget);
     expect(find.text('general'), findsWidgets);
     expect(find.text('Отключён'), findsWidgets);
   });
@@ -178,5 +161,3 @@ void main() {
 class _FakeZapretSettingsRepository extends ZapretSettingsRepository {}
 
 class _FakeZapretRuntimeService extends ZapretRuntimeService {}
-
-class _FakeDesktopSettingsRepository extends DesktopSettingsRepository {}

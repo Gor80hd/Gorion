@@ -3,68 +3,101 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
-import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
 
 class ZapretPage extends ConsumerStatefulWidget {
-  const ZapretPage({super.key, this.animateOnMount = true});
+  const ZapretPage({
+    super.key,
+    this.animateOnMount = true,
+    this.contentPadding = EdgeInsets.zero,
+  });
 
   final bool animateOnMount;
+  final EdgeInsets contentPadding;
 
   @override
   ConsumerState<ZapretPage> createState() => _ZapretPageState();
 }
 
-class _ZapretPageState extends ConsumerState<ZapretPage> {
-  late final TextEditingController _installDirectoryController;
+class _ZapretPageState extends ConsumerState<ZapretPage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _backgroundController;
 
   @override
   void initState() {
     super.initState();
-    _installDirectoryController = TextEditingController();
+    _backgroundController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 18),
+    )..repeat();
   }
 
   @override
   void dispose() {
-    _installDirectoryController.dispose();
+    _backgroundController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(zapretControllerProvider);
-    final desktopState = ref.watch(desktopSettingsControllerProvider);
-
-    if (_installDirectoryController.text !=
-        state.settings.normalizedInstallDirectory) {
-      _installDirectoryController.text =
-          state.settings.normalizedInstallDirectory;
-      _installDirectoryController.selection = TextSelection.collapsed(
-        offset: _installDirectoryController.text.length,
-      );
-    }
 
     final body = LayoutBuilder(
       builder: (context, constraints) {
-        final layout = _ZapretDashboardLayout.fromConstraints(constraints);
-        final dashboard = SizedBox(
-          key: const ValueKey('zapret-bento-dashboard'),
-          width: layout.dashboardWidth,
-          height: layout.dashboardHeight,
-          child: _buildDashboard(context, state, desktopState, layout),
+        final layout = _ZapretBoostLayout.fromConstraints(constraints);
+        final content = SizedBox(
+          key: const ValueKey('zapret-boost-scene'),
+          width: layout.sceneWidth,
+          height: layout.sceneHeight,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              widget.contentPadding.left + layout.horizontalPadding,
+              widget.contentPadding.top + layout.verticalPadding,
+              widget.contentPadding.right + layout.horizontalPadding,
+              widget.contentPadding.bottom + layout.verticalPadding,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.center,
+                    child: _buildHero(context, state, layout),
+                  ),
+                ),
+                SizedBox(height: layout.sectionGap),
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: layout.cardWidth),
+                    child: _buildControlCard(context, state, layout),
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
+
         return SizedBox.expand(
-          child: layout.scaleFallback
-              ? FittedBox(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _BoostAnimatedBackdrop(animation: _backgroundController),
+              if (layout.scaleFallback)
+                FittedBox(
                   fit: BoxFit.contain,
-                  alignment: Alignment.topCenter,
-                  child: dashboard,
+                  alignment: Alignment.center,
+                  child: content,
                 )
-              : dashboard,
+              else
+                content,
+            ],
+          ),
         );
       },
     );
@@ -78,492 +111,342 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
         : body;
   }
 
-  Widget _buildDashboard(
+  Widget _buildHero(
     BuildContext context,
     ZapretState state,
-    DesktopSettingsState desktopState,
-    _ZapretDashboardLayout layout,
+    _ZapretBoostLayout layout,
   ) {
-    if (layout.scaleFallback) {
-      final topFlex = layout.ultraCompact ? 4 : 5;
-      final bottomFlex = layout.ultraCompact ? 5 : 4;
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            flex: 7,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: topFlex,
-                  child: _buildHero(context, state, desktopState, layout),
+    final theme = Theme.of(context);
+    const textAlign = TextAlign.center;
+    const crossAxisAlignment = CrossAxisAlignment.center;
+
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.center,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: layout.heroWidth),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: crossAxisAlignment,
+          children: [
+            Text(
+              'Gorion Boost',
+              textAlign: textAlign,
+              style: theme.textTheme.displayLarge?.copyWith(
+                color: theme.colorScheme.onSurface,
+                fontSize: layout.titleFontSize,
+                fontWeight: FontWeight.w700,
+                height: 0.94,
+                letterSpacing: -2.4,
+                shadows: [
+                  Shadow(
+                    color: Colors.black.withValues(alpha: 0.22),
+                    blurRadius: 28,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: layout.heroSpacing),
+            Text(
+              _heroSubtitle(state),
+              textAlign: textAlign,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.gorionTokens.onSurfaceMuted.withValues(
+                  alpha: 0.96,
                 ),
-                SizedBox(height: layout.gap),
-                Expanded(
-                  flex: bottomFlex,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        child: _buildInstallCard(context, state, layout),
-                      ),
-                      SizedBox(width: layout.gap),
-                      Expanded(
-                        child: _buildProfileCard(context, state, layout),
-                      ),
-                    ],
+                fontSize: layout.subtitleFontSize,
+                fontWeight: FontWeight.w500,
+                height: 1.42,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControlCard(
+    BuildContext context,
+    ZapretState state,
+    _ZapretBoostLayout layout,
+  ) {
+    final theme = Theme.of(context);
+    final controller = ref.read(zapretControllerProvider.notifier);
+    final stageColor = _stageColor(theme, state.stage);
+    final bannerText = state.errorMessage ?? state.statusMessage;
+    final bannerColor = state.errorMessage != null
+        ? const Color(0xFFFF8A8A)
+        : stageColor;
+    final selectedConfigLabel = state.availableConfigs.isEmpty
+        ? 'Конфиги не найдены'
+        : state.settings.effectiveConfigLabel;
+
+    return GlassPanel(
+      borderRadius: layout.cardRadius,
+      padding: EdgeInsets.all(layout.cardPadding),
+      opacity: 0.08,
+      backgroundColor: Colors.white,
+      strokeColor: stageColor,
+      strokeOpacity: 0.14,
+      strokeWidth: 1,
+      showGlow: false,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stacked = constraints.maxWidth < 820;
+          final actionGap = layout.compact ? 6.0 : 8.0;
+
+          final statusBlock = _ControlBlock(
+            title: 'Статус работы',
+            accentColor: bannerColor,
+            trailing: _MetaPill(
+              label: state.stage.label,
+              color: bannerColor,
+              compact: layout.ultraCompact,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _statusHeadline(state),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                    fontSize: layout.compact ? 19 : 21,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _statusDetail(state),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.gorionTokens.onSurfaceMuted,
+                    fontSize: layout.compact ? 13 : 14,
+                    height: 1.42,
                   ),
                 ),
               ],
             ),
-          ),
-          SizedBox(width: layout.gap),
-          Expanded(flex: 5, child: _buildRuntimeCard(context, state, layout)),
-        ],
-      );
-    }
+          );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(
-          flex: layout.compact ? 11 : 5,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                flex: 7,
-                child: _buildHero(context, state, desktopState, layout),
-              ),
-              SizedBox(width: layout.gap),
-              Expanded(
-                flex: 5,
-                child: _buildRuntimeCard(context, state, layout),
-              ),
-            ],
-          ),
-        ),
-        SizedBox(height: layout.gap),
-        Expanded(
-          flex: layout.compact ? 7 : 5,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(child: _buildInstallCard(context, state, layout)),
-              SizedBox(width: layout.gap),
-              Expanded(child: _buildProfileCard(context, state, layout)),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildHero(
-    BuildContext context,
-    ZapretState state,
-    DesktopSettingsState desktopState,
-    _ZapretDashboardLayout layout,
-  ) {
-    final theme = Theme.of(context);
-    final stageColor = _stageColor(theme, state.stage);
-    final ultraCompact = layout.ultraCompact;
-    final subtitle = !Platform.isWindows
-        ? 'Управление отдельным процессом zapret доступно только в Windows.'
-        : state.tunConflictActive
-        ? 'Сейчас активен TUN, поэтому запуск zapret временно заблокирован.'
-        : 'Статус, запуск и встроенные конфиги собраны на одном экране.';
-    final bannerText = state.errorMessage ?? state.statusMessage;
-    final bannerColor = state.errorMessage != null
-        ? const Color(0xFFFF8A8A)
-        : theme.brandAccent;
-
-    return _buildPanel(
-      layout: layout,
-      accentColor: stageColor,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ultraCompact
-              ? _CompactPanelHeading(
-                  icon: Icons.gpp_good_outlined,
-                  title: 'Zapret 2',
-                  accentColor: stageColor,
-                )
-              : _PanelHeading(
-                  icon: Icons.gpp_good_outlined,
-                  title: 'Zapret 2',
-                  description: subtitle,
-                  accentColor: stageColor,
-                ),
-          if (ultraCompact) ...[
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.gorionTokens.onSurfaceMuted,
-                height: 1.3,
-              ),
+          final gameFilterBlock = _ControlBlock(
+            title: 'GameFilter',
+            accentColor: const Color(0xFF72A8FF),
+            trailing: _MetaPill(
+              label: state.settings.gameFilterMode.label,
+              color: state.settings.gameFilterEnabled
+                  ? const Color(0xFF72A8FF)
+                  : theme.gorionTokens.onSurfaceMuted,
+              compact: layout.ultraCompact,
             ),
-          ],
-          SizedBox(height: layout.innerGap),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _MetaPill(label: state.stage.label, color: stageColor),
-              if (state.generatedConfigSummary != null)
-                _MetaPill(
-                  label: state.generatedConfigSummary!,
-                  color: _profileAccentColor(theme),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    state.settings.gameFilterEnabled
+                        ? 'Фильтр добавится в команду запуска. Текущий режим: ${state.settings.gameFilterMode.label}.'
+                        : 'Boost запустится без дополнительного фильтра. Включи тумблер, если он нужен.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.gorionTokens.onSurfaceMuted,
+                      fontSize: layout.compact ? 13 : 14,
+                      height: 1.42,
+                    ),
+                  ),
                 ),
-            ],
-          ),
-          if (bannerText != null) ...[
-            SizedBox(height: layout.innerGap),
-            _StatusBanner(
-              text: bannerText,
-              accentColor: bannerColor,
-              compact: ultraCompact,
+                const SizedBox(width: 12),
+                Switch.adaptive(
+                  value: state.settings.gameFilterEnabled,
+                  onChanged: state.busy
+                      ? null
+                      : (value) => controller.setGameFilterEnabled(value),
+                ),
+              ],
             ),
-          ],
-          SizedBox(height: layout.innerGap),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final tileWidth = (constraints.maxWidth - layout.innerGap) / 2;
-                final heroTiles = ultraCompact
-                    ? [
-                        (
-                          label: 'Профиль',
-                          value: _profileSummary(state),
-                          color: _profileAccentColor(theme),
+          );
+
+          final configBlock = _ControlBlock(
+            title: 'Выбранный конфиг',
+            accentColor: theme.brandAccent,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ActionIconButton(
+                  tooltip: 'Обновить конфиги',
+                  icon: Icons.refresh_rounded,
+                  color: theme.brandAccent,
+                  onPressed: state.busy ? null : _refreshConfigs,
+                ),
+                SizedBox(width: actionGap),
+                _ActionIconButton(
+                  tooltip: 'Открыть папку конфигов',
+                  icon: Icons.folder_open_rounded,
+                  color: const Color(0xFFFFB457),
+                  onPressed: state.busy ? null : _openProfilesFolder,
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                PopupMenuButton<String>(
+                  enabled: !state.busy && state.availableConfigs.isNotEmpty,
+                  tooltip: 'Выбрать конфиг',
+                  onSelected: controller.setConfigFileName,
+                  itemBuilder: (context) => [
+                    for (final option in state.availableConfigs)
+                      PopupMenuItem<String>(
+                        value: option.fileName,
+                        child: Text(option.label),
+                      ),
+                  ],
+                  child: Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: layout.compact ? 14 : 16,
+                      vertical: layout.compact ? 13 : 14,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      color: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.34),
+                      border: Border.all(
+                        color: theme.brandAccent.withValues(
+                          alpha: state.availableConfigs.isEmpty ? 0.08 : 0.18,
                         ),
-                        (
-                          label: 'TUN',
-                          value: state.tunConflictActive
-                              ? 'Есть конфликт'
-                              : 'Конфликта нет',
-                          color: state.tunConflictActive
-                              ? const Color(0xFFFFC857)
-                              : const Color(0xFF72A8FF),
-                        ),
-                      ]
-                    : [
-                        (
-                          label: 'Профиль',
-                          value: _profileSummary(state),
-                          color: _profileAccentColor(theme),
-                        ),
-                        (
-                          label: 'Автостарт',
-                          value: state.settings.startOnAppLaunch
-                              ? 'Включён'
-                              : 'Выключен',
-                          color: theme.brandAccent,
-                        ),
-                        (
-                          label: 'Gorion',
-                          value: desktopState.launchAtStartupEnabled
-                              ? 'С Windows'
-                              : 'Ручной запуск',
-                          color: const Color(0xFF72A8FF),
-                        ),
-                        (
-                          label: 'TUN',
-                          value: state.tunConflictActive
-                              ? 'Есть конфликт'
-                              : 'Конфликта нет',
-                          color: state.tunConflictActive
-                              ? const Color(0xFFFFC857)
-                              : const Color(0xFF72A8FF),
-                        ),
-                      ];
-                return Align(
-                  alignment: Alignment.topLeft,
-                  child: Wrap(
-                    spacing: layout.innerGap,
-                    runSpacing: layout.innerGap,
-                    children: [
-                      for (final tile in heroTiles)
-                        SizedBox(
-                          width: tileWidth,
-                          child: _MetricTile(
-                            label: tile.label,
-                            value: tile.value,
-                            accentColor: tile.color,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            selectedConfigLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: state.availableConfigs.isEmpty
+                                  ? theme.gorionTokens.onSurfaceMuted
+                                  : theme.colorScheme.onSurface,
+                              fontSize: layout.compact ? 17 : 18,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                    ],
+                        const SizedBox(width: 12),
+                        Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: state.availableConfigs.isEmpty
+                              ? theme.gorionTokens.onSurfaceMuted
+                              : theme.brandAccent,
+                        ),
+                      ],
+                    ),
                   ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInstallCard(
-    BuildContext context,
-    ZapretState state,
-    _ZapretDashboardLayout layout,
-  ) {
-    final theme = Theme.of(context);
-    final compactFallback = layout.scaleFallback;
-    final currentPath = state.settings.normalizedInstallDirectory;
-    final installNote = currentPath.isEmpty
-        ? 'Укажите каталог Zapret 2 с `binaries`, `bin` или `lists`; встроенные конфиги подтянутся автоматически.'
-        : 'Текущий путь: ${_middleEllipsis(currentPath, 40)}';
-
-    return _buildPanel(
-      layout: layout,
-      accentColor: theme.brandAccent,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          compactFallback
-              ? _CompactPanelHeading(
-                  icon: Icons.folder_outlined,
-                  title: 'Каталог и генерация',
-                  accentColor: theme.brandAccent,
-                )
-              : _PanelHeading(
-                  icon: Icons.folder_outlined,
-                  title: 'Каталог и генерация',
-                  description:
-                      'Нужен каталог установки Zapret 2; профили поставляются вместе с приложением.',
-                  accentColor: theme.brandAccent,
                 ),
-          SizedBox(height: compactFallback ? 8 : layout.innerGap),
-          Text(
-            installNote,
-            maxLines: layout.compact
-                ? 1
-                : compactFallback
-                ? 2
-                : 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.gorionTokens.onSurfaceMuted,
-              fontSize: layout.compact
-                  ? 12
-                  : compactFallback
-                  ? 13
-                  : null,
-              height: 1.35,
+                const SizedBox(height: 12),
+                Text(
+                  _configHint(state),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.gorionTokens.onSurfaceMuted,
+                    fontSize: layout.compact ? 13 : 14,
+                    height: 1.42,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _profilesDirectoryHint(state),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.gorionTokens.onSurfaceMuted.withValues(
+                      alpha: 0.9,
+                    ),
+                    fontSize: layout.compact ? 12 : 12.5,
+                    height: 1.38,
+                  ),
+                ),
+              ],
             ),
-          ),
-          SizedBox(
-            height: layout.compact
-                ? 8
-                : compactFallback
-                ? 10
-                : 12,
-          ),
-          TextField(
-            controller: _installDirectoryController,
-            maxLines: 1,
-            decoration: const InputDecoration(
-              isDense: true,
-              labelText: 'Каталог Zapret 2',
-              hintText: r'E:\Tools\zapret2',
-            ),
-            onSubmitted: (_) => _applyInstallDirectory(),
-          ),
-          SizedBox(
-            height: layout.compact
-                ? 8
-                : compactFallback
-                ? 10
-                : 12,
-          ),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: state.busy ? null : _applyInstallDirectory,
-                icon: const Icon(Icons.save_outlined),
-                label: Text(compactFallback ? 'Путь' : 'Применить'),
-                style: compactFallback
-                    ? FilledButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      )
-                    : null,
-              ),
-              OutlinedButton.icon(
-                onPressed: state.busy
-                    ? null
-                    : () => ref
-                          .read(zapretControllerProvider.notifier)
-                          .generateConfiguration(),
-                icon: const Icon(Icons.auto_fix_high_outlined),
-                label: Text(compactFallback ? 'Команда' : 'Предпросмотр'),
-                style: compactFallback
-                    ? OutlinedButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      )
-                    : null,
-              ),
-            ],
-          ),
-          const Spacer(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProfileCard(
-    BuildContext context,
-    ZapretState state,
-    _ZapretDashboardLayout layout,
-  ) {
-    final theme = Theme.of(context);
-    final controller = ref.read(zapretControllerProvider.notifier);
-    final accentColor = _profileAccentColor(theme);
-    final compactFallback = layout.scaleFallback;
-    final ultraCompact = layout.ultraCompact;
-    final denseRows = layout.compact || layout.scaleFallback;
-    final selectedConfigLabel = state.settings.effectiveConfigLabel;
-    final availableConfigs = state.availableConfigs;
-    final configDescription = availableConfigs.isEmpty
-        ? 'В каталоге пока не найдены встроенные конфиги.'
-        : '${availableConfigs.length} встроенных конфигов для Zapret 2.';
-    final profileText = layout.scaleFallback
-        ? 'Конфиг: $selectedConfigLabel'
-        : 'Конфиг и Game Filter берутся из встроенного набора профилей Zapret 2.';
-
-    return _buildPanel(
-      layout: layout,
-      accentColor: accentColor,
-      padding: EdgeInsets.all(
-        layout.compact ? layout.cardPadding - 2 : layout.cardPadding - 1,
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final tightHeight = constraints.maxHeight < 440;
-          final rowDense = denseRows || tightHeight;
-          final sectionGap = tightHeight ? 4.0 : (layout.compact ? 6.0 : 8.0);
-          final buttonGap = tightHeight ? 4.0 : (layout.compact ? 8.0 : 10.0);
-          final showExtendedIntro = !ultraCompact && !denseRows && !tightHeight;
-          final showCompactIntro = !ultraCompact && !tightHeight;
+          );
 
           return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _CompactPanelHeading(
-                icon: Icons.auto_awesome_outlined,
-                title: 'Конфиг и фильтр',
-                accentColor: accentColor,
-              ),
-              SizedBox(height: tightHeight ? 4 : (compactFallback ? 6 : 8)),
-              if (showExtendedIntro) ...[
-                Text(
-                  profileText,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurface,
-                    fontSize: compactFallback ? 13 : null,
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  configDescription,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.gorionTokens.onSurfaceMuted,
-                    fontSize: compactFallback ? 12.5 : null,
-                    height: 1.3,
-                  ),
-                ),
-                SizedBox(height: sectionGap),
-              ] else if (showCompactIntro) ...[
-                Text(
-                  profileText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.gorionTokens.onSurfaceMuted,
-                    fontSize: compactFallback ? 12.5 : null,
-                    height: 1.3,
-                  ),
-                ),
-                SizedBox(height: sectionGap),
-              ] else
-                SizedBox(height: tightHeight ? 4 : (layout.compact ? 6 : 10)),
-              _buildSelectionRow<String>(
-                theme: theme,
-                accentColor: const Color(0xFFFF7A59),
-                icon: Icons.description_outlined,
-                label: 'Конфиг',
-                value: selectedConfigLabel,
-                description: configDescription,
-                dense: rowDense,
-                enabled: !state.busy && availableConfigs.isNotEmpty,
-                items: [
-                  for (final option in availableConfigs)
-                    PopupMenuItem<String>(
-                      value: option.fileName,
-                      child: Text(option.label),
-                    ),
-                ],
-                onSelected: controller.setConfigFileName,
-              ),
-              SizedBox(height: sectionGap),
-              _buildSelectionRow<ZapretGameFilterMode>(
-                theme: theme,
-                accentColor: const Color(0xFF72A8FF),
-                icon: Icons.headset_mic_outlined,
-                label: 'Game Filter',
-                value: state.settings.gameFilterMode.label,
-                description:
-                    'Режимы совпадают с эталонными профилями: отключён, TCP и UDP, только TCP, только UDP.',
-                dense: rowDense,
-                enabled: !state.busy,
-                items: [
-                  for (final mode in ZapretGameFilterMode.values)
-                    PopupMenuItem<ZapretGameFilterMode>(
-                      value: mode,
-                      child: Text(mode.label),
-                    ),
-                ],
-                onSelected: controller.setGameFilterMode,
-              ),
-              SizedBox(height: sectionGap),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _MetaPill(
-                    label: ultraCompact
-                        ? 'CFG ${availableConfigs.length}'
-                        : 'Найдено конфигов: ${availableConfigs.length}',
-                    color: availableConfigs.isEmpty
-                        ? theme.gorionTokens.onSurfaceMuted
-                        : accentColor,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Подключение Boost',
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            color: theme.colorScheme.onSurface,
+                            fontSize: layout.compact ? 24 : 28,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Один блок для запуска, статуса и выбора своего конфига без дополнительных карточек.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.gorionTokens.onSurfaceMuted,
+                            fontSize: layout.compact ? 13 : 14,
+                            height: 1.42,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  _MetaPill(
-                    label: ultraCompact
-                        ? state.settings.gameFilterMode.label
-                        : 'Game Filter: ${state.settings.gameFilterMode.label}',
-                    color: state.settings.gameFilterMode.enabled
-                        ? const Color(0xFF72A8FF)
-                        : theme.gorionTokens.onSurfaceMuted,
+                  SizedBox(width: layout.sectionGap),
+                  _ZapretPowerButton(
+                    stage: state.stage,
+                    enabled: state.canStart || state.canStop,
+                    compact: constraints.maxWidth < 560,
+                    onTap:
+                        state.stage == ZapretStage.starting ||
+                            state.stage == ZapretStage.stopping
+                        ? null
+                        : state.canStop
+                        ? () => controller.stop()
+                        : state.canStart
+                        ? () => controller.start()
+                        : null,
                   ),
                 ],
               ),
-              SizedBox(height: buttonGap),
-              const Spacer(),
+              if (bannerText != null) ...[
+                SizedBox(height: layout.sectionGap),
+                _StatusBanner(
+                  text: bannerText,
+                  accentColor: bannerColor,
+                  compact: layout.ultraCompact,
+                ),
+              ],
+              SizedBox(height: layout.sectionGap),
+              if (stacked) ...[
+                statusBlock,
+                SizedBox(height: layout.sectionGap),
+                configBlock,
+                SizedBox(height: layout.sectionGap),
+                gameFilterBlock,
+              ] else
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 5,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          statusBlock,
+                          SizedBox(height: layout.sectionGap),
+                          gameFilterBlock,
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: layout.sectionGap),
+                    Expanded(flex: 7, child: configBlock),
+                  ],
+                ),
             ],
           );
         },
@@ -571,23 +454,365 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
     );
   }
 
-  Widget _buildRuntimeCard(
-    BuildContext context,
-    ZapretState state,
-    _ZapretDashboardLayout layout,
-  ) {
-    final theme = Theme.of(context);
-    final session = state.runtimeSession;
-    final stageColor = _stageColor(theme, state.stage);
-    final compactFallback = layout.scaleFallback;
-    final ultraCompact = layout.ultraCompact;
-    final preview = state.generatedConfigPreview ?? session?.commandPreview;
-    final recentLogs = _visibleLogs(state.logs, layout.logLines);
-    final runtimeSummary = preview ?? recentLogs.join('\n');
+  Future<void> _refreshConfigs() async {
+    await ref.read(zapretControllerProvider.notifier).refreshConfigs();
+  }
 
-    return _buildPanel(
-      layout: layout,
-      accentColor: stageColor,
+  Future<void> _openProfilesFolder() async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final folderPath = await ref
+        .read(zapretControllerProvider.notifier)
+        .prepareProfilesDirectory();
+    if (!mounted) {
+      return;
+    }
+    if (folderPath == null || folderPath.trim().isEmpty) {
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text('Не удалось подготовить папку профилей Boost.'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      if (Platform.isWindows) {
+        await Process.start('explorer.exe', [
+          folderPath,
+        ], mode: ProcessStartMode.detached);
+      } else if (Platform.isMacOS) {
+        await Process.start('open', [
+          folderPath,
+        ], mode: ProcessStartMode.detached);
+      } else if (Platform.isLinux) {
+        await Process.start('xdg-open', [
+          folderPath,
+        ], mode: ProcessStartMode.detached);
+      } else {
+        throw UnsupportedError('Открытие папки не поддерживается.');
+      }
+    } on Object catch (error) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Не удалось открыть папку: $error')),
+      );
+    }
+  }
+
+  Color _stageColor(ThemeData theme, ZapretStage stage) {
+    return switch (stage) {
+      ZapretStage.running => const Color(0xFF1EFFAC),
+      ZapretStage.starting || ZapretStage.stopping => const Color(0xFFFFB457),
+      ZapretStage.pausedByTun => const Color(0xFF72A8FF),
+      ZapretStage.failed || ZapretStage.stopped => const Color(0xFFFF6B6B),
+    };
+  }
+
+  String _heroSubtitle(ZapretState state) {
+    if (!Platform.isWindows) {
+      return 'Boost для zapret сейчас работает только в Windows.';
+    }
+    if (state.tunConflictActive) {
+      return 'TUN-режим sing-box активен, поэтому запуск Boost временно заблокирован.';
+    }
+    return 'Улучшай связь и загрузку видео без смены сети: выбирай конфиг и управляй Boost в этом разделе.';
+  }
+
+  String _statusHeadline(ZapretState state) {
+    if (state.errorMessage != null) {
+      return 'Запуск требует внимания';
+    }
+    return switch (state.stage) {
+      ZapretStage.running => 'Boost активен',
+      ZapretStage.starting => 'Запускаем Boost',
+      ZapretStage.stopping => 'Останавливаем Boost',
+      ZapretStage.pausedByTun => 'Boost приостановлен',
+      ZapretStage.failed => 'Запуск не удался',
+      ZapretStage.stopped =>
+        state.canStart ? 'Готов к включению' : 'Ожидает действие',
+    };
+  }
+
+  String _statusDetail(ZapretState state) {
+    if (!Platform.isWindows) {
+      return 'Отдельный процесс zapret и управление Boost доступны только в Windows.';
+    }
+    if (state.tunConflictActive) {
+      return 'Сейчас включён TUN. Сначала отключи его, затем можно снова запускать Boost.';
+    }
+    if (state.errorMessage case final errorMessage?) {
+      return errorMessage;
+    }
+
+    final session = state.runtimeSession;
+    return switch (state.stage) {
+      ZapretStage.running =>
+        session == null
+            ? 'Процесс уже работает.'
+            : 'PID ${session.processId} • ${_middleEllipsis(session.workingDirectory, 44)}',
+      ZapretStage.starting =>
+        'Применяем выбранный конфиг и запускаем winws с текущими параметрами.',
+      ZapretStage.stopping => 'Останавливаем текущий процесс и очищаем сессию.',
+      ZapretStage.failed =>
+        'Процесс завершился с ошибкой. Проверь конфиг и статус выше.',
+      ZapretStage.pausedByTun =>
+        'Boost был остановлен автоматически, потому что активировался TUN-режим.',
+      ZapretStage.stopped =>
+        state.settings.hasInstallDirectory
+            ? 'Папка профилей уже готова. Можно выбрать конфиг и включить Boost.'
+            : 'Папка профилей будет создана автоматически при первом открытии.',
+    };
+  }
+
+  String _configHint(ZapretState state) {
+    if (state.availableConfigs.isEmpty) {
+      return 'Открой папку профилей, добавь свой .conf и нажми обновить конфиги.';
+    }
+    if (state.stage == ZapretStage.running) {
+      return 'Смену конфига можно сохранить сейчас. Новый конфиг применится после следующего включения.';
+    }
+    return 'Здесь выбирается активный конфиг. После обновления списка можно сразу переключиться на свой вариант.';
+  }
+
+  String _profilesDirectoryHint(ZapretState state) {
+    if (!state.settings.hasInstallDirectory) {
+      return 'Папка профилей будет создана автоматически при первом открытии.';
+    }
+
+    final separator = Platform.pathSeparator;
+    final profilesPath =
+        '${state.settings.normalizedInstallDirectory}$separator'
+        'profiles';
+    return 'Папка профилей: ${_middleEllipsis(profilesPath, 72)}';
+  }
+}
+
+class _ZapretBoostLayout {
+  const _ZapretBoostLayout({
+    required this.compact,
+    required this.ultraCompact,
+    required this.scaleFallback,
+    required this.sceneWidth,
+    required this.sceneHeight,
+    required this.heroWidth,
+    required this.cardWidth,
+    required this.horizontalPadding,
+    required this.verticalPadding,
+    required this.cardPadding,
+    required this.cardRadius,
+    required this.sectionGap,
+    required this.titleFontSize,
+    required this.subtitleFontSize,
+    required this.heroSpacing,
+  });
+
+  factory _ZapretBoostLayout.fromConstraints(BoxConstraints constraints) {
+    final width = constraints.hasBoundedWidth ? constraints.maxWidth : 1280.0;
+    final height = constraints.hasBoundedHeight ? constraints.maxHeight : 820.0;
+    final compact = width < 980 || height < 680;
+    final ultraCompact = width < 760 || height < 520;
+    final scaleFallback = width < 1500 || height < 940;
+    final sceneWidth = scaleFallback ? 1360.0 : width;
+    final sceneHeight = scaleFallback ? 1000.0 : height;
+
+    return _ZapretBoostLayout(
+      compact: compact,
+      ultraCompact: ultraCompact,
+      scaleFallback: scaleFallback,
+      sceneWidth: sceneWidth,
+      sceneHeight: sceneHeight,
+      heroWidth: compact ? 620.0 : 860.0,
+      cardWidth: compact ? math.min(sceneWidth, 920.0) : 1040.0,
+      horizontalPadding: ultraCompact
+          ? 20
+          : compact
+          ? 28
+          : 40,
+      verticalPadding: ultraCompact
+          ? 18
+          : compact
+          ? 24
+          : 36,
+      cardPadding: ultraCompact
+          ? 18
+          : compact
+          ? 22
+          : 26,
+      cardRadius: ultraCompact
+          ? 24
+          : compact
+          ? 28
+          : 32,
+      sectionGap: ultraCompact
+          ? 12
+          : compact
+          ? 16
+          : 20,
+      titleFontSize: ultraCompact
+          ? 44
+          : compact
+          ? 56
+          : 82,
+      subtitleFontSize: ultraCompact
+          ? 14
+          : compact
+          ? 16
+          : 18,
+      heroSpacing: ultraCompact
+          ? 14
+          : compact
+          ? 18
+          : 22,
+    );
+  }
+
+  final bool compact;
+  final bool ultraCompact;
+  final bool scaleFallback;
+  final double sceneWidth;
+  final double sceneHeight;
+  final double heroWidth;
+  final double cardWidth;
+  final double horizontalPadding;
+  final double verticalPadding;
+  final double cardPadding;
+  final double cardRadius;
+  final double sectionGap;
+  final double titleFontSize;
+  final double subtitleFontSize;
+  final double heroSpacing;
+}
+
+class _BoostAnimatedBackdrop extends StatelessWidget {
+  const _BoostAnimatedBackdrop({required this.animation});
+
+  final Animation<double> animation;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return IgnorePointer(
+      child: CustomPaint(
+        painter: _DottedSurfacePainter(
+          animation: animation,
+          brightness: theme.brightness,
+        ),
+      ),
+    );
+  }
+}
+
+class _DottedSurfacePainter extends CustomPainter {
+  _DottedSurfacePainter({required this.animation, required this.brightness})
+    : super(repaint: animation);
+
+  final Animation<double> animation;
+  final Brightness brightness;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) {
+      return;
+    }
+
+    const separation = 150.0;
+    const amountX = 40;
+    const amountY = 60;
+    const fov = 60.0;
+    const cameraX = 0.0;
+    const cameraY = 355.0;
+    const cameraZ = 1220.0;
+    const fogNear = 2000.0;
+    const fogFar = 10000.0;
+    const pointSize = 8.0;
+
+    final isDark = brightness == Brightness.dark;
+    final baseColor = isDark
+        ? const Color.fromARGB(255, 200, 200, 200)
+        : const Color.fromARGB(255, 0, 0, 0);
+    const fogColor = Colors.white;
+    final focalLength = size.height / 2 / math.tan(fov * math.pi / 360);
+    final count = animation.value * 108.0;
+    final paint = Paint()
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+
+    for (var ix = 0; ix < amountX; ix += 1) {
+      for (var iy = 0; iy < amountY; iy += 1) {
+        final worldX = ix * separation - (amountX * separation) / 2;
+        final worldY =
+            math.sin((ix + count) * 0.3) * 50 +
+            math.sin((iy + count) * 0.5) * 50;
+        final worldZ = iy * separation - (amountY * separation) / 2;
+
+        final cameraSpaceX = worldX - cameraX;
+        final cameraSpaceY = worldY - cameraY;
+        final cameraSpaceZ = worldZ - cameraZ;
+        if (cameraSpaceZ >= -1) {
+          continue;
+        }
+
+        final depth = -cameraSpaceZ;
+        final projectedX = size.width / 2 + cameraSpaceX * focalLength / depth;
+        final projectedY = size.height / 2 - cameraSpaceY * focalLength / depth;
+        if (projectedX < -32 ||
+            projectedX > size.width + 32 ||
+            projectedY < -32 ||
+            projectedY > size.height + 32) {
+          continue;
+        }
+
+        final fogFactor = ((depth - fogNear) / (fogFar - fogNear)).clamp(
+          0.0,
+          1.0,
+        );
+        final color = Color.lerp(baseColor, fogColor, fogFactor * 0.85)!;
+        final sizePx = pointSize * focalLength / depth;
+        final radius = (sizePx * 0.5).clamp(0.35, 3.8);
+        paint.color = color.withValues(
+          alpha: isDark
+              ? (0.82 - fogFactor * 0.18).clamp(0.0, 1.0)
+              : (0.74 - fogFactor * 0.28).clamp(0.0, 1.0),
+        );
+        canvas.drawCircle(Offset(projectedX, projectedY), radius, paint);
+      }
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _DottedSurfacePainter oldDelegate) {
+    return oldDelegate.animation != animation ||
+        oldDelegate.brightness != brightness;
+  }
+}
+
+class _ControlBlock extends StatelessWidget {
+  const _ControlBlock({
+    required this.title,
+    required this.accentColor,
+    required this.child,
+    this.trailing,
+  });
+
+  final String title;
+  final Color accentColor;
+  final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        color: accentColor.withValues(alpha: 0.08),
+        border: Border.all(color: accentColor.withValues(alpha: 0.18)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -595,695 +820,149 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: ultraCompact
-                    ? _CompactPanelHeading(
-                        icon: Icons.power_settings_new_rounded,
-                        title: 'Процесс и лента',
-                        accentColor: stageColor,
-                      )
-                    : _PanelHeading(
-                        icon: Icons.power_settings_new_rounded,
-                        title: 'Процесс и лента',
-                        description: compactFallback
-                            ? session == null
-                                  ? 'Сессия ещё не запущена.'
-                                  : 'PID ${session.processId}'
-                            : session == null
-                            ? 'Активной сессии пока нет. Кнопки запуска доступны ниже.'
-                            : 'PID ${session.processId} • ${_middleEllipsis(session.workingDirectory, 36)}',
-                        accentColor: stageColor,
-                      ),
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-              const SizedBox(width: 10),
-              _MetaPill(label: state.stage.label, color: stageColor),
+              if (trailing != null) ...[const SizedBox(width: 12), trailing!],
             ],
           ),
-          if (ultraCompact) ...[
-            const SizedBox(height: 4),
-            Text(
-              session == null
-                  ? 'Сессия ещё не запущена.'
-                  : 'PID ${session.processId} • ${_middleEllipsis(session.workingDirectory, 26)}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.gorionTokens.onSurfaceMuted,
-                height: 1.3,
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _ZapretPowerButton extends StatelessWidget {
+  const _ZapretPowerButton({
+    required this.stage,
+    required this.enabled,
+    required this.compact,
+    required this.onTap,
+  });
+
+  final ZapretStage stage;
+  final bool enabled;
+  final bool compact;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseColor = switch (stage) {
+      ZapretStage.running => const Color(0xFF1EFFAC),
+      ZapretStage.starting || ZapretStage.stopping => const Color(0xFFFFB457),
+      ZapretStage.pausedByTun => const Color(0xFF72A8FF),
+      ZapretStage.failed || ZapretStage.stopped => const Color(0xFFFF6B6B),
+    };
+    final color =
+        enabled ||
+            stage == ZapretStage.starting ||
+            stage == ZapretStage.stopping
+        ? baseColor
+        : baseColor.withValues(alpha: 0.52);
+    final size = compact ? 76.0 : 88.0;
+
+    return MouseRegion(
+      cursor: onTap == null
+          ? SystemMouseCursors.basic
+          : SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          width: size,
+          height: size,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(compact ? 24 : 28),
+            color: color.withValues(alpha: 0.12),
+            border: Border.all(color: color.withValues(alpha: 0.62)),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.14),
+                blurRadius: 28,
+                offset: const Offset(0, 12),
               ),
-            ),
-          ],
-          SizedBox(height: layout.innerGap),
-          if (ultraCompact)
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                _MetaPill(
-                  label: 'PID ${session?.processId ?? 'нет'}',
-                  color: stageColor,
-                ),
-                _MetaPill(
-                  label: _runtimeLocationLabel(state, session),
-                  color: theme.brandAccent,
-                ),
-              ],
-            )
-          else
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final tileWidth = (constraints.maxWidth - layout.innerGap) / 2;
-                return Wrap(
-                  spacing: layout.innerGap,
-                  runSpacing: layout.innerGap,
+            ],
+          ),
+          child: stage == ZapretStage.starting || stage == ZapretStage.stopping
+              ? Stack(
+                  alignment: Alignment.center,
                   children: [
                     SizedBox(
-                      width: tileWidth,
-                      child: _MetricTile(
-                        label: 'PID',
-                        value: session?.processId.toString() ?? 'Нет процесса',
-                        accentColor: stageColor,
+                      width: compact ? 28 : 32,
+                      height: compact ? 28 : 32,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: color.withValues(alpha: 0.96),
                       ),
                     ),
-                    SizedBox(
-                      width: tileWidth,
-                      child: _MetricTile(
-                        label: 'Каталог',
-                        value: _runtimeLocationLabel(state, session),
-                        accentColor: theme.brandAccent,
-                      ),
+                    Icon(
+                      Icons.close_rounded,
+                      size: compact ? 20 : 22,
+                      color: color,
                     ),
                   ],
-                );
-              },
-            ),
-          SizedBox(height: layout.innerGap),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: state.canStart
-                    ? () => ref.read(zapretControllerProvider.notifier).start()
-                    : null,
-                icon: const Icon(Icons.play_arrow_rounded),
-                label: Text(compactFallback ? 'Старт' : 'Запустить'),
-              ),
-              OutlinedButton.icon(
-                onPressed: state.canStop
-                    ? () => ref.read(zapretControllerProvider.notifier).stop()
-                    : null,
-                icon: const Icon(Icons.stop_rounded),
-                label: Text(compactFallback ? 'Стоп' : 'Остановить'),
-              ),
-            ],
-          ),
-          SizedBox(height: layout.innerGap),
-          Expanded(
-            child: compactFallback
-                ? Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      color: theme.colorScheme.surfaceContainerHighest
-                          .withValues(alpha: 0.32),
-                      border: Border.all(
-                        color: theme.surfaceStrokeColor(
-                          darkAlpha: 0.09,
-                          lightAlpha: 0.12,
-                        ),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Сводка',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: theme.colorScheme.onSurface,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Expanded(
-                          child: SelectableText(
-                            runtimeSummary,
-                            maxLines: ultraCompact ? 3 : 4,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurface,
-                              fontFamily: 'IBMPlexSans',
-                              fontSize: ultraCompact ? 12.5 : 13,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        child: _InsetSurface(
-                          title: 'Команда',
-                          subtitle: preview == null
-                              ? 'Сначала сохраните путь или сгенерируйте предпросмотр.'
-                              : state.generatedConfigSummary ??
-                                    'Предпросмотр запуска winws.',
-                          child: SelectableText(
-                            preview ??
-                                'Команда появится после генерации предпросмотра или запуска текущего профиля.',
-                            maxLines: layout.commandPreviewLines,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurface,
-                              fontFamily: 'IBMPlexSans',
-                              fontSize: 13.5,
-                              height: 1.45,
-                            ),
-                          ),
-                        ),
-                      ),
-                      SizedBox(height: layout.innerGap),
-                      Expanded(
-                        child: _InsetSurface(
-                          title: 'Логи',
-                          subtitle: state.logs.isEmpty
-                              ? 'Лента ещё пустая.'
-                              : 'Показаны последние ${math.min(state.logs.length, layout.logLines)} строк.',
-                          child: SelectableText(
-                            recentLogs.join('\n'),
-                            maxLines: layout.logLines,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.gorionTokens.onSurfaceMuted,
-                              fontFamily: 'IBMPlexSans',
-                              fontSize: 13,
-                              height: 1.45,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPanel({
-    required _ZapretDashboardLayout layout,
-    required Widget child,
-    Color? accentColor,
-    EdgeInsetsGeometry? padding,
-  }) {
-    return GlassPanel(
-      borderRadius: layout.panelRadius,
-      padding: padding ?? EdgeInsets.all(layout.cardPadding),
-      opacity: 0.06,
-      backgroundColor: Colors.white,
-      strokeColor: accentColor ?? Colors.white,
-      strokeOpacity: accentColor == null ? 0.08 : 0.1,
-      strokeWidth: 1,
-      showGlow: false,
-      child: child,
-    );
-  }
-
-  Future<void> _applyInstallDirectory() async {
-    await ref
-        .read(zapretControllerProvider.notifier)
-        .setInstallDirectory(_installDirectoryController.text);
-  }
-
-  List<String> _visibleLogs(List<String> logs, int maxLines) {
-    if (logs.isEmpty) {
-      return const ['Логи zapret пока пусты.'];
-    }
-    if (logs.length <= maxLines) {
-      return logs;
-    }
-
-    final visibleCount = math.max(1, maxLines - 1);
-    return [
-      '... последние $visibleCount строк из ${logs.length}',
-      ...logs.skip(logs.length - visibleCount),
-    ];
-  }
-
-  String _runtimeLocationLabel(
-    ZapretState state,
-    ZapretRuntimeSession? session,
-  ) {
-    final path =
-        session?.workingDirectory ?? state.settings.normalizedInstallDirectory;
-    if (path.isEmpty) {
-      return 'Встроенный runtime';
-    }
-    return _middleEllipsis(_lastPathSegment(path), 20);
-  }
-
-  String _profileSummary(ZapretState state) {
-    return state.settings.effectiveConfigLabel;
-  }
-
-  Color _profileAccentColor(ThemeData theme) {
-    return theme.brandAccent;
-  }
-
-  Widget _buildSelectionRow<T>({
-    required ThemeData theme,
-    required Color accentColor,
-    required IconData icon,
-    required String label,
-    required String value,
-    required String description,
-    required bool dense,
-    required bool enabled,
-    required List<PopupMenuEntry<T>> items,
-    required Future<void> Function(T value) onSelected,
-  }) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: dense ? 10 : 12,
-        vertical: dense ? 8 : 10,
-      ),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.24,
-        ),
-        border: Border.all(color: accentColor.withValues(alpha: 0.16)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: dense ? 16 : 18, color: accentColor),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
+                )
+              : SvgPicture.asset(
+                  'assets/images/power.svg',
+                  width: compact ? 28 : 32,
+                  height: compact ? 28 : 32,
+                  colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
                 ),
-                if (!dense) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    description,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.gorionTokens.onSurfaceMuted,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          SizedBox(width: dense ? 8 : 10),
-          ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: dense ? 102 : 128),
-            child: PopupMenuButton<T>(
-              enabled: enabled,
-              onSelected: onSelected,
-              itemBuilder: (context) => items,
-              child: _MetaPill(
-                label: value,
-                color: enabled
-                    ? accentColor
-                    : theme.gorionTokens.onSurfaceMuted,
-                compact: dense,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
-
-  Color _stageColor(ThemeData theme, ZapretStage stage) {
-    return switch (stage) {
-      ZapretStage.running => const Color(0xFF1EFFAC),
-      ZapretStage.starting || ZapretStage.stopping => const Color(0xFFFFC857),
-      ZapretStage.failed => const Color(0xFFFF8A8A),
-      ZapretStage.pausedByTun => const Color(0xFF72A8FF),
-      ZapretStage.stopped => theme.brandAccent,
-    };
-  }
 }
 
-class _ZapretDashboardLayout {
-  const _ZapretDashboardLayout({
-    required this.gap,
-    required this.cardPadding,
-    required this.innerGap,
-    required this.panelRadius,
-    required this.commandPreviewLines,
-    required this.logLines,
-    required this.compact,
-    required this.dashboardWidth,
-    required this.dashboardHeight,
-    required this.scaleFallback,
-    required this.ultraCompact,
-  });
-
-  factory _ZapretDashboardLayout.fromConstraints(BoxConstraints constraints) {
-    final width = math.max(
-      1.0,
-      constraints.hasBoundedWidth ? constraints.maxWidth : 1340.0,
-    );
-    final height = math.max(
-      1.0,
-      constraints.hasBoundedHeight ? constraints.maxHeight : 900.0,
-    );
-    final compact = width < 980 || height < 620;
-    final ultraCompact = width < 720 || height < 460;
-    final scaleFallback = width < 1320 || height < 860;
-    final fallbackHeight = ultraCompact
-        ? 1720.0
-        : compact
-        ? 1560.0
-        : 1100.0;
-    final fallbackAspectRatio = (width / height).clamp(1.48, 1.72);
-    final fallbackWidth = fallbackHeight * fallbackAspectRatio;
-
-    return _ZapretDashboardLayout(
-      gap: ultraCompact
-          ? 4
-          : compact
-          ? 6
-          : scaleFallback
-          ? 12
-          : 14,
-      cardPadding: ultraCompact
-          ? 8
-          : compact
-          ? 10
-          : scaleFallback
-          ? 16
-          : 18,
-      innerGap: ultraCompact
-          ? 4
-          : compact
-          ? 6
-          : scaleFallback
-          ? 10
-          : 12,
-      panelRadius: ultraCompact
-          ? 16
-          : compact
-          ? 18
-          : scaleFallback
-          ? 22
-          : 24,
-      commandPreviewLines: compact ? 4 : 5,
-      logLines: compact ? 5 : 6,
-      compact: compact,
-      dashboardWidth: scaleFallback ? fallbackWidth : width,
-      dashboardHeight: scaleFallback ? fallbackHeight : height,
-      scaleFallback: scaleFallback,
-      ultraCompact: ultraCompact,
-    );
-  }
-
-  final double gap;
-  final double cardPadding;
-  final double innerGap;
-  final double panelRadius;
-  final int commandPreviewLines;
-  final int logLines;
-  final bool compact;
-  final double dashboardWidth;
-  final double dashboardHeight;
-  final bool scaleFallback;
-  final bool ultraCompact;
-}
-
-class _PanelHeading extends StatelessWidget {
-  const _PanelHeading({
+class _ActionIconButton extends StatelessWidget {
+  const _ActionIconButton({
+    required this.tooltip,
     required this.icon,
-    required this.title,
-    required this.description,
-    required this.accentColor,
+    required this.color,
+    required this.onPressed,
   });
 
+  final String tooltip;
   final IconData icon;
-  final String title;
-  final String description;
-  final Color accentColor;
+  final Color color;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            color: accentColor.withValues(alpha: 0.14),
-          ),
-          child: Icon(icon, color: accentColor, size: 20),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  color: theme.colorScheme.onSurface,
-                  fontSize: 23,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                description,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.gorionTokens.onSurfaceMuted,
-                  fontSize: 14,
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CompactPanelHeading extends StatelessWidget {
-  const _CompactPanelHeading({
-    required this.icon,
-    required this.title,
-    required this.accentColor,
-  });
-
-  final IconData icon;
-  final String title;
-  final Color accentColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: accentColor.withValues(alpha: 0.14),
-          ),
-          child: Icon(icon, color: accentColor, size: 18),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: theme.colorScheme.onSurface,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({
-    required this.label,
-    required this.value,
-    required this.accentColor,
-  });
-
-  final String label;
-  final String value;
-  final Color accentColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: accentColor.withValues(alpha: 0.08),
-        border: Border.all(color: accentColor.withValues(alpha: 0.16)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: theme.gorionTokens.onSurfaceMuted,
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              height: 1.3,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ToggleTile extends StatelessWidget {
-  const _ToggleTile({
-    required this.title,
-    required this.value,
-    required this.onChanged,
-    required this.accentColor,
-    this.dense = false,
-  });
-
-  final String title;
-  final bool value;
-  final ValueChanged<bool>? onChanged;
-  final Color accentColor;
-  final bool dense;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: EdgeInsets.fromLTRB(12, dense ? 6 : 10, 8, dense ? 6 : 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(dense ? 16 : 18),
-        color: accentColor.withValues(alpha: 0.08),
-        border: Border.all(color: accentColor.withValues(alpha: 0.16)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface,
-                fontSize: dense ? 14 : 15,
-                fontWeight: FontWeight.w600,
+    final enabled = onPressed != null;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(16),
+          child: Ink(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: color.withValues(alpha: enabled ? 0.12 : 0.06),
+              border: Border.all(
+                color: color.withValues(alpha: enabled ? 0.22 : 0.10),
               ),
             ),
-          ),
-          SizedBox(width: dense ? 4 : 6),
-          Transform.scale(
-            scale: dense ? 0.86 : 1,
-            alignment: Alignment.centerRight,
-            child: Switch.adaptive(value: value, onChanged: onChanged),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InsetSurface extends StatelessWidget {
-  const _InsetSurface({
-    required this.title,
-    required this.subtitle,
-    required this.child,
-  });
-
-  final String title;
-  final String subtitle;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.32,
-        ),
-        border: Border.all(
-          color: theme.surfaceStrokeColor(darkAlpha: 0.09, lightAlpha: 0.12),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: theme.colorScheme.onSurface,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
+            child: Icon(
+              icon,
+              size: 20,
+              color: enabled ? color : color.withValues(alpha: 0.46),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.gorionTokens.onSurfaceMuted,
-              fontSize: 13,
-              height: 1.35,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: Align(alignment: Alignment.topLeft, child: child),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1311,12 +990,12 @@ class _StatusBanner extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        color: accentColor.withValues(alpha: 0.1),
+        color: accentColor.withValues(alpha: 0.10),
         border: Border.all(color: accentColor.withValues(alpha: 0.18)),
       ),
       child: Text(
         text,
-        maxLines: compact ? 1 : 2,
+        maxLines: compact ? 2 : 3,
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.bodyMedium?.copyWith(
           color: theme.colorScheme.onSurface,
@@ -1357,7 +1036,6 @@ class _MetaPill extends StatelessWidget {
         label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        softWrap: false,
         style: theme.textTheme.labelLarge?.copyWith(
           color: color,
           fontSize: compact ? 12 : 13,
@@ -1366,17 +1044,6 @@ class _MetaPill extends StatelessWidget {
       ),
     );
   }
-}
-
-String _lastPathSegment(String value) {
-  final trimmed = value.trim();
-  if (trimmed.isEmpty) {
-    return 'Встроенный runtime';
-  }
-
-  final normalized = trimmed.replaceAll('\\', '/');
-  final parts = normalized.split('/').where((part) => part.isNotEmpty).toList();
-  return parts.isEmpty ? trimmed : parts.last;
 }
 
 String _middleEllipsis(String value, int maxLength) {
