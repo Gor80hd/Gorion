@@ -100,7 +100,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
       expect(find.text('Настройки'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Zapret 2'));
+      await tester.tap(find.byTooltip('Gorion Boost'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 250));
       expect(find.text('Gorion Boost'), findsOneWidget);

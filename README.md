@@ -55,6 +55,10 @@ flutter run -d windows
 
 `flutter build windows --release` creates a runnable folder, not a single installer.
 
+The Windows executable is configured to always request administrator rights.
+Windows autostart is implemented through an elevated Scheduled Task so the app
+also comes up with admin rights after user logon.
+
 To produce one Windows installer `.exe`, this repository now includes:
 
 - `installer/windows/gorion_windows_installer.iss`

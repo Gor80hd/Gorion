@@ -48,7 +48,7 @@ void main() {
           generatedConfigPreview:
               'winws.exe --wf-tcp=80,443,1024-65535 --wf-udp=443,12',
           generatedConfigSummary: 'general (ALT10)',
-          statusMessage: 'zapret запущен с выбранным конфигом.',
+          statusMessage: 'Gorion Boost запущен с выбранным конфигом.',
           logs: const [
             '[13:45:02] Starting winws',
             '[13:45:03] DNS filter applied',
@@ -100,7 +100,10 @@ void main() {
         expect(find.text('Статус работы'), findsNothing);
         expect(find.text('Boost активен'), findsNothing);
         expect(find.text('Стандартный тест конфигов'), findsNothing);
-        expect(find.text('zapret запущен с выбранным конфигом.'), findsNothing);
+        expect(
+          find.text('Gorion Boost запущен с выбранным конфигом.'),
+          findsNothing,
+        );
       }
 
       await pumpAtSize(const Size(1440, 900));

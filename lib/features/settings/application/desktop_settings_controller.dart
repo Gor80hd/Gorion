@@ -37,6 +37,11 @@ class DesktopSettingsState {
   final bool launchAtStartupEnabled;
   final String? errorMessage;
 
+  bool get canLaunchMinimized => launchAtStartupEnabled;
+
+  bool get effectiveLaunchMinimized =>
+      canLaunchMinimized && settings.launchMinimized;
+
   DesktopSettingsState copyWith({
     bool? busy,
     DesktopSettings? settings,
@@ -101,20 +106,40 @@ class DesktopSettingsController extends StateNotifier<DesktopSettingsState> {
       return;
     }
 
+    final previousState = state;
     state = state.copyWith(busy: true, clearErrorMessage: true);
+    var nextSettings = previousState.settings;
+    var nextLaunchAtStartupEnabled = previousState.launchAtStartupEnabled;
     try {
       final updated = await _launchAtStartupService.setEnabled(enabled);
       if (!updated) {
         throw StateError('Не удалось обновить автозапуск Windows.');
       }
-      state = state.copyWith(busy: false, launchAtStartupEnabled: enabled);
+      nextLaunchAtStartupEnabled = enabled;
+      if (!enabled && nextSettings.launchMinimized) {
+        nextSettings = await _repository.save(
+          nextSettings.copyWith(launchMinimized: false),
+        );
+      }
+      state = previousState.copyWith(
+        busy: false,
+        settings: nextSettings,
+        launchAtStartupEnabled: nextLaunchAtStartupEnabled,
+        clearErrorMessage: true,
+      );
     } on Object catch (error) {
-      state = state.copyWith(busy: false, errorMessage: error.toString());
+      state = previousState.copyWith(
+        busy: false,
+        settings: nextSettings,
+        launchAtStartupEnabled: nextLaunchAtStartupEnabled,
+        errorMessage: error.toString(),
+      );
     }
   }
 
   Future<void> setLaunchMinimized(bool enabled) async {
-    await _saveSettings(state.settings.copyWith(launchMinimized: enabled));
+    final nextEnabled = enabled && state.launchAtStartupEnabled;
+    await _saveSettings(state.settings.copyWith(launchMinimized: nextEnabled));
   }
 
   Future<void> setKeepRunningInTrayOnClose(bool enabled) async {

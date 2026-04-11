@@ -55,7 +55,7 @@ Future<Directory> prepareZapretBundle() async {
 
   if (extractedAssets == 0) {
     throw StateError(
-      'Vendored zapret assets were not found in the app bundle.',
+      'Bundled Gorion Boost assets were not found in the app bundle.',
     );
   }
 

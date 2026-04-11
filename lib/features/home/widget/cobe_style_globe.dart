@@ -9,7 +9,10 @@ import 'package:gorion_clean/features/home/utils/map_location_resolver.dart';
 const Color _cobeMarkerColor = Color(0xFF33CCDD);
 const Color _cobeArcColor = Color(0xFF4CD8F2);
 const Color _cobeLandColor = Color(0xFFDCE1E5);
+const Color _cobeLightSphereColor = Colors.white;
+const Color _cobeLightLandColor = Colors.black;
 const int _cobeMapSamples = 16000;
+const double _maxTiltAngle = 0.86;
 
 Future<List<_GlobeLandDot>>? _cachedLandDotsFuture;
 
@@ -41,6 +44,7 @@ class CobeStyleGlobe extends HookWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLightTheme = Theme.of(context).brightness == Brightness.light;
     final rotationController = useAnimationController(
       duration: const Duration(seconds: 180),
     );
@@ -52,6 +56,7 @@ class CobeStyleGlobe extends HookWidget {
     final accumulatedPhi = useRef<double>(0);
     final accumulatedTheta = useRef<double>(0);
     final isDragging = useState(false);
+    final previousShowConnection = useRef(showConnection);
     final landDotsFuture = useMemoized(_loadGlobeLandDots);
     final landDotsSnapshot = useFuture(landDotsFuture);
 
@@ -60,6 +65,22 @@ class CobeStyleGlobe extends HookWidget {
       pulseController.repeat();
       return null;
     }, const []);
+
+    useEffect(() {
+      final wasShowingConnection = previousShowConnection.value;
+      previousShowConnection.value = showConnection;
+      if (wasShowingConnection && !showConnection) {
+        dragStart.value = null;
+        dragOffset.value = Offset.zero;
+        accumulatedPhi.value = 0;
+        accumulatedTheta.value = 0;
+        isDragging.value = false;
+        rotationController
+          ..value = 0
+          ..repeat();
+      }
+      return null;
+    }, [showConnection]);
 
     final rotationValue = useAnimation(rotationController);
     final pulseValue = useAnimation(pulseController);
@@ -77,17 +98,27 @@ class CobeStyleGlobe extends HookWidget {
     final baseTheta =
         ui.lerpDouble(sourceTheta, focusTheta + driftTheta, focusProgress) ??
         sourceTheta;
-    final phi = basePhi + accumulatedPhi.value + dragOffset.value.dx;
-    final theta = (baseTheta + accumulatedTheta.value + dragOffset.value.dy)
-        .clamp(-0.92, 0.92);
+    final autoAlignProgress = isDragging.value
+        ? 0.0
+        : Curves.easeInOutCubicEmphasized.transform(
+            focusProgress.clamp(0.0, 1.0),
+          );
+    final manualPhi =
+        (accumulatedPhi.value + dragOffset.value.dx) * (1 - autoAlignProgress);
+    final manualTheta =
+        (accumulatedTheta.value + dragOffset.value.dy) *
+        (1 - autoAlignProgress);
+    final phi = basePhi + manualPhi;
+    final theta = _clampTiltAngle(baseTheta + manualTheta);
 
     void finishDrag() {
       if (!isDragging.value) {
         return;
       }
       accumulatedPhi.value += dragOffset.value.dx;
-      accumulatedTheta.value = (accumulatedTheta.value + dragOffset.value.dy)
-          .clamp(-0.92, 0.92);
+      accumulatedTheta.value = _clampTiltAngle(
+        accumulatedTheta.value + dragOffset.value.dy,
+      );
       dragOffset.value = Offset.zero;
       dragStart.value = null;
       isDragging.value = false;
@@ -110,9 +141,17 @@ class CobeStyleGlobe extends HookWidget {
           if (dragStart.value == null) {
             return;
           }
+          final nextPhiOffset = dragOffset.value.dx + (details.delta.dx / 240);
+          final nextThetaOffset =
+              dragOffset.value.dy + (details.delta.dy / 320);
+          final minThetaOffset =
+              (-_maxTiltAngle) - baseTheta - accumulatedTheta.value;
+          final maxThetaOffset =
+              _maxTiltAngle - baseTheta - accumulatedTheta.value;
           dragOffset.value += Offset(
-            details.delta.dx / 240,
-            details.delta.dy / 320,
+            nextPhiOffset - dragOffset.value.dx,
+            nextThetaOffset.clamp(minThetaOffset, maxThetaOffset).toDouble() -
+                dragOffset.value.dy,
           );
         },
         onPanEnd: (_) => finishDrag(),
@@ -138,6 +177,7 @@ class CobeStyleGlobe extends HookWidget {
                 pulseProgress: pulseValue,
                 showConnection: showConnection,
                 isConnected: isConnected,
+                isLightTheme: isLightTheme,
                 sourceColor: sourceColor,
                 destinationColor: destinationColor,
               ),
@@ -164,6 +204,7 @@ class _CobeStyleGlobePainter extends CustomPainter {
     required this.pulseProgress,
     required this.showConnection,
     required this.isConnected,
+    required this.isLightTheme,
     required this.sourceColor,
     required this.destinationColor,
   });
@@ -180,6 +221,7 @@ class _CobeStyleGlobePainter extends CustomPainter {
   final double pulseProgress;
   final bool showConnection;
   final bool isConnected;
+  final bool isLightTheme;
   final Color sourceColor;
   final Color destinationColor;
 
@@ -197,15 +239,41 @@ class _CobeStyleGlobePainter extends CustomPainter {
     );
     final globeSize = math.min(contentRect.width, contentRect.height);
     final diameter =
-        ui.lerpDouble(globeSize * 0.82, globeSize * 1.06, focusProgress) ??
+        ui.lerpDouble(globeSize * 0.82, globeSize * 0.98, focusProgress) ??
         globeSize * 0.82;
     final radius = diameter / 2;
-    final center = Offset(
-      contentRect.center.dx +
-          (ui.lerpDouble(0, contentRect.width * 0.045, focusProgress) ?? 0),
-      contentRect.center.dy -
-          (ui.lerpDouble(contentRect.height * 0.04, 0, focusProgress) ?? 0),
+    final sourceVector = _vectorFromLatLon(sourceLatLon.$1, sourceLatLon.$2);
+    final destinationVector = _vectorFromLatLon(
+      destinationLatLon.$1,
+      destinationLatLon.$2,
     );
+    final routeFocusVector = sourceVector.add(destinationVector).normalize();
+    final baseCenter = Offset(
+      contentRect.center.dx,
+      contentRect.center.dy -
+          (ui.lerpDouble(
+                contentRect.height * 0.04,
+                contentRect.height * 0.06,
+                focusProgress,
+              ) ??
+              (contentRect.height * 0.04)),
+    );
+    final desiredFocusOffset = Offset(
+      contentRect.center.dx,
+      contentRect.center.dy - (contentRect.height * 0.03),
+    );
+    final baseFocusProjection = _projectVector(
+      routeFocusVector,
+      center: baseCenter,
+      radius: radius,
+      phi: phi,
+      theta: theta,
+    );
+    final center = baseFocusProjection == null
+        ? baseCenter
+        : baseCenter +
+              ((desiredFocusOffset - baseFocusProjection.offset) *
+                  focusProgress.clamp(0.0, 1.0));
     final sphereRect = Rect.fromCircle(center: center, radius: radius);
     final arcColor = Color.lerp(_cobeArcColor, destinationColor, 0.32)!;
 
@@ -218,11 +286,6 @@ class _CobeStyleGlobePainter extends CustomPainter {
 
     _paintSphereRim(canvas, center, radius, arcColor);
 
-    final sourceVector = _vectorFromLatLon(sourceLatLon.$1, sourceLatLon.$2);
-    final destinationVector = _vectorFromLatLon(
-      destinationLatLon.$1,
-      destinationLatLon.$2,
-    );
     final sourceProjection = _projectVector(
       sourceVector,
       center: center,
@@ -274,7 +337,10 @@ class _CobeStyleGlobePainter extends CustomPainter {
     canvas.drawCircle(
       center,
       sphereRect.width / 2,
-      Paint()..color = const Color(0xFF070A0B),
+      Paint()
+        ..color = isLightTheme
+            ? _cobeLightSphereColor
+            : const Color(0xFF070A0B),
     );
   }
 
@@ -284,13 +350,14 @@ class _CobeStyleGlobePainter extends CustomPainter {
     double radius,
     Color rimColor,
   ) {
+    final rimBaseColor = isLightTheme ? Colors.black : rimColor;
     canvas.drawCircle(
       center,
       radius,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = math.max(0.9, radius * 0.0042)
-        ..color = rimColor.withValues(alpha: 0.13),
+        ..color = rimBaseColor.withValues(alpha: isLightTheme ? 0.12 : 0.13),
     );
   }
 
@@ -316,23 +383,21 @@ class _CobeStyleGlobePainter extends CustomPainter {
     }
 
     if (surfaceDots.isNotEmpty) {
-      final landColor = isConnected
+      final landColor = isLightTheme
+          ? _cobeLightLandColor
+          : isConnected
           ? Color.lerp(_cobeLandColor, destinationColor, 0.72) ??
                 destinationColor
           : _cobeLandColor;
 
-      if (isConnected) {
+      if (isConnected && !isLightTheme) {
         canvas.drawPoints(
           ui.PointMode.points,
           surfaceDots,
           Paint()
             ..color = destinationColor.withValues(alpha: 0.18)
             ..strokeCap = StrokeCap.round
-            ..strokeWidth = math.max(2.4, radius * 0.013)
-            ..maskFilter = MaskFilter.blur(
-              BlurStyle.normal,
-              math.max(1.2, radius * 0.006),
-            ),
+            ..strokeWidth = math.max(2.2, radius * 0.012),
         );
       }
 
@@ -541,6 +606,7 @@ class _CobeStyleGlobePainter extends CustomPainter {
         oldDelegate.pulseProgress != pulseProgress ||
         oldDelegate.showConnection != showConnection ||
         oldDelegate.isConnected != isConnected ||
+        oldDelegate.isLightTheme != isLightTheme ||
         oldDelegate.sourceColor != sourceColor ||
         oldDelegate.destinationColor != destinationColor;
   }
@@ -722,3 +788,6 @@ LatLon _midpointLatLon(LatLon first, LatLon second) {
 }
 
 double _degToRad(double value) => value * math.pi / 180;
+
+double _clampTiltAngle(double value) =>
+    value.clamp(-_maxTiltAngle, _maxTiltAngle).toDouble();

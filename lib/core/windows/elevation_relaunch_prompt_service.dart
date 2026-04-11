@@ -80,7 +80,7 @@ class DialogElevationRelaunchPromptService
         'Для запуска режима TUN нужны права администратора. '
             'После подтверждения UAC приложение Gorion будет перезапущено и автоматически продолжит подключение.',
       PendingElevatedLaunchAction.startZapret =>
-        'Для запуска zapret нужны права администратора. '
+        'Для запуска Gorion Boost нужны права администратора. '
             'После подтверждения UAC приложение Gorion будет перезапущено и автоматически продолжит запуск.',
       PendingElevatedLaunchAction.testZapretConfigs =>
         'Для тестирования конфигов Boost нужны права администратора. '

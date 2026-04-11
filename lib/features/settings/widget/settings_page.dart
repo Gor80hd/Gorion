@@ -75,9 +75,9 @@ enum _SettingsGroup {
   desktop(
     title: 'Запуск и трей',
     description:
-        'Автостарт Gorion и zapret, скрытый запуск в трей и автоподключение.',
+        'Автостарт Gorion и Gorion Boost, скрытый запуск в трей и автоподключение.',
     detailDescription:
-        'Параметры поведения приложения при логине в Windows и при обычном запуске на рабочем столе, включая автостарт zapret.',
+        'Параметры поведения приложения при логине в Windows и при обычном запуске на рабочем столе, включая автостарт Gorion Boost.',
     icon: Icons.desktop_windows_outlined,
     accentColor: Color(0xFF72A8FF),
   );
@@ -182,9 +182,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final content = LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 1080;
-        final cardWidth = isWide
-            ? (constraints.maxWidth - 18) / 2
-            : constraints.maxWidth;
 
         final sectionContent = _selectedGroup == null
             ? _buildOverview(
@@ -483,7 +480,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Сбросит тему, connection overrides, split tunneling, автовыбор, zapret и параметры запуска. Профили и подписки останутся на месте.',
+                'Сбросит тему, connection overrides, split tunneling, автовыбор, Gorion Boost и параметры запуска. Профили и подписки останутся на месте.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: muted,
                   height: 1.4,
@@ -493,7 +490,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               if (runtimeActive) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'При активном sing-box или zapret изменения полностью применятся после переподключения или следующего запуска.',
+                  'При активном sing-box или Gorion Boost изменения полностью применятся после переподключения или следующего запуска.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: errorColor.withValues(alpha: 0.9),
                     height: 1.4,
@@ -767,13 +764,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     return _SettingsSection(
       title: 'Запуск и трей',
       description:
-          'Настройки применяются сразу. Автостарт Gorion меняет Windows startup entry, а старт zapret, скрытый запуск и автоподключение начнут работать на следующем запуске приложения.',
+          'Настройки применяются сразу. Автостарт Gorion регистрирует elevated-задачу в Планировщике Windows, а запуск Gorion Boost, скрытый запуск и автоподключение начнут работать на следующем запуске приложения.',
       child: Column(
         children: [
           _ToggleTile(
             title: 'Gorion с Windows',
             subtitle:
-                'Добавляет gorion в автозагрузку текущего пользователя Windows, чтобы приложение можно было поднимать сразу после входа в систему.',
+                'Создаёт elevated-задачу для текущего пользователя Windows, чтобы Gorion запускался сразу после входа в систему уже с правами администратора.',
             value: desktopSettingsState.launchAtStartupEnabled,
             onChanged: desktopBusy
                 ? null
@@ -785,9 +782,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ),
           const SizedBox(height: 14),
           _ToggleTile(
-            title: 'Старт zapret',
+            title: 'Автостарт Gorion Boost',
             subtitle:
-                'После запуска приложения gorion автоматически поднимет отдельный процесс zapret, если каталог настроен и TUN-режим не активен.',
+                'После запуска приложения gorion автоматически поднимет отдельный процесс Gorion Boost, если каталог настроен и TUN-режим не активен.',
             value: zapretState.settings.startOnAppLaunch,
             onChanged: zapretBusy
                 ? null
@@ -795,18 +792,20 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     unawaited(zapretController.setStartOnAppLaunch(value));
                   },
           ),
-          const SizedBox(height: 14),
-          _ToggleTile(
-            title: 'Запускать скрыто в трей',
-            subtitle:
-                'При следующем запуске окно не откроется поверх рабочего стола: приложение сразу уйдёт в системный трей и продолжит работать в фоне.',
-            value: settings.launchMinimized,
-            onChanged: desktopBusy
-                ? null
-                : (value) {
-                    unawaited(desktopController.setLaunchMinimized(value));
-                  },
-          ),
+          if (desktopSettingsState.canLaunchMinimized) ...[
+            const SizedBox(height: 14),
+            _ToggleTile(
+              title: 'Запускать скрыто в трей',
+              subtitle:
+                  'При следующем запуске окно не откроется поверх рабочего стола: приложение сразу уйдёт в системный трей и продолжит работать в фоне.',
+              value: desktopSettingsState.effectiveLaunchMinimized,
+              onChanged: desktopBusy
+                  ? null
+                  : (value) {
+                      unawaited(desktopController.setLaunchMinimized(value));
+                    },
+            ),
+          ],
           const SizedBox(height: 14),
           _ToggleTile(
             title: 'Автоподключение при запуске',
@@ -932,8 +931,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         final desktopSettings = desktopSettingsState.settings;
         final activeFlags = <String>[
           if (desktopSettingsState.launchAtStartupEnabled) 'Gorion',
-          if (zapretState.settings.startOnAppLaunch) 'zapret',
-          if (desktopSettings.launchMinimized) 'Трей',
+          if (zapretState.settings.startOnAppLaunch) 'Gorion Boost',
+          if (desktopSettingsState.effectiveLaunchMinimized) 'Трей',
           if (desktopSettings.autoConnectOnLaunch) 'Автоподключение',
         ];
         return _SettingsGroupSnapshot(

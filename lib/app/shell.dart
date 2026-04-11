@@ -923,7 +923,7 @@ class _Dock extends StatelessWidget {
             const SizedBox(height: 12),
             _DockBtn(
               icon: Icons.shield_outlined,
-              label: 'Zapret 2',
+              label: 'Gorion Boost',
               selected: current == _DockPage.zapret,
               onTap: () => onSelect(_DockPage.zapret),
             ),

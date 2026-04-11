@@ -83,7 +83,7 @@ class ZapretRuntimeService {
   }) async {
     if (!Platform.isWindows) {
       throw UnsupportedError(
-        'Отдельный zapret на текущем этапе поддерживается только на Windows.',
+        'Gorion Boost на текущем этапе поддерживается только на Windows.',
       );
     }
 
@@ -101,7 +101,7 @@ class ZapretRuntimeService {
     for (final requiredFile in configuration.requiredFiles) {
       if (!File(requiredFile).existsSync()) {
         throw FileSystemException(
-          'Не найден обязательный файл из выбранного комплекта zapret.',
+          'Не найден обязательный файл из выбранного комплекта Gorion Boost.',
           requiredFile,
         );
       }

@@ -17,6 +17,20 @@ void main() {
     expect(ruPreset.geoipTags, containsAll(['ru', 'private']));
   });
 
+  test('OpenAI proxy preset targets ChatGPT and OpenAI domains', () {
+    final proxyPresets = splitTunnelPresetsForAction(SplitTunnelAction.proxy);
+    final openaiPreset = proxyPresets.firstWhere(
+      (preset) => preset.id == 'openai-proxy',
+    );
+
+    expect(openaiPreset.label, 'OpenAI / ChatGPT proxy');
+    expect(openaiPreset.geositeTags, contains('openai'));
+    expect(
+      openaiPreset.domainSuffixes,
+      containsAll(['chatgpt.com', 'oaistatic.com', 'oaiusercontent.com']),
+    );
+  });
+
   testWidgets('geosite picker supports search and multi-select', (
     tester,
   ) async {

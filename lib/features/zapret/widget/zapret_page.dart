@@ -559,7 +559,7 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
 
   String _heroSubtitle(ZapretState state) {
     if (!Platform.isWindows) {
-      return 'Boost для zapret сейчас работает только в Windows.';
+      return 'Gorion Boost сейчас работает только в Windows.';
     }
     if (state.tunConflictActive) {
       return 'TUN-режим sing-box активен, поэтому запуск Boost временно заблокирован.';

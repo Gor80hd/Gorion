@@ -35,7 +35,7 @@ void main(List<String> args) async {
     );
     await windowManager.waitUntilReadyToShow(options, () async {
       if (Platform.isWindows &&
-          desktopSettingsBootstrap.settings.launchMinimized &&
+          desktopSettingsBootstrap.effectiveLaunchMinimized &&
           !appLaunchRequest.resumesAfterElevation) {
         await windowManager.hide();
       } else {

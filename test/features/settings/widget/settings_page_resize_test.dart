@@ -14,6 +14,7 @@ import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart'
 import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
 import 'package:gorion_clean/features/settings/data/desktop_settings_repository.dart';
 import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
+import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
@@ -145,7 +146,7 @@ void main() {
       expect(find.text('Стереть все настройки'), findsOneWidget);
       expect(
         find.text(
-          'Сбросит тему, connection overrides, split tunneling, автовыбор, zapret и параметры запуска. Профили и подписки останутся на месте.',
+          'Сбросит тему, connection overrides, split tunneling, автовыбор, Gorion Boost и параметры запуска. Профили и подписки останутся на месте.',
         ),
         findsOneWidget,
       );
@@ -216,9 +217,76 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Gorion с Windows'), findsOneWidget);
-    expect(find.text('Старт zapret'), findsOneWidget);
+    expect(find.text('Автостарт Gorion Boost'), findsOneWidget);
     expect(find.text('Стоп при TUN'), findsNothing);
   });
+
+  testWidgets(
+    'launch minimized toggle is hidden until Windows autostart is enabled',
+    (WidgetTester tester) async {
+      if (!Platform.isWindows) {
+        return;
+      }
+
+      final controller = DashboardController(
+        repository: _FakeProfileRepository(),
+        runtimeService: _FakeRuntimeService(),
+        autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
+        autoSelectPreconnectService: AutoSelectPreconnectService(
+          settingsRepository: _FakeAutoSelectSettingsRepository(),
+        ),
+        autoSelectorService: AutoSelectorService(),
+        initialState: const DashboardState(bootstrapping: false),
+        loadOnInit: false,
+      );
+      final desktopController = DesktopSettingsController(
+        repository: _FakeDesktopSettingsRepository(),
+        launchAtStartupService: const NoopLaunchAtStartupService(),
+        initialState: const DesktopSettingsState(
+          launchAtStartupEnabled: false,
+          settings: DesktopSettings(launchMinimized: true),
+        ),
+      );
+      final zapretController = ZapretController(
+        repository: _FakeZapretSettingsRepository(),
+        runtimeService: _FakeZapretRuntimeService(),
+        initialState: const ZapretState(bootstrapping: false),
+        loadOnInit: false,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          dashboardControllerProvider.overrideWith((ref) => controller),
+          desktopSettingsControllerProvider.overrideWith(
+            (ref) => desktopController,
+          ),
+          zapretControllerProvider.overrideWith((ref) => zapretController),
+        ],
+      );
+
+      addTearDown(container.dispose);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.binding.setSurfaceSize(const Size(1280, 900));
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: buildGorionTheme(
+              brightness: Brightness.dark,
+              palette: AppThemePalette.emerald,
+            ),
+            home: const Scaffold(body: SettingsPage(animateOnMount: false)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Запуск и трей').first);
+      await tester.tap(find.text('Запуск и трей').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Запускать скрыто в трей'), findsNothing);
+    },
+  );
 }
 
 class _FakeAutoSelectSettingsRepository extends AutoSelectSettingsRepository {}

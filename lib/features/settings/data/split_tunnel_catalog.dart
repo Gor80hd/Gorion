@@ -220,6 +220,19 @@ const splitTunnelPresets = <SplitTunnelPreset>[
     domainSuffixes: ['google.com', 'gstatic.com', 'youtube.com', 'youtu.be'],
   ),
   SplitTunnelPreset(
+    id: 'openai-proxy',
+    label: 'OpenAI / ChatGPT proxy',
+    description:
+        'Принудительно оставлять OpenAI и ChatGPT на proxy-маршруте.',
+    action: SplitTunnelAction.proxy,
+    geositeTags: ['openai'],
+    domainSuffixes: [
+      'chatgpt.com',
+      'oaistatic.com',
+      'oaiusercontent.com',
+    ],
+  ),
+  SplitTunnelPreset(
     id: 'netflix-proxy',
     label: 'Netflix proxy',
     description: 'Оставлять Netflix на активном proxy-маршруте.',

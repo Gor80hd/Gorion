@@ -178,10 +178,12 @@ class SingboxConfigBuilder {
     final managedRuleSets = <Map<String, dynamic>>[];
     final managedRules = <Map<String, dynamic>>[];
 
+    // Rule order matters: block should win first, explicit proxy pinning should
+    // override broad direct bypasses, and direct should stay the least specific.
     for (final action in const [
       SplitTunnelAction.block,
-      SplitTunnelAction.direct,
       SplitTunnelAction.proxy,
+      SplitTunnelAction.direct,
     ]) {
       final group = settings.groupFor(action);
       final managedRuleSetTags = _buildManagedSplitTunnelRuleSets(

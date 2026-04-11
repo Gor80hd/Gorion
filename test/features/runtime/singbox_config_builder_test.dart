@@ -161,5 +161,43 @@ void main() {
       expect(selector['default'], 'server-b');
       expect(urltest['outbounds'], ['server-b']);
     });
+
+    test('places explicit proxy split-tunnel rules before direct rules', () {
+      final template = jsonEncode({
+        'outbounds': [
+          {
+            'type': 'vless',
+            'tag': 'server-a',
+            'server': 'a.example.com',
+            'server_port': 443,
+          },
+        ],
+      });
+
+      final built = SingboxConfigBuilder.build(
+        templateConfig: template,
+        splitTunnelSettings: const SplitTunnelSettings(
+          enabled: true,
+          direct: SplitTunnelRuleGroup(geoipTags: ['cloudflare']),
+          proxy: SplitTunnelRuleGroup(
+            geositeTags: ['openai'],
+            domainSuffixes: ['chatgpt.com'],
+          ),
+        ),
+        mode: RuntimeMode.mixed,
+        mixedPort: 2080,
+        controllerPort: 9090,
+        controllerSecret: 'secret-value',
+        urlTestUrl: 'https://www.gstatic.com/generate_204',
+      );
+
+      final config = jsonDecode(built.configJson) as Map<String, dynamic>;
+      final route = config['route'] as Map<String, dynamic>;
+      final rules = (route['rules'] as List).cast<Map<String, dynamic>>();
+
+      expect(rules, hasLength(2));
+      expect(rules.first['outbound'], managedManualSelectorTag);
+      expect(rules.last['outbound'], 'direct');
+    });
   });
 }

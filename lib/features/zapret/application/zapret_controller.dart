@@ -412,7 +412,7 @@ class ZapretController extends StateNotifier<ZapretState> {
     final settings = await _ensureHydratedSettings();
     if (!settings.hasInstallDirectory) {
       state = state.copyWith(
-        errorMessage: 'Сначала укажите каталог установки zapret.',
+        errorMessage: 'Сначала укажите каталог установки Gorion Boost.',
         clearStatusMessage: true,
       );
       return;
@@ -435,7 +435,8 @@ class ZapretController extends StateNotifier<ZapretState> {
     );
     if (availableConfigs.isEmpty) {
       state = state.copyWith(
-        errorMessage: 'В папке zapret не найдено ни одного конфига для теста.',
+        errorMessage:
+            'В папке Gorion Boost не найдено ни одного конфига для теста.',
         clearStatusMessage: true,
       );
       return;
@@ -515,7 +516,7 @@ class ZapretController extends StateNotifier<ZapretState> {
     }
     if (state.tunConflictActive) {
       state = state.copyWith(
-        errorMessage: 'Перед запуском zapret остановите TUN-режим.',
+        errorMessage: 'Перед запуском Gorion Boost остановите TUN-режим.',
         clearStatusMessage: true,
       );
       return;
@@ -523,7 +524,7 @@ class ZapretController extends StateNotifier<ZapretState> {
     final settings = await _ensureHydratedSettings();
     if (!settings.hasInstallDirectory) {
       state = state.copyWith(
-        errorMessage: 'Сначала укажите каталог установки zapret.',
+        errorMessage: 'Сначала укажите каталог установки Gorion Boost.',
         clearStatusMessage: true,
       );
       return;
@@ -557,7 +558,7 @@ class ZapretController extends StateNotifier<ZapretState> {
         runtimeSession: session,
         generatedConfigPreview: configuration.preview,
         generatedConfigSummary: configuration.summary,
-        statusMessage: 'zapret запущен: ${configuration.summary}.',
+        statusMessage: 'Gorion Boost запущен: ${configuration.summary}.',
         clearErrorMessage: true,
         logs: _runtimeService.logs,
       );
@@ -587,7 +588,8 @@ class ZapretController extends StateNotifier<ZapretState> {
         state = state.copyWith(
           stage: ZapretStage.pausedByTun,
           statusMessage:
-              reason ?? 'zapret остановлен, потому что активен TUN-режим.',
+              reason ??
+              'Gorion Boost остановлен, потому что активен TUN-режим.',
           clearErrorMessage: true,
           clearRuntimeSession: true,
           logs: _runtimeService.logs,
@@ -612,8 +614,8 @@ class ZapretController extends StateNotifier<ZapretState> {
         statusMessage:
             reason ??
             (pausedByTun
-                ? 'zapret остановлен, потому что активен TUN-режим.'
-                : 'zapret остановлен.'),
+                ? 'Gorion Boost остановлен, потому что активен TUN-режим.'
+                : 'Gorion Boost остановлен.'),
         logs: _runtimeService.logs,
       );
     } on Object catch (error) {
@@ -643,14 +645,14 @@ class ZapretController extends StateNotifier<ZapretState> {
         await stop(
           pausedByTun: true,
           reason:
-              'zapret остановлен, потому что стал активен TUN-режим sing-box.',
+              'Gorion Boost остановлен, потому что стал активен TUN-режим sing-box.',
           force: true,
         );
         return;
       }
       state = state.copyWith(
         statusMessage:
-            'Активен TUN-режим. Остановите TUN перед запуском zapret.',
+            'Активен TUN-режим. Остановите TUN перед запуском Gorion Boost.',
         clearErrorMessage: true,
       );
       return;
@@ -660,7 +662,7 @@ class ZapretController extends StateNotifier<ZapretState> {
       state = state.copyWith(
         stage: ZapretStage.stopped,
         statusMessage:
-            'TUN-режим больше не активен. zapret можно запустить снова.',
+            'TUN-режим больше не активен. Gorion Boost можно запустить снова.',
         clearErrorMessage: true,
       );
     }
@@ -693,8 +695,8 @@ class ZapretController extends StateNotifier<ZapretState> {
       clearRuntimeSession: true,
       statusMessage: exitCode == 0
           ? state.tunConflictActive
-                ? 'zapret остановлен, потому что активен TUN-режим.'
-                : 'zapret остановлен.'
+                ? 'Gorion Boost остановлен, потому что активен TUN-режим.'
+                : 'Gorion Boost остановлен.'
           : null,
       clearStatusMessage: exitCode != 0,
       errorMessage: exitCode == 0 ? null : _describeExitCode(exitCode),
@@ -705,16 +707,16 @@ class ZapretController extends StateNotifier<ZapretState> {
 
   String _describeExitCode(int exitCode) {
     if (exitCode == 87) {
-      return 'zapret отклонил параметры запуска (код 87 / ERROR_INVALID_PARAMETER). Значит, winws не принял один из аргументов текущего конфига.';
+      return 'Gorion Boost отклонил параметры запуска (код 87 / ERROR_INVALID_PARAMETER). Значит, winws не принял один из аргументов текущего конфига.';
     }
     if (exitCode == -1073741502) {
-      return 'zapret не смог инициализироваться (код -1073741502 / 0xC0000142). Обычно это сбой инициализации DLL или процесса; сначала попробуйте запустить Gorion от имени администратора.';
+      return 'Gorion Boost не смог инициализироваться (код -1073741502 / 0xC0000142). Обычно это сбой инициализации DLL или процесса; сначала попробуйте запустить Gorion от имени администратора.';
     }
 
     final hexSuffix = exitCode < 0
         ? ' (${_formatWindowsExitCode(exitCode)})'
         : '';
-    return 'zapret завершился с кодом $exitCode$hexSuffix.';
+    return 'Gorion Boost завершился с кодом $exitCode$hexSuffix.';
   }
 
   String _formatWindowsExitCode(int exitCode) {
@@ -783,7 +785,7 @@ class ZapretController extends StateNotifier<ZapretState> {
         clearGeneratedConfigPreview: configuration == null,
         generatedConfigSummary: configuration?.summary,
         clearGeneratedConfigSummary: configuration == null,
-        statusMessage: 'Настройки zapret сохранены.',
+        statusMessage: 'Настройки Gorion Boost сохранены.',
         logs: _runtimeService.logs,
       );
     } on Object catch (error) {
@@ -856,11 +858,11 @@ class ZapretController extends StateNotifier<ZapretState> {
     PendingElevatedLaunchAction action =
         PendingElevatedLaunchAction.startZapret,
     String successMessage =
-        'Запрошены права администратора. После подтверждения UAC Gorion перезапустится и продолжит запуск zapret.',
+        'Запрошены права администратора. После подтверждения UAC Gorion перезапустится и продолжит запуск Gorion Boost.',
     String cancelledMessage =
-        'Запрос прав администратора был отменён. zapret не запущен.',
+        'Запрос прав администратора был отменён. Gorion Boost не запущен.',
     String failureMessagePrefix =
-        'Не удалось запросить права администратора для zapret',
+        'Не удалось запросить права администратора для Gorion Boost',
   }) async {
     if (!Platform.isWindows) {
       return false;
@@ -884,7 +886,7 @@ class ZapretController extends StateNotifier<ZapretState> {
       state = state.copyWith(
         statusMessage: action == PendingElevatedLaunchAction.testZapretConfigs
             ? 'Тестирование конфигов Boost отменено.'
-            : 'Запуск zapret отменён.',
+            : 'Запуск Gorion Boost отменён.',
         clearErrorMessage: true,
       );
       return true;
