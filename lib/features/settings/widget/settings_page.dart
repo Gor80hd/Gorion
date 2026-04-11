@@ -15,6 +15,7 @@ import 'package:gorion_clean/features/settings/application/desktop_settings_cont
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
 import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
 import 'package:gorion_clean/features/settings/widget/split_tunnel_section.dart';
+import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key, this.animateOnMount = true});
@@ -71,9 +72,9 @@ enum _SettingsGroup {
   desktop(
     title: 'Запуск и трей',
     description:
-        'Автозапуск Windows, скрытый старт в трей и автоподключение после старта.',
+        'Автостарт Gorion и zapret, скрытый запуск в трей и автоподключение.',
     detailDescription:
-        'Параметры поведения приложения при логине в Windows и при обычном запуске на рабочем столе.',
+        'Параметры поведения приложения при логине в Windows и при обычном запуске на рабочем столе, включая автостарт zapret.',
     icon: Icons.desktop_windows_outlined,
     accentColor: Color(0xFF72A8FF),
   );
@@ -140,6 +141,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final dashboardState = ref.watch(dashboardControllerProvider);
     final appThemeSettings = ref.watch(appThemeSettingsProvider);
     final desktopSettingsState = ref.watch(desktopSettingsControllerProvider);
+    final zapretState = ref.watch(zapretControllerProvider);
     _syncDraft(dashboardState.connectionTuningSettings);
 
     final savedBestServerCheckIntervalMinutes =
@@ -181,6 +183,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 dashboardState: dashboardState,
                 appThemeSettings: appThemeSettings,
                 desktopSettingsState: desktopSettingsState,
+                zapretState: zapretState,
                 isWide: isWide,
                 bestServerCheckIntervalMinutes: bestServerCheckIntervalMinutes,
               )
@@ -189,6 +192,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 dashboardState: dashboardState,
                 appThemeSettings: appThemeSettings,
                 desktopSettingsState: desktopSettingsState,
+                zapretState: zapretState,
                 bestServerCheckIntervalMinutes: bestServerCheckIntervalMinutes,
               );
 
@@ -254,6 +258,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     required DashboardState dashboardState,
     required AppThemeSettings appThemeSettings,
     required DesktopSettingsState desktopSettingsState,
+    required ZapretState zapretState,
     required bool isWide,
     required int bestServerCheckIntervalMinutes,
   }) {
@@ -267,6 +272,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           dashboardState,
           appThemeSettings,
           desktopSettingsState,
+          zapretState,
           bestServerCheckIntervalMinutes,
         ),
         onTap: () => _openGroup(group),
@@ -306,6 +312,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     required DashboardState dashboardState,
     required AppThemeSettings appThemeSettings,
     required DesktopSettingsState desktopSettingsState,
+    required ZapretState zapretState,
     required int bestServerCheckIntervalMinutes,
   }) {
     final group = _selectedGroup!;
@@ -328,7 +335,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         if (group == _SettingsGroup.splitTunnel)
           _buildSplitTunnelSection(dashboardState, isConnected),
         if (group == _SettingsGroup.desktop)
-          _buildDesktopSection(desktopSettingsState),
+          _buildDesktopSection(desktopSettingsState, zapretState),
       ],
     );
   }
@@ -652,28 +659,49 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  Widget _buildDesktopSection(DesktopSettingsState desktopSettingsState) {
-    final controller = ref.read(desktopSettingsControllerProvider.notifier);
+  Widget _buildDesktopSection(
+    DesktopSettingsState desktopSettingsState,
+    ZapretState zapretState,
+  ) {
+    final desktopController = ref.read(
+      desktopSettingsControllerProvider.notifier,
+    );
+    final zapretController = ref.read(zapretControllerProvider.notifier);
     final settings = desktopSettingsState.settings;
-    final busy = desktopSettingsState.busy;
+    final desktopBusy = desktopSettingsState.busy;
+    final zapretBusy = zapretState.busy;
     final theme = Theme.of(context);
     final muted = theme.gorionTokens.onSurfaceMuted;
 
     return _SettingsSection(
       title: 'Запуск и трей',
       description:
-          'Настройки применяются сразу. Автозапуск меняет Windows startup entry, а скрытый старт и автоподключение начнут работать на следующем запуске приложения.',
+          'Настройки применяются сразу. Автостарт Gorion меняет Windows startup entry, а старт zapret, скрытый запуск и автоподключение начнут работать на следующем запуске приложения.',
       child: Column(
         children: [
           _ToggleTile(
-            title: 'Автозапуск с Windows',
+            title: 'Gorion с Windows',
             subtitle:
                 'Добавляет gorion в автозагрузку текущего пользователя Windows, чтобы приложение можно было поднимать сразу после входа в систему.',
             value: desktopSettingsState.launchAtStartupEnabled,
-            onChanged: busy
+            onChanged: desktopBusy
                 ? null
                 : (value) {
-                    unawaited(controller.setLaunchAtStartupEnabled(value));
+                    unawaited(
+                      desktopController.setLaunchAtStartupEnabled(value),
+                    );
+                  },
+          ),
+          const SizedBox(height: 14),
+          _ToggleTile(
+            title: 'Старт zapret',
+            subtitle:
+                'После запуска приложения gorion автоматически поднимет отдельный процесс zapret, если каталог настроен и TUN-режим не активен.',
+            value: zapretState.settings.startOnAppLaunch,
+            onChanged: zapretBusy
+                ? null
+                : (value) {
+                    unawaited(zapretController.setStartOnAppLaunch(value));
                   },
           ),
           const SizedBox(height: 14),
@@ -682,10 +710,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             subtitle:
                 'При следующем запуске окно не откроется поверх рабочего стола: приложение сразу уйдёт в системный трей и продолжит работать в фоне.',
             value: settings.launchMinimized,
-            onChanged: busy
+            onChanged: desktopBusy
                 ? null
                 : (value) {
-                    unawaited(controller.setLaunchMinimized(value));
+                    unawaited(desktopController.setLaunchMinimized(value));
                   },
           ),
           const SizedBox(height: 14),
@@ -694,10 +722,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             subtitle:
                 'После загрузки сохранённого состояния gorion автоматически запустит connect для активного профиля, если он уже выбран.',
             value: settings.autoConnectOnLaunch,
-            onChanged: busy
+            onChanged: desktopBusy
                 ? null
                 : (value) {
-                    unawaited(controller.setAutoConnectOnLaunch(value));
+                    unawaited(desktopController.setAutoConnectOnLaunch(value));
                   },
           ),
           if (desktopSettingsState.errorMessage case final errorMessage?) ...[
@@ -737,6 +765,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     DashboardState dashboardState,
     AppThemeSettings appThemeSettings,
     DesktopSettingsState desktopSettingsState,
+    ZapretState zapretState,
     int bestServerCheckIntervalMinutes,
   ) {
     final savedSettings = dashboardState.connectionTuningSettings;
@@ -811,13 +840,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       case _SettingsGroup.desktop:
         final desktopSettings = desktopSettingsState.settings;
         final activeFlags = <String>[
-          if (desktopSettingsState.launchAtStartupEnabled) 'Автостарт',
+          if (desktopSettingsState.launchAtStartupEnabled) 'Gorion',
+          if (zapretState.settings.startOnAppLaunch) 'zapret',
           if (desktopSettings.launchMinimized) 'Трей',
           if (desktopSettings.autoConnectOnLaunch) 'Автоподключение',
         ];
         return _SettingsGroupSnapshot(
-          badgeLabel: desktopSettingsState.launchAtStartupEnabled
-              ? 'Windows startup'
+          badgeLabel:
+              desktopSettingsState.launchAtStartupEnabled ||
+                  zapretState.settings.startOnAppLaunch
+              ? 'Автостарт'
               : 'Ручной старт',
           supportingLabel: activeFlags.isEmpty
               ? 'Обычный запуск без фоновой автоматизации'

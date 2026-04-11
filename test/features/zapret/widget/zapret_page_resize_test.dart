@@ -103,6 +103,7 @@ void main() {
         expect(find.text('Каталог и генерация'), findsOneWidget);
         expect(find.text('Конфиг и фильтр'), findsOneWidget);
         expect(find.text('Процесс и лента'), findsOneWidget);
+        expect(find.text('Запуск и защита'), findsNothing);
         expect(find.text('Пресет'), findsNothing);
       }
 
@@ -168,6 +169,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Конфиг и фильтр'), findsOneWidget);
+    expect(find.text('Запуск и защита'), findsNothing);
     expect(find.text('general'), findsWidgets);
     expect(find.text('Отключён'), findsWidgets);
   });

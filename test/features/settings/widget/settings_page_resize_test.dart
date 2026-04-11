@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,7 +11,14 @@ import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dar
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
+import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
+import 'package:gorion_clean/features/settings/data/desktop_settings_repository.dart';
+import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
+import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
+import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
+import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
+import 'package:gorion_clean/features/zapret/model/zapret_settings.dart';
 
 void main() {
   testWidgets('settings page remains stable across window resize', (
@@ -26,9 +35,27 @@ void main() {
       initialState: const DashboardState(bootstrapping: false),
       loadOnInit: false,
     );
+    final desktopController = DesktopSettingsController(
+      repository: _FakeDesktopSettingsRepository(),
+      launchAtStartupService: const NoopLaunchAtStartupService(),
+      initialState: const DesktopSettingsState(launchAtStartupEnabled: true),
+    );
+    final zapretController = ZapretController(
+      repository: _FakeZapretSettingsRepository(),
+      runtimeService: _FakeZapretRuntimeService(),
+      initialState: const ZapretState(
+        bootstrapping: false,
+        settings: ZapretSettings(startOnAppLaunch: true),
+      ),
+      loadOnInit: false,
+    );
     final container = ProviderContainer(
       overrides: [
         dashboardControllerProvider.overrideWith((ref) => controller),
+        desktopSettingsControllerProvider.overrideWith(
+          (ref) => desktopController,
+        ),
+        zapretControllerProvider.overrideWith((ref) => zapretController),
       ],
     );
     addTearDown(container.dispose);
@@ -62,9 +89,79 @@ void main() {
     await pumpAtSize(const Size(780, 520));
     await pumpAtSize(const Size(640, 420));
   });
+
+  testWidgets('desktop settings group contains Gorion and zapret startup', (
+    WidgetTester tester,
+  ) async {
+    if (!Platform.isWindows) {
+      return;
+    }
+
+    final controller = DashboardController(
+      repository: _FakeProfileRepository(),
+      runtimeService: _FakeRuntimeService(),
+      autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
+      autoSelectPreconnectService: AutoSelectPreconnectService(
+        settingsRepository: _FakeAutoSelectSettingsRepository(),
+      ),
+      autoSelectorService: AutoSelectorService(),
+      initialState: const DashboardState(bootstrapping: false),
+      loadOnInit: false,
+    );
+    final desktopController = DesktopSettingsController(
+      repository: _FakeDesktopSettingsRepository(),
+      launchAtStartupService: const NoopLaunchAtStartupService(),
+      initialState: const DesktopSettingsState(launchAtStartupEnabled: true),
+    );
+    final zapretController = ZapretController(
+      repository: _FakeZapretSettingsRepository(),
+      runtimeService: _FakeZapretRuntimeService(),
+      initialState: const ZapretState(
+        bootstrapping: false,
+        settings: ZapretSettings(startOnAppLaunch: true),
+      ),
+      loadOnInit: false,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        dashboardControllerProvider.overrideWith((ref) => controller),
+        desktopSettingsControllerProvider.overrideWith(
+          (ref) => desktopController,
+        ),
+        zapretControllerProvider.overrideWith((ref) => zapretController),
+      ],
+    );
+
+    addTearDown(container.dispose);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: buildGorionTheme(
+            brightness: Brightness.dark,
+            palette: AppThemePalette.emerald,
+          ),
+          home: const Scaffold(body: SettingsPage(animateOnMount: false)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Запуск и трей').first);
+    await tester.tap(find.text('Запуск и трей').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Gorion с Windows'), findsOneWidget);
+    expect(find.text('Старт zapret'), findsOneWidget);
+    expect(find.text('Стоп при TUN'), findsNothing);
+  });
 }
 
 class _FakeAutoSelectSettingsRepository extends AutoSelectSettingsRepository {}
+
+class _FakeDesktopSettingsRepository extends DesktopSettingsRepository {}
 
 class _FakeProfileRepository extends ProfileRepository {}
 
@@ -72,3 +169,7 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   @override
   List<String> get logs => const <String>[];
 }
+
+class _FakeZapretSettingsRepository extends ZapretSettingsRepository {}
+
+class _FakeZapretRuntimeService extends ZapretRuntimeService {}

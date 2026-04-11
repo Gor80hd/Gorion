@@ -36,7 +36,6 @@ void main() {
       ),
       ipSetFilterMode: ZapretIpSetFilterMode.any,
       startOnAppLaunch: true,
-      autoStopOnTun: true,
     );
 
     await repository.save(savedSettings);
@@ -70,6 +69,20 @@ void main() {
     expect(loaded.gameFilterMode, ZapretGameFilterMode.disabled);
     expect(loaded.ipSetFilterMode, ZapretIpSetFilterMode.none);
     expect(loaded.startOnAppLaunch, isTrue);
+    expect(loaded.autoStopOnTun, isTrue);
+  });
+
+  test('forces autoStopOnTun back to true for legacy disabled state', () async {
+    final stateFile = File(
+      '${tempDir.path}${Platform.pathSeparator}zapret-settings.json',
+    );
+    await stateFile.writeAsString(
+      '{"installDirectory":"C:/zapret2","autoStopOnTun":false}',
+    );
+
+    final loaded = await repository.load();
+
+    expect(loaded.installDirectory, 'C:/zapret2');
     expect(loaded.autoStopOnTun, isTrue);
   });
 

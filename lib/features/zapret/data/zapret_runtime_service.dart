@@ -3,16 +3,27 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:gorion_clean/core/logging/gorion_console_log.dart';
+import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
+import 'package:gorion_clean/features/runtime/data/windows_runtime_cleanup_watchdog.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_config_generator.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_runtime_support.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_settings.dart';
+import 'package:path/path.dart' as p;
+
+const _runtimeProcessMarkerFileName = 'runtime-process.json';
 
 class ZapretRuntimeService {
-  ZapretRuntimeService({ZapretConfigGenerator? generator})
-    : _generator = generator ?? const ZapretConfigGenerator();
+  ZapretRuntimeService({
+    ZapretConfigGenerator? generator,
+    WindowsRuntimeCleanupWatchdog? windowsRuntimeCleanupWatchdog,
+  }) : _generator = generator ?? const ZapretConfigGenerator(),
+       _windowsRuntimeCleanupWatchdog =
+           windowsRuntimeCleanupWatchdog ??
+           const WindowsRuntimeCleanupWatchdog();
 
   final ZapretConfigGenerator _generator;
+  final WindowsRuntimeCleanupWatchdog _windowsRuntimeCleanupWatchdog;
   Process? _process;
   ZapretRuntimeSession? _session;
   final List<String> _logs = <String>[];
@@ -76,7 +87,9 @@ class ZapretRuntimeService {
       );
     }
 
+    final runtimeDir = await _runtimeDirectory();
     await stop();
+    await _cleanupOrphanedProcess(runtimeDir);
     if (!preserveLogs) {
       _logs.clear();
     } else if (_logs.isNotEmpty) {
@@ -127,6 +140,19 @@ class ZapretRuntimeService {
       arguments: List<String>.unmodifiable(configuration.arguments),
       commandPreview: configuration.preview,
     );
+    await _writeProcessMarker(
+      runtimeDir,
+      pid: process.pid,
+      executablePath: configuration.executablePath,
+      workingDirectory: configuration.workingDirectory,
+      arguments: configuration.arguments,
+    );
+    await _windowsRuntimeCleanupWatchdog.arm(
+      runtimeDir: runtimeDir,
+      parentPid: pid,
+      childPid: process.pid,
+      onLog: _appendLog,
+    );
     _appendLog('Процесс zapret запущен с PID ${process.pid}.');
 
     _stdoutSubscription = process.stdout
@@ -139,6 +165,7 @@ class ZapretRuntimeService {
         .listen((line) => _appendLog('STDERR $line', isError: true));
 
     process.exitCode.then((code) {
+      unawaited(_deleteProcessMarker(runtimeDir, expectedPid: process.pid));
       _appendLog('zapret завершился с кодом $code.', isError: code != 0);
       _process = null;
       _session = null;
@@ -154,6 +181,7 @@ class ZapretRuntimeService {
     _stdoutSubscription = null;
     _stderrSubscription = null;
 
+    final runtimeDir = await _runtimeDirectory();
     final process = _process;
     _process = null;
     _session = null;
@@ -170,10 +198,117 @@ class ZapretRuntimeService {
       process.kill(ProcessSignal.sigkill);
       await process.exitCode.timeout(const Duration(seconds: 2));
     }
+
+    await _deleteProcessMarker(runtimeDir, expectedPid: process.pid);
   }
 
   void dispose() {
     unawaited(stop());
+  }
+
+  Future<Directory> _runtimeDirectory() async {
+    return ensureGorionRuntimeDirectory(subdirectory: 'zapret2');
+  }
+
+  Future<void> _cleanupOrphanedProcess(Directory runtimeDir) async {
+    final marker = await _readProcessMarker(runtimeDir);
+    if (marker == null) {
+      return;
+    }
+
+    final killed = Process.killPid(marker.pid);
+    if (killed) {
+      _appendLog(
+        'Остановлен осиротевший процесс zapret PID ${marker.pid} из предыдущего сеанса приложения.',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    } else {
+      _appendLog(
+        'Удаляется устаревший marker процесса zapret PID ${marker.pid}.',
+      );
+    }
+
+    await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
+  }
+
+  Future<void> _writeProcessMarker(
+    Directory runtimeDir, {
+    required int pid,
+    required String executablePath,
+    required String workingDirectory,
+    required List<String> arguments,
+  }) async {
+    final markerFile = _processMarkerFile(runtimeDir);
+    final payload = <String, Object>{
+      'pid': pid,
+      'executablePath': executablePath,
+      'workingDirectory': workingDirectory,
+      'arguments': arguments,
+      'updatedAt': DateTime.now().toIso8601String(),
+    };
+    await markerFile.writeAsString(jsonEncode(payload), flush: true);
+  }
+
+  Future<_RuntimeProcessMarker?> _readProcessMarker(
+    Directory runtimeDir,
+  ) async {
+    final markerFile = _processMarkerFile(runtimeDir);
+    if (!await markerFile.exists()) {
+      return null;
+    }
+
+    try {
+      final decoded = jsonDecode(await markerFile.readAsString());
+      if (decoded is! Map) {
+        return null;
+      }
+
+      final pid = _tryParseInt(decoded['pid']);
+      if (pid == null || pid <= 0) {
+        return null;
+      }
+
+      return _RuntimeProcessMarker(pid: pid);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _deleteProcessMarker(
+    Directory runtimeDir, {
+    int? expectedPid,
+  }) async {
+    final markerFile = _processMarkerFile(runtimeDir);
+    if (!await markerFile.exists()) {
+      return;
+    }
+
+    if (expectedPid != null) {
+      final marker = await _readProcessMarker(runtimeDir);
+      if (marker != null && marker.pid != expectedPid) {
+        return;
+      }
+    }
+
+    try {
+      await markerFile.delete();
+    } on FileSystemException {
+      return;
+    }
+  }
+
+  File _processMarkerFile(Directory runtimeDir) {
+    return File(p.join(runtimeDir.path, _runtimeProcessMarkerFileName));
+  }
+
+  int? _tryParseInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '');
   }
 
   void _appendCommandTrace({
@@ -197,4 +332,10 @@ class ZapretRuntimeService {
       _logs.removeRange(0, _logs.length - 200);
     }
   }
+}
+
+class _RuntimeProcessMarker {
+  const _RuntimeProcessMarker({required this.pid});
+
+  final int pid;
 }

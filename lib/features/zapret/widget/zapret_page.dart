@@ -112,15 +112,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
                       Expanded(
                         child: _buildProfileCard(context, state, layout),
                       ),
-                      SizedBox(width: layout.gap),
-                      Expanded(
-                        child: _buildStartupCard(
-                          context,
-                          state,
-                          desktopState,
-                          layout,
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -162,10 +153,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
               Expanded(child: _buildInstallCard(context, state, layout)),
               SizedBox(width: layout.gap),
               Expanded(child: _buildProfileCard(context, state, layout)),
-              SizedBox(width: layout.gap),
-              Expanded(
-                child: _buildStartupCard(context, state, desktopState, layout),
-              ),
             ],
           ),
         ),
@@ -580,91 +567,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage> {
             ],
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildStartupCard(
-    BuildContext context,
-    ZapretState state,
-    DesktopSettingsState desktopState,
-    _ZapretDashboardLayout layout,
-  ) {
-    const accentColor = Color(0xFF72A8FF);
-
-    return _buildPanel(
-      layout: layout,
-      accentColor: accentColor,
-      padding: EdgeInsets.all(
-        layout.compact ? layout.cardPadding - 6 : layout.cardPadding - 4,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          layout.scaleFallback
-              ? const _CompactPanelHeading(
-                  icon: Icons.desktop_windows_outlined,
-                  title: 'Запуск и защита',
-                  accentColor: accentColor,
-                )
-              : const _PanelHeading(
-                  icon: Icons.desktop_windows_outlined,
-                  title: 'Запуск и защита',
-                  description: 'Автостарт Gorion и zapret плюс защита от TUN.',
-                  accentColor: accentColor,
-                ),
-          SizedBox(height: layout.compact ? 6 : 8),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _ToggleTile(
-                  title: 'Gorion с Windows',
-                  value: desktopState.launchAtStartupEnabled,
-                  onChanged: desktopState.busy
-                      ? null
-                      : (value) => ref
-                            .read(desktopSettingsControllerProvider.notifier)
-                            .setLaunchAtStartupEnabled(value),
-                  accentColor: accentColor,
-                  dense: layout.ultraCompact,
-                ),
-                SizedBox(
-                  height: layout.ultraCompact
-                      ? 2
-                      : layout.compact
-                      ? 4
-                      : 6,
-                ),
-                _ToggleTile(
-                  title: 'Старт zapret',
-                  value: state.settings.startOnAppLaunch,
-                  onChanged: state.busy
-                      ? null
-                      : (value) => ref
-                            .read(zapretControllerProvider.notifier)
-                            .setStartOnAppLaunch(value),
-                  accentColor: const Color(0xFF1EFFAC),
-                  dense: layout.ultraCompact,
-                ),
-                SizedBox(
-                  height: layout.ultraCompact
-                      ? 2
-                      : layout.compact
-                      ? 4
-                      : 6,
-                ),
-                _ToggleTile(
-                  title: 'Стоп при TUN',
-                  value: state.settings.autoStopOnTun,
-                  onChanged: null,
-                  accentColor: const Color(0xFFFFC857),
-                  dense: layout.ultraCompact,
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

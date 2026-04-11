@@ -190,6 +190,26 @@ void main() {
       'zapret не смог инициализироваться (код -1073741502 / 0xC0000142). Обычно это сбой инициализации DLL или процесса; сначала попробуйте запустить Gorion от имени администратора.',
     );
   });
+
+  test('shutdownForAppExit stops the zapret runtime once', () async {
+    final runtimeService = _FakeZapretRuntimeService();
+    final controller = ZapretController(
+      repository: _FakeZapretSettingsRepository(),
+      runtimeService: runtimeService,
+      initialState: ZapretState(
+        bootstrapping: false,
+        settings: const ZapretSettings(installDirectory: r'E:\Tools\zapret2'),
+        stage: ZapretStage.running,
+        runtimeSession: runtimeService.sessionTemplate,
+      ),
+      loadOnInit: false,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.shutdownForAppExit();
+
+    expect(runtimeService.stopCalls, 1);
+  });
 }
 
 class _FakeZapretSettingsRepository extends ZapretSettingsRepository {

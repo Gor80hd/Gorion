@@ -11,7 +11,6 @@ class ZapretSettings {
     this.customProfile,
     this.ipSetFilterMode = ZapretIpSetFilterMode.none,
     this.startOnAppLaunch = false,
-    this.autoStopOnTun = true,
   }) : gameFilterMode =
            gameFilterMode ??
            (gameFilterEnabled
@@ -26,7 +25,8 @@ class ZapretSettings {
   final ZapretCustomProfile? customProfile;
   final ZapretIpSetFilterMode ipSetFilterMode;
   final bool startOnAppLaunch;
-  final bool autoStopOnTun;
+  // This guard is always enabled; we still serialize it for compatibility.
+  final bool autoStopOnTun = true;
 
   String get normalizedInstallDirectory => installDirectory.trim();
 
@@ -71,7 +71,6 @@ class ZapretSettings {
     bool? gameFilterEnabled,
     ZapretIpSetFilterMode? ipSetFilterMode,
     bool? startOnAppLaunch,
-    bool? autoStopOnTun,
   }) {
     return ZapretSettings(
       installDirectory: (installDirectory ?? this.installDirectory).trim(),
@@ -92,7 +91,6 @@ class ZapretSettings {
           : customProfile ?? this.customProfile,
       ipSetFilterMode: ipSetFilterMode ?? this.ipSetFilterMode,
       startOnAppLaunch: startOnAppLaunch ?? this.startOnAppLaunch,
-      autoStopOnTun: autoStopOnTun ?? this.autoStopOnTun,
     );
   }
 
@@ -134,7 +132,6 @@ class ZapretSettings {
         json['ipSetFilterMode'],
       ),
       startOnAppLaunch: json['startOnAppLaunch'] as bool? ?? false,
-      autoStopOnTun: json['autoStopOnTun'] as bool? ?? true,
     );
   }
 
