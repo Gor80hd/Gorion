@@ -61,6 +61,19 @@ void main() {
       expect(latLon.$1, closeTo(39.0, 0.001));
       expect(latLon.$2, closeTo(22.0, 0.001));
     });
+
+    test(
+      'resolves Russian city labels to their city instead of country center',
+      () {
+        final latLon = resolveDestinationLatLon(
+          OutboundInfo(tagDisplay: '🇷🇺 Новосибирск #1'),
+          'RU',
+        );
+
+        expect(latLon.$1, closeTo(55.0084, 0.001));
+        expect(latLon.$2, closeTo(82.9357, 0.001));
+      },
+    );
   });
 
   group('resolveSourceLatLon', () {
@@ -77,6 +90,21 @@ void main() {
 
       expect(latLon.$1, closeTo(55.6761, 0.001));
       expect(latLon.$2, closeTo(12.5683, 0.001));
+    });
+
+    test('uses Russian city details when available', () {
+      final latLon = resolveSourceLatLon(
+        const IpInfo(
+          ip: '203.0.113.11',
+          countryCode: 'RU',
+          country: 'Russia',
+          region: 'Novosibirsk Oblast',
+          city: 'Novosibirsk',
+        ),
+      );
+
+      expect(latLon.$1, closeTo(55.0084, 0.001));
+      expect(latLon.$2, closeTo(82.9357, 0.001));
     });
   });
 }
