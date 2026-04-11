@@ -90,6 +90,68 @@ void main() {
     await pumpAtSize(const Size(640, 420));
   });
 
+  testWidgets(
+    'settings page shows compact reset all settings action at the bottom',
+    (WidgetTester tester) async {
+      final controller = DashboardController(
+        repository: _FakeProfileRepository(),
+        runtimeService: _FakeRuntimeService(),
+        autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
+        autoSelectPreconnectService: AutoSelectPreconnectService(
+          settingsRepository: _FakeAutoSelectSettingsRepository(),
+        ),
+        autoSelectorService: AutoSelectorService(),
+        initialState: const DashboardState(bootstrapping: false),
+        loadOnInit: false,
+      );
+      final desktopController = DesktopSettingsController(
+        repository: _FakeDesktopSettingsRepository(),
+        launchAtStartupService: const NoopLaunchAtStartupService(),
+        initialState: const DesktopSettingsState(),
+      );
+      final zapretController = ZapretController(
+        repository: _FakeZapretSettingsRepository(),
+        runtimeService: _FakeZapretRuntimeService(),
+        initialState: const ZapretState(bootstrapping: false),
+        loadOnInit: false,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          dashboardControllerProvider.overrideWith((ref) => controller),
+          desktopSettingsControllerProvider.overrideWith(
+            (ref) => desktopController,
+          ),
+          zapretControllerProvider.overrideWith((ref) => zapretController),
+        ],
+      );
+
+      addTearDown(container.dispose);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.binding.setSurfaceSize(const Size(1280, 900));
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: buildGorionTheme(
+              brightness: Brightness.dark,
+              palette: AppThemePalette.emerald,
+            ),
+            home: const Scaffold(body: SettingsPage(animateOnMount: false)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Стереть все настройки'), findsOneWidget);
+      expect(
+        find.text(
+          'Сбросит тему, connection overrides, split tunneling, автовыбор, zapret и параметры запуска. Профили и подписки останутся на месте.',
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
   testWidgets('desktop settings group contains Gorion and zapret startup', (
     WidgetTester tester,
   ) async {

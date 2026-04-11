@@ -6,16 +6,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/app/theme_preferences.dart';
 import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/app/theme_settings.dart';
+import 'package:gorion_clean/core/preferences/general_preferences.dart';
 import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
+import 'package:gorion_clean/features/settings/data/app_settings_reset_service.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
 import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
 import 'package:gorion_clean/features/settings/widget/split_tunnel_section.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
+import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key, this.animateOnMount = true});
@@ -118,6 +121,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Timer? _connectionAutoSaveTimer;
   Timer? _autoSelectAutoSaveTimer;
   bool _autoSaveFlushScheduled = false;
+  bool _resetInProgress = false;
   _SettingsGroup? _selectedGroup;
 
   @override
@@ -164,9 +168,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final hasFailedSaves = hasFailedConnectionSave || hasFailedAutoSelectSave;
     final isConnected =
         dashboardState.connectionStage == ConnectionStage.connected;
-    final canManualSave = !dashboardState.busy && hasFailedSaves;
+    final pageBusy =
+        dashboardState.busy ||
+        desktopSettingsState.busy ||
+        zapretState.busy ||
+        _resetInProgress;
+    final canManualSave = !pageBusy && hasFailedSaves;
 
-    if (!dashboardState.busy) {
+    if (!dashboardState.busy && !_resetInProgress) {
       _scheduleAutoSaveFlush();
     }
 
@@ -203,7 +212,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _HeroPanel(
-                busy: dashboardState.busy,
+                busy: pageBusy,
                 activeGroup: _selectedGroup,
                 hasPendingChanges: hasPendingChanges,
                 hasFailedSaves: hasFailedSaves,
@@ -224,6 +233,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   );
                 },
                 child: sectionContent,
+              ),
+              const SizedBox(height: 18),
+              _buildResetSection(
+                dashboardState: dashboardState,
+                zapretState: zapretState,
+                busy: pageBusy,
               ),
             ],
           ),
@@ -413,6 +428,82 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildResetSection({
+    required DashboardState dashboardState,
+    required ZapretState zapretState,
+    required bool busy,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
+    final runtimeActive =
+        dashboardState.connectionStage == ConnectionStage.connected ||
+        dashboardState.connectionStage == ConnectionStage.starting ||
+        zapretState.stage == ZapretStage.running ||
+        zapretState.stage == ZapretStage.starting;
+    final errorColor = scheme.error;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 10),
+      child: Align(
+        alignment: Alignment.center,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              TextButton.icon(
+                onPressed: busy ? null : _confirmResetAllSettings,
+                style: TextButton.styleFrom(
+                  foregroundColor: errorColor,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
+                  textStyle: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                icon: Icon(
+                  _resetInProgress
+                      ? Icons.sync_rounded
+                      : Icons.delete_forever_rounded,
+                  size: 16,
+                ),
+                label: Text(
+                  _resetInProgress
+                      ? 'Сбрасываем настройки...'
+                      : 'Стереть все настройки',
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Сбросит тему, connection overrides, split tunneling, автовыбор, zapret и параметры запуска. Профили и подписки останутся на месте.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: muted,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              if (runtimeActive) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'При активном sing-box или zapret изменения полностью применятся после переподключения или следующего запуска.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: errorColor.withValues(alpha: 0.9),
+                    height: 1.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1122,6 +1213,94 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
 
     await _tryAutoSaveConnectionSettings(ignoreDebounce: true);
+  }
+
+  Future<void> _confirmResetAllSettings() async {
+    FocusScope.of(context).unfocus();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Стереть все настройки?'),
+          content: const Text(
+            'Это удалит все сохранённые настройки приложения и вернёт значения по умолчанию. Профили и подписки останутся на месте.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Стереть'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    await _resetAllSettings();
+  }
+
+  Future<void> _resetAllSettings() async {
+    FocusScope.of(context).unfocus();
+    _connectionAutoSaveTimer?.cancel();
+    _autoSelectAutoSaveTimer?.cancel();
+
+    setState(() {
+      _resetInProgress = true;
+      _failedConnectionSettings = null;
+      _failedAutoSelectIntervalMinutes = null;
+    });
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+
+    try {
+      await ref.read(appSettingsResetServiceProvider).resetAll();
+      ref.invalidate(appThemeSettingsProvider);
+      ref.invalidate(Preferences.serverSortMode);
+      await ref.read(dashboardControllerProvider.notifier).load();
+      await ref.read(desktopSettingsControllerProvider.notifier).reload();
+      await ref.read(zapretControllerProvider.notifier).reload();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _draft = const ConnectionTuningSettings();
+        _syncedSettings = null;
+        _autoSelectIntervalDraftMinutes = null;
+        _syncedAutoSelectIntervalMinutes = null;
+        _failedConnectionSettings = null;
+        _failedAutoSelectIntervalMinutes = null;
+        _resetInProgress = false;
+      });
+
+      messenger?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Все настройки сброшены. Профили и подписки сохранены.',
+          ),
+        ),
+      );
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _resetInProgress = false;
+      });
+
+      messenger?.showSnackBar(
+        SnackBar(content: Text('Не удалось стереть настройки: $error')),
+      );
+    }
   }
 
   Future<void> _refreshSplitTunnelSources(

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_config_test_service.dart';
@@ -114,6 +115,35 @@ void main() {
     );
     expect(runtimeService.startCalls, 0);
     expect(controller.state.statusMessage, contains('UAC'));
+  });
+
+  test('cancels zapret start when relaunch warning is declined', () async {
+    if (!Platform.isWindows) {
+      return;
+    }
+
+    final runtimeService = _FakeZapretRuntimeService();
+    final elevationService = _FakeWindowsElevationService(elevated: false);
+    final controller = ZapretController(
+      repository: _FakeZapretSettingsRepository(),
+      runtimeService: runtimeService,
+      elevationService: elevationService,
+      elevationPromptService: const _FakeElevationRelaunchPromptService(
+        confirmed: false,
+      ),
+      initialState: const ZapretState(
+        bootstrapping: false,
+        settings: ZapretSettings(installDirectory: r'E:\Tools\zapret2'),
+      ),
+      loadOnInit: false,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.start();
+
+    expect(elevationService.relaunchCallCount, 0);
+    expect(runtimeService.startCalls, 0);
+    expect(controller.state.statusMessage, 'Запуск zapret отменён.');
   });
 
   test('shows a friendly message when winws requires elevation', () async {
@@ -537,5 +567,19 @@ class _FakeWindowsElevationService implements WindowsElevationService {
   }) async {
     relaunchCallCount += 1;
     lastAction = action;
+  }
+}
+
+class _FakeElevationRelaunchPromptService
+    implements ElevationRelaunchPromptService {
+  const _FakeElevationRelaunchPromptService({required this.confirmed});
+
+  final bool confirmed;
+
+  @override
+  Future<bool> confirmRelaunch({
+    required PendingElevatedLaunchAction action,
+  }) async {
+    return confirmed;
   }
 }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
@@ -160,6 +161,46 @@ void main() {
       );
       expect(runtimeService.startCallCount, 0);
       expect(controller.state.statusMessage, contains('UAC'));
+    });
+
+    test('cancels TUN start when relaunch warning is declined', () async {
+      if (!Platform.isWindows) {
+        return;
+      }
+
+      final runtimeService = _FakeRuntimeService();
+      final elevationService = _FakeWindowsElevationService(elevated: false);
+      final controller = DashboardController(
+        repository: _FakeProfileRepository(initialStorage: _manualStorage),
+        runtimeService: runtimeService,
+        autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(
+          initialState: const StoredAutoSelectState(
+            settings: AutoSelectSettings(enabled: false),
+          ),
+        ),
+        autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+        autoSelectorService: _ScriptedAutoSelectorService(),
+        elevationService: elevationService,
+        elevationPromptService: const _FakeElevationRelaunchPromptService(
+          confirmed: false,
+        ),
+        initialState: DashboardState(
+          bootstrapping: false,
+          runtimeMode: RuntimeMode.tun,
+          autoSelectSettings: const AutoSelectSettings(enabled: false),
+          storage: _manualStorage,
+          selectedServerTag: 'server-a',
+          activeServerTag: 'server-a',
+        ),
+        loadOnInit: false,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.connect();
+
+      expect(elevationService.relaunchCallCount, 0);
+      expect(runtimeService.startCallCount, 0);
+      expect(controller.state.statusMessage, 'Запуск TUN отменён.');
     });
 
     test(
@@ -2067,6 +2108,20 @@ class _FakeWindowsElevationService implements WindowsElevationService {
   }) async {
     relaunchCallCount += 1;
     lastAction = action;
+  }
+}
+
+class _FakeElevationRelaunchPromptService
+    implements ElevationRelaunchPromptService {
+  const _FakeElevationRelaunchPromptService({required this.confirmed});
+
+  final bool confirmed;
+
+  @override
+  Future<bool> confirmRelaunch({
+    required PendingElevatedLaunchAction action,
+  }) async {
+    return confirmed;
   }
 }
 

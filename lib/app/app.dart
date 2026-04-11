@@ -4,6 +4,7 @@ import 'package:gorion_clean/app/theme_preferences.dart';
 import 'package:gorion_clean/app/theme_settings.dart';
 import 'package:gorion_clean/app/shell.dart';
 import 'package:gorion_clean/app/theme.dart';
+import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
 import 'package:gorion_clean/features/home/widget/home_page.dart';
 
 class GorionApp extends ConsumerWidget {
@@ -12,8 +13,10 @@ class GorionApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeSettings = ref.watch(appThemeSettingsProvider);
+    final navigatorKey = ref.watch(rootNavigatorKeyProvider);
 
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'gorion',
       debugShowCheckedModeBanner: false,
       theme: buildGorionTheme(

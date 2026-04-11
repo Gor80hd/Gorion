@@ -316,11 +316,31 @@ class _CobeStyleGlobePainter extends CustomPainter {
     }
 
     if (surfaceDots.isNotEmpty) {
+      final landColor = isConnected
+          ? Color.lerp(_cobeLandColor, destinationColor, 0.72) ??
+                destinationColor
+          : _cobeLandColor;
+
+      if (isConnected) {
+        canvas.drawPoints(
+          ui.PointMode.points,
+          surfaceDots,
+          Paint()
+            ..color = destinationColor.withValues(alpha: 0.18)
+            ..strokeCap = StrokeCap.round
+            ..strokeWidth = math.max(2.4, radius * 0.013)
+            ..maskFilter = MaskFilter.blur(
+              BlurStyle.normal,
+              math.max(1.2, radius * 0.006),
+            ),
+        );
+      }
+
       canvas.drawPoints(
         ui.PointMode.points,
         surfaceDots,
         Paint()
-          ..color = _cobeLandColor.withValues(alpha: 0.78)
+          ..color = landColor.withValues(alpha: isConnected ? 0.94 : 0.78)
           ..strokeCap = StrokeCap.round
           ..strokeWidth = math.max(0.95, radius * 0.0048),
       );

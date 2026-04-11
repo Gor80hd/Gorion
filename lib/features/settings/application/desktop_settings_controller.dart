@@ -127,6 +127,27 @@ class DesktopSettingsController extends StateNotifier<DesktopSettingsState> {
     await _saveSettings(state.settings.copyWith(autoConnectOnLaunch: enabled));
   }
 
+  Future<void> reload() async {
+    if (state.busy) {
+      return;
+    }
+
+    state = state.copyWith(busy: true, clearErrorMessage: true);
+    try {
+      final settingsFuture = _repository.load();
+      final launchAtStartupEnabledFuture = _launchAtStartupService.isEnabled();
+      final settings = await settingsFuture;
+      final launchAtStartupEnabled = await launchAtStartupEnabledFuture;
+      state = state.copyWith(
+        busy: false,
+        settings: settings,
+        launchAtStartupEnabled: launchAtStartupEnabled,
+      );
+    } on Object catch (error) {
+      state = state.copyWith(busy: false, errorMessage: error.toString());
+    }
+  }
+
   Future<void> _saveSettings(DesktopSettings nextSettings) async {
     if (state.busy || state.settings == nextSettings) {
       return;

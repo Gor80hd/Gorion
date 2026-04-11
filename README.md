@@ -50,3 +50,37 @@ flutter analyze
 flutter test
 flutter run -d windows
 ```
+
+## Windows Installer
+
+`flutter build windows --release` creates a runnable folder, not a single installer.
+
+To produce one Windows installer `.exe`, this repository now includes:
+
+- `installer/windows/gorion_windows_installer.iss`
+- `tool/build_windows_installer.ps1`
+
+One-time requirement:
+
+```text
+Install Inno Setup 6
+https://jrsoftware.org/isdl.php
+```
+
+Build command:
+
+```powershell
+./tool/build_windows_installer.ps1
+```
+
+Result:
+
+- release app files: `build/windows/x64/runner/Release/`
+- installer `.exe`: `dist/windows-installer/`
+
+Optional parameters:
+
+```powershell
+./tool/build_windows_installer.ps1 -AppName "Gorion" -Publisher "Gorion"
+./tool/build_windows_installer.ps1 -SkipFlutterBuild
+```

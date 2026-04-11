@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_config_test_service.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
@@ -35,6 +36,9 @@ final zapretControllerProvider =
         runtimeService: ref.read(zapretRuntimeServiceProvider),
         configTestService: ref.read(zapretConfigTestServiceProvider),
         elevationService: ref.read(windowsElevationServiceProvider),
+        elevationPromptService: ref.read(
+          elevationRelaunchPromptServiceProvider,
+        ),
       );
     });
 
@@ -159,6 +163,7 @@ class ZapretController extends StateNotifier<ZapretState> {
     required ZapretRuntimeService runtimeService,
     ZapretConfigTestService? configTestService,
     WindowsElevationService? elevationService,
+    ElevationRelaunchPromptService? elevationPromptService,
     ZapretState initialState = const ZapretState(),
     bool loadOnInit = true,
   }) : _repository = repository,
@@ -168,6 +173,8 @@ class ZapretController extends StateNotifier<ZapretState> {
            ZapretConfigTestService(runtimeService: runtimeService),
        _elevationService =
            elevationService ?? const NoopWindowsElevationService(),
+       _elevationPromptService =
+           elevationPromptService ?? const NoopElevationRelaunchPromptService(),
        super(initialState) {
     if (loadOnInit) {
       unawaited(_load());
@@ -178,6 +185,7 @@ class ZapretController extends StateNotifier<ZapretState> {
   final ZapretRuntimeService _runtimeService;
   final ZapretConfigTestService _configTestService;
   final WindowsElevationService _elevationService;
+  final ElevationRelaunchPromptService _elevationPromptService;
 
   Future<void> setInstallDirectory(String value) async {
     var nextSettings = state.settings.copyWith(installDirectory: value);
@@ -666,6 +674,13 @@ class ZapretController extends StateNotifier<ZapretState> {
     }
   }
 
+  Future<void> reload() async {
+    if (state.busy) {
+      return;
+    }
+    await _load();
+  }
+
   void _handleProcessExit(int exitCode) {
     final nextStage = state.tunConflictActive
         ? ZapretStage.pausedByTun
@@ -724,6 +739,8 @@ class ZapretController extends StateNotifier<ZapretState> {
         availableConfigs: availableConfigs,
         generatedConfigPreview: configuration?.preview,
         generatedConfigSummary: configuration?.summary,
+        clearStatusMessage: true,
+        clearErrorMessage: true,
         logs: _runtimeService.logs,
       );
     } on Object catch (error) {
@@ -732,6 +749,7 @@ class ZapretController extends StateNotifier<ZapretState> {
         settings: const ZapretSettings(),
         availableConfigs: const [],
         errorMessage: _describeError(error),
+        clearStatusMessage: true,
         logs: _runtimeService.logs,
       );
     }
@@ -857,6 +875,19 @@ class ZapretController extends StateNotifier<ZapretState> {
 
     if (isElevated) {
       return false;
+    }
+
+    final confirmed = await _elevationPromptService.confirmRelaunch(
+      action: action,
+    );
+    if (!confirmed) {
+      state = state.copyWith(
+        statusMessage: action == PendingElevatedLaunchAction.testZapretConfigs
+            ? 'Тестирование конфигов Boost отменено.'
+            : 'Запуск zapret отменён.',
+        clearErrorMessage: true,
+      );
+      return true;
     }
 
     try {

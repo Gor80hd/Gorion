@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
+import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
 import 'package:gorion_clean/core/logging/gorion_console_log.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
@@ -119,6 +120,9 @@ final dashboardControllerProvider =
         ),
         autoSelectorService: ref.read(autoSelectorServiceProvider),
         elevationService: ref.read(windowsElevationServiceProvider),
+        elevationPromptService: ref.read(
+          elevationRelaunchPromptServiceProvider,
+        ),
         systemProxyStartupSettleDelay: Platform.isWindows
             ? systemProxyStartupSettleDelay
             : Duration.zero,
@@ -270,6 +274,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     required AutoSelectPreconnectService autoSelectPreconnectService,
     required AutoSelectorService autoSelectorService,
     WindowsElevationService? elevationService,
+    ElevationRelaunchPromptService? elevationPromptService,
     ClashApiClientFactory? clashApiClientFactory,
     Duration systemProxyStartupSettleDelay = Duration.zero,
     Timer Function(Duration duration, void Function() callback)? createTimer,
@@ -286,6 +291,8 @@ class DashboardController extends StateNotifier<DashboardState> {
        _autoSelectorService = autoSelectorService,
        _elevationService =
            elevationService ?? const NoopWindowsElevationService(),
+       _elevationPromptService =
+           elevationPromptService ?? const NoopElevationRelaunchPromptService(),
        _createClashApiClient =
            clashApiClientFactory ?? ClashApiClient.fromSession,
        _systemProxyStartupSettleDelay = systemProxyStartupSettleDelay,
@@ -317,6 +324,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   final AutoSelectPreconnectService _autoSelectPreconnectService;
   final AutoSelectorService _autoSelectorService;
   final WindowsElevationService _elevationService;
+  final ElevationRelaunchPromptService _elevationPromptService;
   final ClashApiClientFactory _createClashApiClient;
   final Duration _systemProxyStartupSettleDelay;
   final Timer Function(Duration duration, void Function() callback)
@@ -2343,6 +2351,17 @@ class DashboardController extends StateNotifier<DashboardState> {
 
     if (isElevated) {
       return false;
+    }
+
+    final confirmed = await _elevationPromptService.confirmRelaunch(
+      action: PendingElevatedLaunchAction.connectTun,
+    );
+    if (!confirmed) {
+      state = state.copyWith(
+        statusMessage: 'Запуск TUN отменён.',
+        clearErrorMessage: true,
+      );
+      return true;
     }
 
     try {
