@@ -22,6 +22,13 @@ void main() {
       expect(unitedKingdom.$2, closeTo(-2.0, 0.001));
       expect(extractMappableCountryCode('UK London relay'), 'GB');
     });
+
+    test('maps Russia to Moscow when only country code is available', () {
+      final russia = lookupCountryLatLon('RU');
+
+      expect(russia.$1, closeTo(55.7558, 0.001));
+      expect(russia.$2, closeTo(37.6173, 0.001));
+    });
   });
 
   group('resolveDestinationLatLon', () {
