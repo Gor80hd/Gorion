@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gap/gap.dart';
@@ -18,6 +17,7 @@ import 'package:gorion_clean/features/home/utils/map_location_resolver.dart';
 import 'package:gorion_clean/features/runtime/model/connection_status.dart';
 import 'package:gorion_clean/features/runtime/notifier/connection_notifier.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
+import 'package:gorion_clean/features/home/widget/cobe_style_globe.dart';
 import 'package:gorion_clean/features/home/notifier/home_status_card_provider.dart';
 import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
 import 'package:gorion_clean/features/intro/utils/region_detector.dart';
@@ -28,22 +28,6 @@ import 'package:gorion_clean/core/preferences/general_preferences.dart';
 import 'package:gorion_clean/features/stats/notifier/stats_notifier.dart';
 import 'package:gorion_clean/features/settings/model/singbox_config_enum.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-
-/// Approximate world-map SVG coordinates for a given (lat, lon).
-/// The SVG asset matches a Web Mercator-like vertical layout better than a
-/// linear equirectangular one, especially for northern latitudes.
-Offset _latLonToSvg(double lat, double lon) {
-  const double width = 750;
-  const double height = 500;
-  const double maxLatitude = 85.05112878;
-
-  final clampedLat = lat.clamp(-maxLatitude, maxLatitude);
-  final latitudeRadians = clampedLat * math.pi / 180;
-  final double x = (lon + 180) / 360 * width;
-  final mercatorY = math.log(math.tan((math.pi / 4) + (latitudeRadians / 2)));
-  final double y = height * (0.5 - mercatorY / (2 * math.pi));
-  return Offset(x, y);
-}
 
 (double, double) _resolveLocalFallbackLatLon() {
   final locales = WidgetsBinding.instance.platformDispatcher.locales;
@@ -73,17 +57,11 @@ bool _sameIpInfo(IpInfo? left, IpInfo? right) {
 class MapView extends HookConsumerWidget {
   const MapView({super.key, required this.contentPadding});
 
-  // SVG canvas size
-  static const double _svgW = 750;
-  static const double _svgH = 490;
-
   final EdgeInsets contentPadding;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final muted = theme.gorionTokens.onSurfaceMuted;
     final status = ref.watch(connectionNotifierProvider);
     final directIpInfo = ref.watch(directIpInfoNotifierProvider);
     final routedIpInfo = ref.watch(ipInfoNotifierProvider);
@@ -94,7 +72,6 @@ class MapView extends HookConsumerWidget {
     final isConnected = status.isConnected;
     final isConnecting = status is Connecting;
     final isSwitching = status.isSwitching;
-    final isDisconnected = status.isDisconnected;
     final keepSourceAnchored = isConnected || isSwitching;
     final shouldUseLocalSource = serviceMode == ServiceMode.systemProxy;
     final sourceAnchor = useState<IpInfo?>(null);
@@ -125,7 +102,6 @@ class MapView extends HookConsumerWidget {
         return null;
       },
       [
-        isDisconnected,
         isSwitching,
         sourceInfo?.ip,
         sourceInfo?.countryCode,
@@ -161,64 +137,11 @@ class MapView extends HookConsumerWidget {
         : resolveSourceLatLon(sourceInfo ?? sourceAnchor.value);
     final dstLatLon = resolveDestinationLatLon(selectedProxy, destCountry);
 
-    // Points in SVG-space
-    final srcSvg = _latLonToSvg(srcLatLon.$1, srcLatLon.$2);
-    final dstSvg = _latLonToSvg(dstLatLon.$1, dstLatLon.$2);
-
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth == 0 || constraints.maxHeight == 0) {
           return const SizedBox.expand();
         }
-
-        final screenW = constraints.maxWidth;
-        final screenH = constraints.maxHeight;
-        final contentWidth = math.max(
-          220.0,
-          screenW - contentPadding.horizontal,
-        );
-        final contentHeight = math.max(
-          220.0,
-          screenH - contentPadding.vertical,
-        );
-
-        final fullMapInset = isDisconnected ? 36.0 : 72.0;
-        final fullScaleBase = math.min(
-          math.max(0.4, (contentWidth - fullMapInset * 2) / _svgW),
-          math.max(0.4, (contentHeight - fullMapInset * 2) / _svgH),
-        );
-        final fullScale = isDisconnected ? fullScaleBase * 1.35 : fullScaleBase;
-        final fullTx =
-            contentPadding.left + (contentWidth - _svgW * fullScale) / 2;
-        final fullTy =
-            contentPadding.top + (contentHeight - _svgH * fullScale) / 2;
-
-        const double padding =
-            190; // extra space around the bounding box (SVG units)
-        final minX = math.min(srcSvg.dx, dstSvg.dx) - padding;
-        final maxX = math.max(srcSvg.dx, dstSvg.dx) + padding;
-        final minY = math.min(srcSvg.dy, dstSvg.dy) - padding;
-        final maxY = math.max(srcSvg.dy, dstSvg.dy) + padding;
-
-        final boxW = (maxX - minX).clamp(200.0, _svgW);
-        final boxH = (maxY - minY).clamp(160.0, _svgH);
-
-        final zoomScale = math.min(
-          fullScale * 2.55,
-          math.max(
-            fullScale,
-            math.min(contentWidth / boxW, contentHeight / boxH),
-          ),
-        );
-
-        final centerSvgX = (minX + maxX) / 2;
-        final centerSvgY = (minY + maxY) / 2;
-        final focusCenterX = contentPadding.left + (contentWidth / 2);
-
-        const outerR = 14.0;
-        final zoomTx = focusCenterX - centerSvgX * zoomScale;
-        final zoomTy =
-            contentPadding.top + (contentHeight / 2) - centerSvgY * zoomScale;
 
         final focusProgress = Curves.easeInOutCubicEmphasized.transform(
           mapProgress,
@@ -226,68 +149,22 @@ class MapView extends HookConsumerWidget {
         final revealProgress = Curves.easeOutCubic.transform(
           ((mapProgress - 0.1) / 0.9).clamp(0.0, 1.0),
         );
-        final scale =
-            ui.lerpDouble(fullScale, zoomScale, focusProgress) ?? fullScale;
-        final tx = ui.lerpDouble(fullTx, zoomTx, focusProgress) ?? fullTx;
-        final ty = ui.lerpDouble(fullTy, zoomTy, focusProgress) ?? fullTy;
-
-        final srcScreen = Offset(
-          srcSvg.dx * scale + tx,
-          srcSvg.dy * scale + ty,
-        );
-        final dstScreen = Offset(
-          dstSvg.dx * scale + tx,
-          dstSvg.dy * scale + ty,
-        );
-        final destinationOpacity =
-            ui.lerpDouble(0.4, 1.0, revealProgress) ?? 0.4;
 
         return SizedBox.expand(
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Transform(
-                transform: Matrix4.translationValues(tx, ty, 0)
-                  ..scaleByDouble(scale, scale, 1.0, 1.0),
-                child: SvgPicture.asset(
-                  'assets/images/world_map_dots.svg',
-                  width: _svgW,
-                  height: _svgH,
-                  fit: BoxFit.none,
-                  alignment: Alignment.topLeft,
-                  colorFilter: ColorFilter.mode(
-                    isConnected
-                        ? scheme.primary.withValues(alpha: 0.55)
-                        : muted.withValues(alpha: 0.62),
-                    BlendMode.srcIn,
-                  ),
-                ),
-              ),
-              if (mapProgress > 0)
-                CustomPaint(
-                  painter: _ConnectionPainter(
-                    source: srcScreen,
-                    destination: dstScreen,
-                    color: scheme.primary,
-                    revealProgress: revealProgress,
-                    packetProgress: packetProgress,
-                  ),
-                ),
-              Positioned(
-                left: srcScreen.dx - outerR,
-                top: srcScreen.dy - outerR,
-                child: _LocationDot(
-                  color: const Color(0xFF60A5FA),
-                  opacity: ui.lerpDouble(0.88, 1.0, focusProgress) ?? 1.0,
-                ),
-              ),
-              Positioned(
-                left: dstScreen.dx - outerR,
-                top: dstScreen.dy - outerR,
-                child: _LocationDot(
-                  color: theme.brandAccent,
-                  opacity: destinationOpacity,
-                ),
+              CobeStyleGlobe(
+                contentPadding: contentPadding,
+                sourceLatLon: srcLatLon,
+                destinationLatLon: dstLatLon,
+                focusProgress: focusProgress,
+                revealProgress: revealProgress,
+                packetProgress: packetProgress,
+                showConnection: keepSourceAnchored,
+                isConnected: isConnected,
+                sourceColor: const Color(0xFF60A5FA),
+                destinationColor: theme.brandAccent,
               ),
               Positioned(
                 left: 0,
@@ -328,171 +205,6 @@ class MapView extends HookConsumerWidget {
           ),
         );
       },
-    );
-  }
-}
-
-/// Draws the curved arc and animated dash between two points.
-class _ConnectionPainter extends CustomPainter {
-  _ConnectionPainter({
-    required this.source,
-    required this.destination,
-    required this.color,
-    required this.revealProgress,
-    required this.packetProgress,
-  });
-
-  final Offset source;
-  final Offset destination;
-  final Color color;
-  final double revealProgress;
-  final double packetProgress;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final delta = destination - source;
-    if (delta.distanceSquared < 1) {
-      return;
-    }
-
-    final controlPoint = Offset(
-      (source.dx + destination.dx) / 2,
-      math.min(source.dy, destination.dy) -
-          math.max(60.0, delta.distance * 0.18),
-    );
-    final path = Path()
-      ..moveTo(source.dx, source.dy)
-      ..quadraticBezierTo(
-        controlPoint.dx,
-        controlPoint.dy,
-        destination.dx,
-        destination.dy,
-      );
-
-    final metric = path.computeMetrics().first;
-    final visibleLength = metric.length * revealProgress.clamp(0.0, 1.0);
-    if (visibleLength <= 0.5) {
-      return;
-    }
-
-    final visiblePath = metric.extractPath(0, visibleLength);
-
-    canvas.drawPath(
-      visiblePath,
-      Paint()
-        ..color = color.withValues(alpha: 0.12)
-        ..strokeWidth = 10
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke,
-    );
-    canvas.drawPath(
-      visiblePath,
-      Paint()
-        ..color = color.withValues(alpha: 0.35)
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke,
-    );
-    canvas.drawPath(
-      visiblePath,
-      Paint()
-        ..color = color
-        ..strokeWidth = 1.4
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke,
-    );
-
-    if (visibleLength < 20) {
-      return;
-    }
-
-    const packetOffsets = [0.0, 0.33, 0.66];
-    for (var i = 0; i < packetOffsets.length; i++) {
-      final travel = (packetProgress + packetOffsets[i]) % 1.0;
-      final packetOffset = visibleLength * travel;
-      final tangent = metric.getTangentForOffset(packetOffset);
-      if (tangent == null) {
-        continue;
-      }
-
-      final center = tangent.position;
-      final glowRadius = 5.4 - i;
-      final coreRadius = 2.4 - (i * 0.3);
-
-      canvas.drawCircle(
-        center,
-        glowRadius,
-        Paint()..color = color.withValues(alpha: 0.14 + (0.05 * (2 - i))),
-      );
-      canvas.drawCircle(
-        center,
-        coreRadius,
-        Paint()..color = color.withValues(alpha: 0.9 - (i * 0.12)),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_ConnectionPainter old) =>
-      old.source != source ||
-      old.destination != destination ||
-      old.color != color ||
-      old.revealProgress != revealProgress ||
-      old.packetProgress != packetProgress;
-}
-
-/// A pulsing marker dot (returns SizedBox, NOT Positioned — caller handles positioning).
-class _LocationDot extends StatelessWidget {
-  const _LocationDot({required this.color, this.opacity = 1.0});
-
-  final Color color;
-  final double opacity;
-
-  @override
-  Widget build(BuildContext context) {
-    const dotR = 6.0;
-    const outerR = 14.0;
-
-    return Opacity(
-      opacity: opacity,
-      child: SizedBox(
-        width: outerR * 2,
-        height: outerR * 2,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-                  width: outerR * 2,
-                  height: outerR * 2,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: color.withValues(alpha: 0.4),
-                      width: 1.5,
-                    ),
-                  ),
-                )
-                .animate(onPlay: (c) => c.repeat())
-                .scale(
-                  begin: const Offset(0.7, 0.7),
-                  end: const Offset(1.2, 1.2),
-                  duration: 1800.ms,
-                )
-                .fadeOut(begin: 0.6, duration: 1800.ms),
-            Container(
-              width: dotR * 2,
-              height: dotR * 2,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: color,
-                boxShadow: [
-                  BoxShadow(color: color.withValues(alpha: 0.6), blurRadius: 8),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
