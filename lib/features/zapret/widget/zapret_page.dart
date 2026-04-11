@@ -7,9 +7,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
+import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
-import 'package:path/path.dart' as p;
+import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 
 class ZapretPage extends ConsumerStatefulWidget {
   const ZapretPage({
@@ -120,6 +121,26 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
     final theme = Theme.of(context);
     const textAlign = TextAlign.center;
     const crossAxisAlignment = CrossAxisAlignment.center;
+    final recommendationButton = _BoostRecommendationButton(
+      accentColor: theme.brandAccent,
+      compact: layout.compact,
+      inProgress: state.configTestInProgress,
+      progressValue: state.configTestTotal <= 0
+          ? null
+          : state.configTestCompleted / state.configTestTotal,
+      progressLabel: _httpTestProgressLabel(state),
+      statusMessage: _recommendationStatusText(state),
+      statusColor: _recommendationStatusColor(theme, state),
+      reportButton: state.configTestSuite == null
+          ? null
+          : _ActionIconButton(
+              tooltip: 'Подробный отчёт',
+              icon: Icons.insights_rounded,
+              color: theme.brandAccent,
+              onPressed: () => _showHttpTestReport(state.configTestSuite!),
+            ),
+      onPressed: state.busy ? null : _handleRecommendationTap,
+    );
 
     return FittedBox(
       fit: BoxFit.scaleDown,
@@ -161,6 +182,8 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
                 height: 1.42,
               ),
             ),
+            SizedBox(height: layout.heroSpacing),
+            recommendationButton,
           ],
         ),
       ),
@@ -175,10 +198,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
     final theme = Theme.of(context);
     final controller = ref.read(zapretControllerProvider.notifier);
     final stageColor = _stageColor(theme, state.stage);
-    final bannerText = state.errorMessage ?? state.statusMessage;
-    final bannerColor = state.errorMessage != null
-        ? const Color(0xFFFF8A8A)
-        : stageColor;
     final selectedConfigLabel = state.availableConfigs.isEmpty
         ? 'Конфиги не найдены'
         : state.settings.effectiveConfigLabel;
@@ -196,38 +215,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
         builder: (context, constraints) {
           final stacked = constraints.maxWidth < 820;
           final actionGap = layout.compact ? 6.0 : 8.0;
-
-          final statusBlock = _ControlBlock(
-            title: 'Статус работы',
-            accentColor: bannerColor,
-            trailing: _MetaPill(
-              label: state.stage.label,
-              color: bannerColor,
-              compact: layout.ultraCompact,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _statusHeadline(state),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: theme.colorScheme.onSurface,
-                    fontSize: layout.compact ? 19 : 21,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _statusDetail(state),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.gorionTokens.onSurfaceMuted,
-                    fontSize: layout.compact ? 13 : 14,
-                    height: 1.42,
-                  ),
-                ),
-              ],
-            ),
-          );
 
           final gameFilterBlock = _ControlBlock(
             title: 'GameFilter',
@@ -342,206 +329,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  _configHint(state),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.gorionTokens.onSurfaceMuted,
-                    fontSize: layout.compact ? 13 : 14,
-                    height: 1.42,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _profilesDirectoryHint(state),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.gorionTokens.onSurfaceMuted.withValues(
-                      alpha: 0.9,
-                    ),
-                    fontSize: layout.compact ? 12 : 12.5,
-                    height: 1.38,
-                  ),
-                ),
-              ],
-            ),
-          );
-
-          final testSuite = state.configTestSuite;
-          final bestWorking = testSuite?.bestWorkingResult;
-          final alternativeWorking = testSuite?.alternativeWorkingResults
-              .take(4)
-              .toList(growable: false);
-          final remainingWorkingCount = math.max(
-            0,
-            (testSuite?.alternativeWorkingResults.length ?? 0) -
-                (alternativeWorking?.length ?? 0),
-          );
-
-          final httpTestBlock = _ControlBlock(
-            title: 'Стандартный тест конфигов',
-            accentColor: const Color(0xFF6FE3FF),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (testSuite != null) ...[
-                  _ActionIconButton(
-                    tooltip: 'Подробный отчёт',
-                    icon: Icons.insights_rounded,
-                    color: const Color(0xFF6FE3FF),
-                    onPressed: () => _showHttpTestReport(testSuite),
-                  ),
-                  SizedBox(width: actionGap),
-                ],
-                FilledButton.icon(
-                  onPressed: state.busy ? null : _runHttpConfigTests,
-                  icon: state.configTestInProgress
-                      ? SizedBox(
-                          width: layout.compact ? 14 : 16,
-                          height: layout.compact ? 14 : 16,
-                          child: const CircularProgressIndicator(
-                            strokeWidth: 2.2,
-                          ),
-                        )
-                      : const Icon(Icons.network_check_rounded),
-                  label: Text(
-                    state.configTestInProgress ? 'Тестируем...' : 'Прогнать',
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF6FE3FF),
-                    foregroundColor: const Color(0xFF032533),
-                    padding: EdgeInsets.symmetric(
-                      horizontal: layout.compact ? 14 : 16,
-                      vertical: layout.compact ? 12 : 13,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Кнопка поднимает каждый конфиг по очереди, запускает набор проверок как в оригинальном `test zapret.ps1`: HTTP/1.1, TLS 1.2, TLS 1.3 и ping, а также прикладные GET/WebSocket-проверки для Discord там, где они нужны.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.gorionTokens.onSurfaceMuted,
-                    fontSize: layout.compact ? 13 : 14,
-                    height: 1.42,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  _httpTargetsHint(state),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.gorionTokens.onSurfaceMuted.withValues(
-                      alpha: 0.9,
-                    ),
-                    fontSize: layout.compact ? 12 : 12.5,
-                    height: 1.38,
-                  ),
-                ),
-                if (state.configTestInProgress) ...[
-                  const SizedBox(height: 14),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      value: state.configTestTotal <= 0
-                          ? null
-                          : state.configTestCompleted / state.configTestTotal,
-                      minHeight: 8,
-                      backgroundColor: theme.colorScheme.surfaceContainerHighest
-                          .withValues(alpha: 0.36),
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        Color(0xFF6FE3FF),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _httpTestProgressLabel(state),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurface,
-                      fontSize: layout.compact ? 13 : 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ] else if (testSuite != null) ...[
-                  const SizedBox(height: 14),
-                  Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.all(layout.compact ? 12 : 14),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      color: theme.colorScheme.surfaceContainerHighest
-                          .withValues(alpha: 0.26),
-                      border: Border.all(
-                        color: const Color(0xFF6FE3FF).withValues(alpha: 0.18),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          testSuite.summary,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            color: theme.colorScheme.onSurface,
-                            fontSize: layout.compact ? 15 : 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        if (bestWorking != null)
-                          Text(
-                            'Автовыбор: ${bestWorking.config.label} • ${bestWorking.scoreLabel}',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: const Color(0xFFB8FFF0),
-                              fontSize: layout.compact ? 13 : 14,
-                              height: 1.4,
-                            ),
-                          )
-                        else
-                          Text(
-                            'Полностью рабочий конфиг не найден. Если есть частичные успехи, в отчёте будет показан лучший вариант; если всё упало, это считается провалом тестирования.',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: const Color(0xFFFFC680),
-                              fontSize: layout.compact ? 13 : 14,
-                              height: 1.4,
-                            ),
-                          ),
-                        if ((alternativeWorking?.isNotEmpty ?? false)) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            'Полностью рабочие, но хуже по задержке:',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurface,
-                              fontSize: layout.compact ? 13 : 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              for (final result in alternativeWorking!)
-                                _MetaPill(
-                                  label:
-                                      '${result.config.label} • ${result.averageLatencyMs ?? 'n/a'} ms',
-                                  color: const Color(0xFF72A8FF),
-                                  compact: layout.ultraCompact,
-                                ),
-                              if (remainingWorkingCount > 0)
-                                _MetaPill(
-                                  label: '+$remainingWorkingCount ещё',
-                                  color: theme.gorionTokens.onSurfaceMuted,
-                                  compact: layout.ultraCompact,
-                                ),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
               ],
             ),
           );
@@ -594,42 +381,22 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
                   ),
                 ],
               ),
-              if (bannerText != null) ...[
-                SizedBox(height: layout.sectionGap),
-                _StatusBanner(
-                  text: bannerText,
-                  accentColor: bannerColor,
-                  compact: layout.ultraCompact,
-                ),
-              ],
-              SizedBox(height: layout.sectionGap),
+              const SizedBox(height: 30),
               if (stacked) ...[
-                statusBlock,
-                SizedBox(height: layout.sectionGap),
                 configBlock,
                 SizedBox(height: layout.sectionGap),
                 gameFilterBlock,
               ] else
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 5,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          statusBlock,
-                          SizedBox(height: layout.sectionGap),
-                          gameFilterBlock,
-                        ],
-                      ),
-                    ),
-                    SizedBox(width: layout.sectionGap),
-                    Expanded(flex: 7, child: configBlock),
-                  ],
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(flex: 5, child: gameFilterBlock),
+                      SizedBox(width: layout.sectionGap),
+                      Expanded(flex: 7, child: configBlock),
+                    ],
+                  ),
                 ),
-              SizedBox(height: layout.sectionGap),
-              httpTestBlock,
             ],
           );
         },
@@ -685,133 +452,97 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
     await ref.read(zapretControllerProvider.notifier).runHttpConfigTests();
   }
 
-  Future<void> _showHttpTestReport(ZapretConfigTestSuite suite) async {
-    final theme = Theme.of(context);
-    await showDialog<void>(
+  Future<void> _handleRecommendationTap() async {
+    final dashboardState = ref.read(dashboardControllerProvider);
+    final connectionStage = dashboardState.connectionStage;
+    final vpnActive =
+        connectionStage == ConnectionStage.connected ||
+        connectionStage == ConnectionStage.starting;
+
+    if (connectionStage == ConnectionStage.stopping) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Сначала дождитесь завершения отключения VPN, затем повторите подбор.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (vpnActive) {
+      final shouldDisconnect = await _showRecommendationDisconnectWarning(
+        dashboardState.runtimeMode.label,
+      );
+      if (!shouldDisconnect || !mounted) {
+        return;
+      }
+
+      await ref.read(dashboardControllerProvider.notifier).disconnect();
+      if (!mounted) {
+        return;
+      }
+
+      final nextStage = ref.read(dashboardControllerProvider).connectionStage;
+      if (nextStage != ConnectionStage.disconnected) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Не удалось отключить VPN перед тестом Boost. Повторите попытку.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
+    await _runHttpConfigTests();
+  }
+
+  Future<bool> _showRecommendationDisconnectWarning(String modeLabel) async {
+    final result = await showDialog<bool>(
       context: context,
       builder: (context) {
+        final theme = Theme.of(context);
         return AlertDialog(
           backgroundColor: theme.colorScheme.surface,
           title: Text(
-            'Отчёт стандартного теста',
+            'Отключить VPN перед тестом?',
             style: theme.textTheme.titleLarge?.copyWith(
               color: theme.colorScheme.onSurface,
               fontWeight: FontWeight.w700,
             ),
           ),
-          content: SizedBox(
-            width: 720,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    suite.summary,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.onSurface,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Файл целей: ${suite.targetsPath}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.gorionTokens.onSurfaceMuted,
-                      height: 1.35,
-                    ),
-                  ),
-                  if (suite.ignoredTargetCount > 0) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      'Пропущено не-HTTP целей: ${suite.ignoredTargetCount}.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.gorionTokens.onSurfaceMuted,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  for (final result in suite.results) ...[
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(18),
-                        color: theme.colorScheme.surfaceContainerHighest
-                            .withValues(alpha: 0.24),
-                        border: Border.all(
-                          color: _testResultColor(
-                            result,
-                          ).withValues(alpha: 0.24),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  result.config.label,
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    color: theme.colorScheme.onSurface,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              _MetaPill(
-                                label: result.fullyWorking
-                                    ? 'Полностью ок'
-                                    : result.failedTesting
-                                    ? 'Провал'
-                                    : result.launchSucceeded
-                                    ? 'Частично'
-                                    : 'Не запустился',
-                                color: _testResultColor(result),
-                                compact: false,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            result.summary,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.gorionTokens.onSurfaceMuted,
-                              height: 1.42,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              for (final probe in result.report.results)
-                                _MetaPill(
-                                  label:
-                                      '${probe.target.label}: ${probe.success ? 'ok' : 'fail'}${probe.latencyMs == null ? '' : ' • ${probe.latencyMs} ms'}',
-                                  color: probe.success
-                                      ? const Color(0xFF1EFFAC)
-                                      : const Color(0xFFFF8A8A),
-                                  compact: false,
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+          content: Text(
+            'Сейчас активен VPN в режиме $modeLabel. Для чистоты теста Boost он будет отключён перед подбором рекомендуемого конфига.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.gorionTokens.onSurfaceMuted,
+              height: 1.45,
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Закрыть'),
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Отключить и продолжить'),
             ),
           ],
+        );
+      },
+    );
+    return result ?? false;
+  }
+
+  Future<void> _showHttpTestReport(ZapretConfigTestSuite suite) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return _HttpTestReportDialog(
+          suite: suite,
+          testResultColor: _testResultColor,
         );
       },
     );
@@ -836,52 +567,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
     return 'Улучшай связь и загрузку видео без смены сети: выбирай конфиг и управляй Boost в этом разделе.';
   }
 
-  String _statusHeadline(ZapretState state) {
-    if (state.errorMessage != null) {
-      return 'Запуск требует внимания';
-    }
-    return switch (state.stage) {
-      ZapretStage.running => 'Boost активен',
-      ZapretStage.starting => 'Запускаем Boost',
-      ZapretStage.stopping => 'Останавливаем Boost',
-      ZapretStage.pausedByTun => 'Boost приостановлен',
-      ZapretStage.failed => 'Запуск не удался',
-      ZapretStage.stopped =>
-        state.canStart ? 'Готов к включению' : 'Ожидает действие',
-    };
-  }
-
-  String _statusDetail(ZapretState state) {
-    if (!Platform.isWindows) {
-      return 'Отдельный процесс zapret и управление Boost доступны только в Windows.';
-    }
-    if (state.tunConflictActive) {
-      return 'Сейчас включён TUN. Сначала отключи его, затем можно снова запускать Boost.';
-    }
-    if (state.errorMessage case final errorMessage?) {
-      return errorMessage;
-    }
-
-    final session = state.runtimeSession;
-    return switch (state.stage) {
-      ZapretStage.running =>
-        session == null
-            ? 'Процесс уже работает.'
-            : 'PID ${session.processId} • ${_middleEllipsis(session.workingDirectory, 44)}',
-      ZapretStage.starting =>
-        'Применяем выбранный конфиг и запускаем winws с текущими параметрами.',
-      ZapretStage.stopping => 'Останавливаем текущий процесс и очищаем сессию.',
-      ZapretStage.failed =>
-        'Процесс завершился с ошибкой. Проверь конфиг и статус выше.',
-      ZapretStage.pausedByTun =>
-        'Boost был остановлен автоматически, потому что активировался TUN-режим.',
-      ZapretStage.stopped =>
-        state.settings.hasInstallDirectory
-            ? 'Папка профилей уже готова. Можно выбрать конфиг и включить Boost.'
-            : 'Папка профилей будет создана автоматически при первом открытии.',
-    };
-  }
-
   String _configHint(ZapretState state) {
     if (state.availableConfigs.isEmpty) {
       return 'Открой папку профилей, добавь свой .conf и нажми обновить конфиги.';
@@ -904,29 +589,54 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
     return 'Папка профилей: ${_middleEllipsis(profilesPath, 72)}';
   }
 
-  String _httpTargetsHint(ZapretState state) {
-    final suite = state.configTestSuite;
-    if (suite != null) {
-      return 'Цели загружаются из ${_middleEllipsis(suite.targetsPath, 72)}.';
-    }
-    if (!state.settings.hasInstallDirectory) {
-      return 'После подготовки папки Boost файл целей будет лежать в `files/targets.txt`, а стандартный тест возьмёт оттуда HTTP/TLS и ping-цели.';
-    }
-    final targetPath = p.join(
-      state.settings.normalizedInstallDirectory,
-      'files',
-      'targets.txt',
-    );
-    return 'Файл целей: ${_middleEllipsis(targetPath, 72)}.';
-  }
-
   String _httpTestProgressLabel(ZapretState state) {
     final current = state.configTestCurrentConfigLabel;
     final progress = '${state.configTestCompleted}/${state.configTestTotal}';
     if (current == null || current.isEmpty) {
-      return 'Подготавливаем стандартный тест конфигов • $progress';
+      return 'Подготавливаем подбор • $progress';
     }
     return 'Проверяем $current • $progress';
+  }
+
+  String? _recommendationStatusText(ZapretState state) {
+    if (state.errorMessage case final errorMessage?) {
+      return errorMessage;
+    }
+
+    final suite = state.configTestSuite;
+    final bestWorking = suite?.bestWorkingResult;
+    if (suite != null) {
+      if (bestWorking != null) {
+        final statusMessage = state.statusMessage?.trim().toLowerCase();
+        final prefix =
+            statusMessage != null && statusMessage.contains('уже был выбран')
+            ? 'Лучший конфиг уже выбран'
+            : 'Выбран';
+        return '$prefix: ${bestWorking.config.label}';
+      }
+      return suite.summary;
+    }
+
+    final statusMessage = state.statusMessage?.trim();
+    if (statusMessage == null || statusMessage.isEmpty) {
+      return null;
+    }
+    if (state.stage == ZapretStage.running) {
+      return null;
+    }
+    return statusMessage;
+  }
+
+  Color _recommendationStatusColor(ThemeData theme, ZapretState state) {
+    if (state.errorMessage != null) {
+      return const Color(0xFFFF8A8A);
+    }
+    if (state.configTestSuite != null) {
+      return state.configTestSuite?.bestWorkingResult == null
+          ? const Color(0xFFFFC680)
+          : theme.brandAccent;
+    }
+    return theme.gorionTokens.onSurfaceMuted;
   }
 
   Color _testResultColor(ZapretConfigTestResult result) {
@@ -1222,7 +932,7 @@ class _ZapretPowerButton extends StatelessWidget {
             stage == ZapretStage.stopping
         ? baseColor
         : baseColor.withValues(alpha: 0.52);
-    final size = compact ? 76.0 : 88.0;
+    final size = compact ? 56.0 : 64.0;
 
     return MouseRegion(
       cursor: onTap == null
@@ -1236,14 +946,14 @@ class _ZapretPowerButton extends StatelessWidget {
           height: size,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(compact ? 24 : 28),
+            borderRadius: BorderRadius.circular(compact ? 16 : 18),
             color: color.withValues(alpha: 0.12),
             border: Border.all(color: color.withValues(alpha: 0.62)),
             boxShadow: [
               BoxShadow(
                 color: color.withValues(alpha: 0.14),
-                blurRadius: 28,
-                offset: const Offset(0, 12),
+                blurRadius: 22,
+                offset: const Offset(0, 10),
               ),
             ],
           ),
@@ -1252,30 +962,490 @@ class _ZapretPowerButton extends StatelessWidget {
                   alignment: Alignment.center,
                   children: [
                     SizedBox(
-                      width: compact ? 28 : 32,
-                      height: compact ? 28 : 32,
+                      width: compact ? 22 : 26,
+                      height: compact ? 22 : 26,
                       child: CircularProgressIndicator(
-                        strokeWidth: 2.2,
+                        strokeWidth: 2,
                         color: color.withValues(alpha: 0.96),
                       ),
                     ),
                     Icon(
                       Icons.close_rounded,
-                      size: compact ? 20 : 22,
+                      size: compact ? 14 : 16,
                       color: color,
                     ),
                   ],
                 )
               : SvgPicture.asset(
                   'assets/images/power.svg',
-                  width: compact ? 28 : 32,
-                  height: compact ? 28 : 32,
+                  width: compact ? 22 : 26,
+                  height: compact ? 22 : 26,
                   colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
                 ),
         ),
       ),
     );
   }
+}
+
+class _BoostRecommendationButton extends StatelessWidget {
+  const _BoostRecommendationButton({
+    required this.accentColor,
+    required this.compact,
+    required this.inProgress,
+    required this.progressValue,
+    required this.progressLabel,
+    required this.statusColor,
+    required this.onPressed,
+    this.statusMessage,
+    this.reportButton,
+  });
+
+  final Color accentColor;
+  final bool compact;
+  final bool inProgress;
+  final double? progressValue;
+  final String progressLabel;
+  final String? statusMessage;
+  final Color statusColor;
+  final Widget? reportButton;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final buttonHeight = compact ? 44.0 : 48.0;
+    final buttonWidth = compact ? 320.0 : 420.0;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: compact ? 560 : 640),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: FilledButton.icon(
+                  onPressed: onPressed,
+                  icon: inProgress
+                      ? SizedBox(
+                          width: compact ? 14 : 16,
+                          height: compact ? 14 : 16,
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 2.1,
+                          ),
+                        )
+                      : const Icon(Icons.auto_awesome_rounded),
+                  label: Text(
+                    inProgress
+                        ? 'Подбираем рекомендуемый'
+                        : 'Подобрать рекомендуемый',
+                  ),
+                  style: FilledButton.styleFrom(
+                    minimumSize: Size(buttonWidth, buttonHeight),
+                    backgroundColor: accentColor,
+                    foregroundColor: const Color(0xFF03211B),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: compact ? 14 : 18,
+                      vertical: compact ? 12 : 13,
+                    ),
+                    textStyle: theme.textTheme.labelLarge?.copyWith(
+                      fontSize: compact ? 13 : 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              ),
+              if (reportButton != null) ...[
+                const SizedBox(width: 10),
+                reportButton!,
+              ],
+            ],
+          ),
+          if (inProgress) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: buttonWidth,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  value: progressValue,
+                  minHeight: 4,
+                  backgroundColor: theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.28),
+                  valueColor: AlwaysStoppedAnimation<Color>(accentColor),
+                ),
+              ),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              progressLabel,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.gorionTokens.onSurfaceMuted,
+                fontSize: compact ? 12 : 12.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ] else if (statusMessage case final text?) ...[
+            const SizedBox(height: 8),
+            Text(
+              text,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: statusColor,
+                fontSize: compact ? 13 : 14,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _HttpTestReportDialog extends StatefulWidget {
+  const _HttpTestReportDialog({
+    required this.suite,
+    required this.testResultColor,
+  });
+
+  final ZapretConfigTestSuite suite;
+  final Color Function(ZapretConfigTestResult result) testResultColor;
+
+  @override
+  State<_HttpTestReportDialog> createState() => _HttpTestReportDialogState();
+}
+
+class _HttpTestReportDialogState extends State<_HttpTestReportDialog> {
+  final Set<String> _expandedGroups = <String>{};
+  bool _summaryExpanded = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final summaryColor = widget.suite.bestWorkingResult == null
+        ? const Color(0xFFFFC680)
+        : const Color(0xFF1EFFAC);
+
+    return AlertDialog(
+      backgroundColor: theme.colorScheme.surface,
+      title: Text(
+        'Отчёт стандартного теста',
+        style: theme.textTheme.titleLarge?.copyWith(
+          color: theme.colorScheme.onSurface,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      content: SizedBox(
+        width: 720,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _ReportSummaryPanel(
+                title: 'Сводка теста',
+                expanded: _summaryExpanded,
+                accentColor: summaryColor,
+                onToggle: () {
+                  setState(() {
+                    _summaryExpanded = !_summaryExpanded;
+                  });
+                },
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.suite.summary,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.onSurface,
+                        fontWeight: FontWeight.w600,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Файл целей: ${widget.suite.targetsPath}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.gorionTokens.onSurfaceMuted,
+                        height: 1.35,
+                      ),
+                    ),
+                    if (widget.suite.ignoredTargetCount > 0) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Пропущено не-HTTP целей: ${widget.suite.ignoredTargetCount}.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.gorionTokens.onSurfaceMuted,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              for (final result in widget.suite.results) ...[
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.24,
+                    ),
+                    border: Border.all(
+                      color: widget
+                          .testResultColor(result)
+                          .withValues(alpha: 0.24),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              result.config.label,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: theme.colorScheme.onSurface,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          _MetaPill(
+                            label: result.fullyWorking
+                                ? 'Полностью ок'
+                                : result.failedTesting
+                                ? 'Провал'
+                                : result.launchSucceeded
+                                ? 'Частично'
+                                : 'Не запустился',
+                            color: widget.testResultColor(result),
+                            compact: false,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        result.summary,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.gorionTokens.onSurfaceMuted,
+                          height: 1.42,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      for (final group in _groupProbeResults(
+                        result.report.results,
+                      ))
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _ReportProbeGroupPanel(
+                            group: group,
+                            expanded: _expandedGroups.contains(
+                              '${result.config.fileName}:${group.title}',
+                            ),
+                            onToggle: () {
+                              final key =
+                                  '${result.config.fileName}:${group.title}';
+                              setState(() {
+                                if (!_expandedGroups.add(key)) {
+                                  _expandedGroups.remove(key);
+                                }
+                              });
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Закрыть'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReportSummaryPanel extends StatelessWidget {
+  const _ReportSummaryPanel({
+    required this.title,
+    required this.expanded,
+    required this.accentColor,
+    required this.onToggle,
+    required this.child,
+  });
+
+  final String title;
+  final bool expanded;
+  final Color accentColor;
+  final VoidCallback onToggle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: accentColor.withValues(alpha: 0.08),
+        border: Border.all(color: accentColor.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: onToggle,
+            borderRadius: BorderRadius.circular(18),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: accentColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: accentColor,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              child: child,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReportProbeGroupPanel extends StatelessWidget {
+  const _ReportProbeGroupPanel({
+    required this.group,
+    required this.expanded,
+    required this.onToggle,
+  });
+
+  final _ProbeResultGroup group;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final allRequiredPassed =
+        group.requiredTotal == 0 || group.requiredPassed == group.requiredTotal;
+    final accentColor = allRequiredPassed
+        ? const Color(0xFF1EFFAC)
+        : const Color(0xFFFFC680);
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: accentColor.withValues(alpha: 0.06),
+        border: Border.all(color: accentColor.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: onToggle,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      group.title,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.onSurface,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _MetaPill(
+                    label: '${group.requiredPassed}/${group.requiredTotal}',
+                    color: accentColor,
+                    compact: true,
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: accentColor,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final probe in group.probes)
+                    _MetaPill(
+                      label: _probeResultPillLabel(probe),
+                      color: probe.success
+                          ? const Color(0xFF1EFFAC)
+                          : const Color(0xFFFF8A8A),
+                      compact: false,
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProbeResultGroup {
+  const _ProbeResultGroup({
+    required this.title,
+    required this.probes,
+    required this.requiredPassed,
+    required this.requiredTotal,
+  });
+
+  final String title;
+  final List<ZapretProbeResult> probes;
+  final int requiredPassed;
+  final int requiredTotal;
 }
 
 class _ActionIconButton extends StatelessWidget {
@@ -1323,46 +1493,6 @@ class _ActionIconButton extends StatelessWidget {
   }
 }
 
-class _StatusBanner extends StatelessWidget {
-  const _StatusBanner({
-    required this.text,
-    required this.accentColor,
-    this.compact = false,
-  });
-
-  final String text;
-  final Color accentColor;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 12 : 14,
-        vertical: compact ? 7 : 9,
-      ),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: accentColor.withValues(alpha: 0.10),
-        border: Border.all(color: accentColor.withValues(alpha: 0.18)),
-      ),
-      child: Text(
-        text,
-        maxLines: compact ? 2 : 3,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: theme.colorScheme.onSurface,
-          fontSize: compact ? 13 : 14,
-          fontWeight: FontWeight.w600,
-          height: 1.35,
-        ),
-      ),
-    );
-  }
-}
-
 class _MetaPill extends StatelessWidget {
   const _MetaPill({
     required this.label,
@@ -1399,6 +1529,65 @@ class _MetaPill extends StatelessWidget {
       ),
     );
   }
+}
+
+List<_ProbeResultGroup> _groupProbeResults(List<ZapretProbeResult> probes) {
+  final grouped = <String, List<ZapretProbeResult>>{};
+  for (final probe in probes) {
+    final key = _probeGroupTitle(probe.target.label);
+    grouped.putIfAbsent(key, () => <ZapretProbeResult>[]).add(probe);
+  }
+
+  return grouped.entries
+      .map((entry) {
+        final requiredProbes = entry.value
+            .where((probe) => probe.target.requiredForSuccess)
+            .toList(growable: false);
+        final requiredPassed = requiredProbes
+            .where((probe) => probe.success)
+            .length;
+        return _ProbeResultGroup(
+          title: entry.key,
+          probes: entry.value,
+          requiredPassed: requiredPassed,
+          requiredTotal: requiredProbes.length,
+        );
+      })
+      .toList(growable: false);
+}
+
+String _probeGroupTitle(String label) {
+  const suffixes = <String>[
+    ' HTTP/1.1 GET',
+    ' TLS 1.2 GET',
+    ' TLS 1.3 GET',
+    ' HTTP/1.1',
+    ' TLS 1.2',
+    ' TLS 1.3',
+    ' WebSocket',
+    ' Ping',
+  ];
+
+  for (final suffix in suffixes) {
+    if (label.endsWith(suffix)) {
+      return label.substring(0, label.length - suffix.length).trim();
+    }
+  }
+  return label;
+}
+
+String _probeShortLabel(String label) {
+  final groupTitle = _probeGroupTitle(label);
+  if (groupTitle == label) {
+    return label;
+  }
+  return label.substring(groupTitle.length).trim();
+}
+
+String _probeResultPillLabel(ZapretProbeResult probe) {
+  final status = probe.success ? 'ok' : 'fail';
+  final latency = probe.latencyMs == null ? '' : ' • ${probe.latencyMs} ms';
+  return '${_probeShortLabel(probe.target.label)}: $status$latency';
 }
 
 String _middleEllipsis(String value, int maxLength) {

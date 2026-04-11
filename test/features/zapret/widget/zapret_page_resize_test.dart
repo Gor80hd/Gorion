@@ -91,11 +91,16 @@ void main() {
         expect(find.byType(SingleChildScrollView), findsNothing);
         expect(find.text('Gorion Boost'), findsOneWidget);
         expect(find.text('Подключение Boost'), findsOneWidget);
-        expect(find.text('Статус работы'), findsOneWidget);
         expect(find.text('Выбранный конфиг'), findsOneWidget);
-        expect(find.text('GameFilter'), findsWidgets);
+        expect(find.text('GameFilter'), findsOneWidget);
+        expect(find.text('Подобрать рекомендуемый'), findsOneWidget);
         expect(find.byTooltip('Обновить конфиги'), findsOneWidget);
         expect(find.byTooltip('Открыть папку конфигов'), findsOneWidget);
+        expect(find.byTooltip('Подробный отчёт'), findsNothing);
+        expect(find.text('Статус работы'), findsNothing);
+        expect(find.text('Boost активен'), findsNothing);
+        expect(find.text('Стандартный тест конфигов'), findsNothing);
+        expect(find.text('zapret запущен с выбранным конфигом.'), findsNothing);
       }
 
       await pumpAtSize(const Size(1440, 900));
@@ -156,6 +161,137 @@ void main() {
     expect(find.text('general'), findsWidgets);
     expect(find.text('Отключён'), findsWidgets);
   });
+
+  testWidgets(
+    'zapret recommendation CTA shows report only after tests and keeps progress compact',
+    (WidgetTester tester) async {
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.binding.setSurfaceSize(const Size(1280, 800));
+
+      final inProgressController = ZapretController(
+        repository: _FakeZapretSettingsRepository(),
+        runtimeService: _FakeZapretRuntimeService(),
+        initialState: _buildState(
+          configTestInProgress: true,
+          configTestCompleted: 1,
+          configTestTotal: 3,
+          configTestCurrentConfigLabel: 'general',
+        ),
+        loadOnInit: false,
+      );
+
+      await _pumpZapretPage(tester, inProgressController);
+      expect(find.text('Подбираем рекомендуемый'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      expect(find.textContaining('Проверяем general'), findsOneWidget);
+      expect(find.byTooltip('Подробный отчёт'), findsNothing);
+
+      final completedController = ZapretController(
+        repository: _FakeZapretSettingsRepository(),
+        runtimeService: _FakeZapretRuntimeService(),
+        initialState: _buildState(
+          configTestSuite: _buildSuccessfulSuite(),
+          statusMessage:
+              'Лучший конфиг: general. Выбран автоматически: general.',
+        ),
+        loadOnInit: false,
+      );
+
+      await _pumpZapretPage(tester, completedController);
+      expect(find.text('Подобрать рекомендуемый'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(find.byTooltip('Подробный отчёт'), findsOneWidget);
+      expect(find.textContaining('Выбран: general'), findsOneWidget);
+    },
+  );
+}
+
+Future<void> _pumpZapretPage(
+  WidgetTester tester,
+  ZapretController zapretController,
+) async {
+  final container = ProviderContainer(
+    overrides: [
+      zapretControllerProvider.overrideWith((ref) => zapretController),
+    ],
+  );
+
+  addTearDown(container.dispose);
+
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: buildGorionTheme(
+          brightness: Brightness.dark,
+          palette: AppThemePalette.emerald,
+        ),
+        home: const Scaffold(body: ZapretPage(animateOnMount: false)),
+      ),
+    ),
+  );
+  await tester.pump();
+}
+
+ZapretState _buildState({
+  bool configTestInProgress = false,
+  int configTestCompleted = 0,
+  int configTestTotal = 0,
+  String? configTestCurrentConfigLabel,
+  ZapretConfigTestSuite? configTestSuite,
+  String? statusMessage,
+}) {
+  return ZapretState(
+    bootstrapping: false,
+    settings: ZapretSettings(
+      installDirectory: r'E:\Tools\zapret2',
+      configFileName: 'general.conf',
+      gameFilterMode: ZapretGameFilterMode.disabled,
+    ),
+    availableConfigs: const [
+      ZapretConfigOption(
+        fileName: 'general.conf',
+        path: r'E:\Tools\zapret2\profiles\general.conf',
+      ),
+      ZapretConfigOption(
+        fileName: 'general (ALT10).conf',
+        path: r'E:\Tools\zapret2\profiles\general (ALT10).conf',
+      ),
+    ],
+    configTestInProgress: configTestInProgress,
+    configTestCompleted: configTestCompleted,
+    configTestTotal: configTestTotal,
+    configTestCurrentConfigLabel: configTestCurrentConfigLabel,
+    configTestSuite: configTestSuite,
+    statusMessage: statusMessage,
+  );
+}
+
+ZapretConfigTestSuite _buildSuccessfulSuite() {
+  const target = ZapretProbeTarget(
+    id: 'youtube-http11',
+    label: 'YouTube HTTP/1.1',
+    kind: ZapretProbeKind.http11,
+    address: 'https://youtube.com',
+  );
+  const config = ZapretConfigOption(
+    fileName: 'general.conf',
+    path: r'E:\Tools\zapret2\profiles\general.conf',
+  );
+  const result = ZapretConfigTestResult(
+    config: config,
+    report: ZapretProbeReport(
+      results: [
+        ZapretProbeResult(target: target, success: true, latencyMs: 128),
+      ],
+    ),
+  );
+
+  return const ZapretConfigTestSuite(
+    targets: [target],
+    results: [result],
+    targetsPath: r'E:\Tools\zapret2\files\targets.txt',
+  );
 }
 
 class _FakeZapretSettingsRepository extends ZapretSettingsRepository {}
