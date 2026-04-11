@@ -731,7 +731,7 @@ class _DottedSurfacePainter extends CustomPainter {
         : const Color.fromARGB(255, 0, 0, 0);
     const fogColor = Colors.white;
     final focalLength = size.height / 2 / math.tan(fov * math.pi / 360);
-    final count = animation.value * 108.0;
+    final phase = animation.value * math.pi * 2;
     final paint = Paint()
       ..style = PaintingStyle.fill
       ..isAntiAlias = true;
@@ -742,9 +742,10 @@ class _DottedSurfacePainter extends CustomPainter {
     for (var ix = 0; ix < amountX; ix += 1) {
       for (var iy = 0; iy < amountY; iy += 1) {
         final worldX = ix * separation - (amountX * separation) / 2;
+        // Use loop-safe phases so the last frame matches the first one exactly.
         final worldY =
-            math.sin((ix + count) * 0.3) * 50 +
-            math.sin((iy + count) * 0.5) * 50;
+            math.sin(ix * 0.3 + phase * 3) * 50 +
+            math.sin(iy * 0.5 + phase * 5) * 50;
         final worldZ = iy * separation - (amountY * separation) / 2;
 
         final cameraSpaceX = worldX - cameraX;
