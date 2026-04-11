@@ -14,4 +14,16 @@ void main() {
     );
     expect(request.resumesAfterElevation, isTrue);
   });
+
+  test('parses a pending zapret config test action from startup args', () {
+    final request = AppLaunchRequest.fromArgs(const [
+      '--gorion-pending-action=test-zapret-configs',
+    ]);
+
+    expect(
+      request.pendingElevatedAction,
+      PendingElevatedLaunchAction.testZapretConfigs,
+    );
+    expect(request.resumesAfterElevation, isTrue);
+  });
 }

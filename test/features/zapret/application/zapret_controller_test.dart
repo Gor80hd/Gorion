@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
+import 'package:gorion_clean/features/zapret/data/zapret_config_test_service.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
@@ -210,6 +212,173 @@ void main() {
 
     expect(runtimeService.stopCalls, 1);
   });
+
+  test('http config test auto-selects the best fully working config', () async {
+    if (!Platform.isWindows) {
+      return;
+    }
+
+    final runtimeService = _FakeZapretRuntimeService()
+      ..availableProfiles = const [
+        ZapretConfigOption(
+          fileName: 'general.conf',
+          path: r'E:\Tools\zapret2\profiles\general.conf',
+        ),
+        ZapretConfigOption(
+          fileName: 'general (ALT10).conf',
+          path: r'E:\Tools\zapret2\profiles\general (ALT10).conf',
+        ),
+      ];
+    final configTestService = _FakeZapretConfigTestService(
+      suite: ZapretConfigTestSuite(
+        targets: const [
+          ZapretProbeTarget(
+            id: 'DiscordMain_http11',
+            label: 'DiscordMain HTTP/1.1',
+            kind: ZapretProbeKind.http11,
+            address: 'https://discord.com',
+          ),
+          ZapretProbeTarget(
+            id: 'DiscordMain_ping',
+            label: 'DiscordMain Ping',
+            kind: ZapretProbeKind.ping,
+            address: 'discord.com',
+            requiredForSuccess: false,
+          ),
+        ],
+        targetsPath: r'E:\Tools\zapret2\files\targets.txt',
+        results: const [
+          ZapretConfigTestResult(
+            config: ZapretConfigOption(
+              fileName: 'general (ALT10).conf',
+              path: r'E:\Tools\zapret2\profiles\general (ALT10).conf',
+            ),
+            report: ZapretProbeReport(
+              results: [
+                ZapretProbeResult(
+                  target: ZapretProbeTarget(
+                    id: 'DiscordMain_http11',
+                    label: 'DiscordMain HTTP/1.1',
+                    kind: ZapretProbeKind.http11,
+                    address: 'https://discord.com',
+                  ),
+                  success: true,
+                  latencyMs: 120,
+                  details: 'HTTP 200',
+                ),
+                ZapretProbeResult(
+                  target: ZapretProbeTarget(
+                    id: 'DiscordMain_ping',
+                    label: 'DiscordMain Ping',
+                    kind: ZapretProbeKind.ping,
+                    address: 'discord.com',
+                    requiredForSuccess: false,
+                  ),
+                  success: true,
+                  latencyMs: 45,
+                  details: 'Ping 45 ms',
+                ),
+              ],
+            ),
+          ),
+          ZapretConfigTestResult(
+            config: ZapretConfigOption(
+              fileName: 'general.conf',
+              path: r'E:\Tools\zapret2\profiles\general.conf',
+            ),
+            report: ZapretProbeReport(
+              results: [
+                ZapretProbeResult(
+                  target: ZapretProbeTarget(
+                    id: 'DiscordMain_http11',
+                    label: 'DiscordMain HTTP/1.1',
+                    kind: ZapretProbeKind.http11,
+                    address: 'https://discord.com',
+                  ),
+                  success: true,
+                  latencyMs: 280,
+                  details: 'HTTP 200',
+                ),
+                ZapretProbeResult(
+                  target: ZapretProbeTarget(
+                    id: 'DiscordMain_ping',
+                    label: 'DiscordMain Ping',
+                    kind: ZapretProbeKind.ping,
+                    address: 'discord.com',
+                    requiredForSuccess: false,
+                  ),
+                  success: false,
+                  details: 'Ping timeout',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    final repository = _FakeZapretSettingsRepository();
+    final controller = ZapretController(
+      repository: repository,
+      runtimeService: runtimeService,
+      configTestService: configTestService,
+      elevationService: _FakeWindowsElevationService(elevated: true),
+      initialState: const ZapretState(
+        bootstrapping: false,
+        settings: ZapretSettings(installDirectory: r'E:\Tools\zapret2'),
+      ),
+      loadOnInit: false,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.runHttpConfigTests();
+
+    expect(
+      controller.state.settings.effectiveConfigFileName,
+      'general (ALT10).conf',
+    );
+    expect(
+      controller.state.configTestSuite?.bestWorkingResult?.config.fileName,
+      'general (ALT10).conf',
+    );
+    expect(controller.state.statusMessage, contains('Выбран автоматически'));
+    expect(repository._stored.effectiveConfigFileName, 'general (ALT10).conf');
+  });
+
+  test('requests elevated relaunch before running config tests', () async {
+    if (!Platform.isWindows) {
+      return;
+    }
+
+    final runtimeService = _FakeZapretRuntimeService();
+    final elevationService = _FakeWindowsElevationService(elevated: false);
+    final controller = ZapretController(
+      repository: _FakeZapretSettingsRepository(),
+      runtimeService: runtimeService,
+      configTestService: _FakeZapretConfigTestService(
+        suite: const ZapretConfigTestSuite(
+          targets: [],
+          results: [],
+          targetsPath: r'E:\Tools\zapret2\files\targets.txt',
+        ),
+      ),
+      elevationService: elevationService,
+      initialState: const ZapretState(
+        bootstrapping: false,
+        settings: ZapretSettings(installDirectory: r'E:\Tools\zapret2'),
+      ),
+      loadOnInit: false,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.runHttpConfigTests();
+
+    expect(elevationService.relaunchCallCount, 1);
+    expect(
+      elevationService.lastAction,
+      PendingElevatedLaunchAction.testZapretConfigs,
+    );
+    expect(controller.state.statusMessage, contains('тестирование конфигов'));
+  });
 }
 
 class _FakeZapretSettingsRepository extends ZapretSettingsRepository {
@@ -240,6 +409,12 @@ class _FakeZapretRuntimeService extends ZapretRuntimeService {
   ZapretRuntimeSession? _activeSession;
   ZapretSettings? lastStartedSettings;
   final List<ZapretSettings> startedSettings = <ZapretSettings>[];
+  List<ZapretConfigOption> availableProfiles = const [
+    ZapretConfigOption(
+      fileName: 'general.conf',
+      path: r'E:\Tools\zapret2\profiles\general.conf',
+    ),
+  ];
   final ZapretRuntimeSession sessionTemplate = ZapretRuntimeSession(
     executablePath: r'E:\Tools\zapret2\bin\winws.exe',
     workingDirectory: r'E:\Tools\zapret2\bin',
@@ -275,12 +450,7 @@ class _FakeZapretRuntimeService extends ZapretRuntimeService {
 
   @override
   List<ZapretConfigOption> listAvailableProfiles(String installDirectory) {
-    return const [
-      ZapretConfigOption(
-        fileName: 'general.conf',
-        path: r'E:\Tools\zapret2\profiles\general.conf',
-      ),
-    ];
+    return availableProfiles;
   }
 
   @override
@@ -317,6 +487,35 @@ class _FakeZapretRuntimeService extends ZapretRuntimeService {
   Future<void> stop() async {
     stopCalls += 1;
     _activeSession = null;
+  }
+}
+
+class _FakeZapretConfigTestService extends ZapretConfigTestService {
+  _FakeZapretConfigTestService({required this.suite})
+    : super(runtimeService: ZapretRuntimeService());
+
+  final ZapretConfigTestSuite suite;
+
+  @override
+  Future<ZapretConfigTestSuite> runHttpSuite({
+    required ZapretSettings settings,
+    FutureOr<void> Function(
+      int completed,
+      int total,
+      ZapretConfigOption config,
+    )?
+    onProgress,
+  }) async {
+    for (var index = 0; index < suite.results.length; index += 1) {
+      if (onProgress != null) {
+        await onProgress(
+          index,
+          suite.results.length,
+          suite.results[index].config,
+        );
+      }
+    }
+    return suite;
   }
 }
 

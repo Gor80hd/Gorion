@@ -9,6 +9,7 @@ import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
+import 'package:path/path.dart' as p;
 
 class ZapretPage extends ConsumerStatefulWidget {
   const ZapretPage({
@@ -365,6 +366,186 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
             ),
           );
 
+          final testSuite = state.configTestSuite;
+          final bestWorking = testSuite?.bestWorkingResult;
+          final alternativeWorking = testSuite?.alternativeWorkingResults
+              .take(4)
+              .toList(growable: false);
+          final remainingWorkingCount = math.max(
+            0,
+            (testSuite?.alternativeWorkingResults.length ?? 0) -
+                (alternativeWorking?.length ?? 0),
+          );
+
+          final httpTestBlock = _ControlBlock(
+            title: 'Стандартный тест конфигов',
+            accentColor: const Color(0xFF6FE3FF),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (testSuite != null) ...[
+                  _ActionIconButton(
+                    tooltip: 'Подробный отчёт',
+                    icon: Icons.insights_rounded,
+                    color: const Color(0xFF6FE3FF),
+                    onPressed: () => _showHttpTestReport(testSuite),
+                  ),
+                  SizedBox(width: actionGap),
+                ],
+                FilledButton.icon(
+                  onPressed: state.busy ? null : _runHttpConfigTests,
+                  icon: state.configTestInProgress
+                      ? SizedBox(
+                          width: layout.compact ? 14 : 16,
+                          height: layout.compact ? 14 : 16,
+                          child: const CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                          ),
+                        )
+                      : const Icon(Icons.network_check_rounded),
+                  label: Text(
+                    state.configTestInProgress ? 'Тестируем...' : 'Прогнать',
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF6FE3FF),
+                    foregroundColor: const Color(0xFF032533),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: layout.compact ? 14 : 16,
+                      vertical: layout.compact ? 12 : 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Кнопка поднимает каждый конфиг по очереди, запускает набор проверок как в оригинальном `test zapret.ps1`: HTTP/1.1, TLS 1.2, TLS 1.3 и ping, а также прикладные GET/WebSocket-проверки для Discord там, где они нужны.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.gorionTokens.onSurfaceMuted,
+                    fontSize: layout.compact ? 13 : 14,
+                    height: 1.42,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _httpTargetsHint(state),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.gorionTokens.onSurfaceMuted.withValues(
+                      alpha: 0.9,
+                    ),
+                    fontSize: layout.compact ? 12 : 12.5,
+                    height: 1.38,
+                  ),
+                ),
+                if (state.configTestInProgress) ...[
+                  const SizedBox(height: 14),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: state.configTestTotal <= 0
+                          ? null
+                          : state.configTestCompleted / state.configTestTotal,
+                      minHeight: 8,
+                      backgroundColor: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.36),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        Color(0xFF6FE3FF),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _httpTestProgressLabel(state),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface,
+                      fontSize: layout.compact ? 13 : 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ] else if (testSuite != null) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.all(layout.compact ? 12 : 14),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      color: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.26),
+                      border: Border.all(
+                        color: const Color(0xFF6FE3FF).withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          testSuite.summary,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: theme.colorScheme.onSurface,
+                            fontSize: layout.compact ? 15 : 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        if (bestWorking != null)
+                          Text(
+                            'Автовыбор: ${bestWorking.config.label} • ${bestWorking.scoreLabel}',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFFB8FFF0),
+                              fontSize: layout.compact ? 13 : 14,
+                              height: 1.4,
+                            ),
+                          )
+                        else
+                          Text(
+                            'Полностью рабочий конфиг не найден. Если есть частичные успехи, в отчёте будет показан лучший вариант; если всё упало, это считается провалом тестирования.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: const Color(0xFFFFC680),
+                              fontSize: layout.compact ? 13 : 14,
+                              height: 1.4,
+                            ),
+                          ),
+                        if ((alternativeWorking?.isNotEmpty ?? false)) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            'Полностью рабочие, но хуже по задержке:',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurface,
+                              fontSize: layout.compact ? 13 : 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final result in alternativeWorking!)
+                                _MetaPill(
+                                  label:
+                                      '${result.config.label} • ${result.averageLatencyMs ?? 'n/a'} ms',
+                                  color: const Color(0xFF72A8FF),
+                                  compact: layout.ultraCompact,
+                                ),
+                              if (remainingWorkingCount > 0)
+                                _MetaPill(
+                                  label: '+$remainingWorkingCount ещё',
+                                  color: theme.gorionTokens.onSurfaceMuted,
+                                  compact: layout.ultraCompact,
+                                ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -447,6 +628,8 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
                     Expanded(flex: 7, child: configBlock),
                   ],
                 ),
+              SizedBox(height: layout.sectionGap),
+              httpTestBlock,
             ],
           );
         },
@@ -496,6 +679,142 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
         SnackBar(content: Text('Не удалось открыть папку: $error')),
       );
     }
+  }
+
+  Future<void> _runHttpConfigTests() async {
+    await ref.read(zapretControllerProvider.notifier).runHttpConfigTests();
+  }
+
+  Future<void> _showHttpTestReport(ZapretConfigTestSuite suite) async {
+    final theme = Theme.of(context);
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: theme.colorScheme.surface,
+          title: Text(
+            'Отчёт стандартного теста',
+            style: theme.textTheme.titleLarge?.copyWith(
+              color: theme.colorScheme.onSurface,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          content: SizedBox(
+            width: 720,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    suite.summary,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Файл целей: ${suite.targetsPath}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.gorionTokens.onSurfaceMuted,
+                      height: 1.35,
+                    ),
+                  ),
+                  if (suite.ignoredTargetCount > 0) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Пропущено не-HTTP целей: ${suite.ignoredTargetCount}.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.gorionTokens.onSurfaceMuted,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+                  for (final result in suite.results) ...[
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        color: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.24),
+                        border: Border.all(
+                          color: _testResultColor(
+                            result,
+                          ).withValues(alpha: 0.24),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  result.config.label,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    color: theme.colorScheme.onSurface,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              _MetaPill(
+                                label: result.fullyWorking
+                                    ? 'Полностью ок'
+                                    : result.failedTesting
+                                    ? 'Провал'
+                                    : result.launchSucceeded
+                                    ? 'Частично'
+                                    : 'Не запустился',
+                                color: _testResultColor(result),
+                                compact: false,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            result.summary,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.gorionTokens.onSurfaceMuted,
+                              height: 1.42,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final probe in result.report.results)
+                                _MetaPill(
+                                  label:
+                                      '${probe.target.label}: ${probe.success ? 'ok' : 'fail'}${probe.latencyMs == null ? '' : ' • ${probe.latencyMs} ms'}',
+                                  color: probe.success
+                                      ? const Color(0xFF1EFFAC)
+                                      : const Color(0xFFFF8A8A),
+                                  compact: false,
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Закрыть'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Color _stageColor(ThemeData theme, ZapretStage stage) {
@@ -583,6 +902,41 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
         '${state.settings.normalizedInstallDirectory}$separator'
         'profiles';
     return 'Папка профилей: ${_middleEllipsis(profilesPath, 72)}';
+  }
+
+  String _httpTargetsHint(ZapretState state) {
+    final suite = state.configTestSuite;
+    if (suite != null) {
+      return 'Цели загружаются из ${_middleEllipsis(suite.targetsPath, 72)}.';
+    }
+    if (!state.settings.hasInstallDirectory) {
+      return 'После подготовки папки Boost файл целей будет лежать в `files/targets.txt`, а стандартный тест возьмёт оттуда HTTP/TLS и ping-цели.';
+    }
+    final targetPath = p.join(
+      state.settings.normalizedInstallDirectory,
+      'files',
+      'targets.txt',
+    );
+    return 'Файл целей: ${_middleEllipsis(targetPath, 72)}.';
+  }
+
+  String _httpTestProgressLabel(ZapretState state) {
+    final current = state.configTestCurrentConfigLabel;
+    final progress = '${state.configTestCompleted}/${state.configTestTotal}';
+    if (current == null || current.isEmpty) {
+      return 'Подготавливаем стандартный тест конфигов • $progress';
+    }
+    return 'Проверяем $current • $progress';
+  }
+
+  Color _testResultColor(ZapretConfigTestResult result) {
+    if (result.fullyWorking) {
+      return const Color(0xFF1EFFAC);
+    }
+    if (!result.launchSucceeded || result.failedTesting) {
+      return const Color(0xFFFF8A8A);
+    }
+    return const Color(0xFFFFC680);
   }
 }
 

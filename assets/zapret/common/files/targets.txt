@@ -1,0 +1,24 @@
+# HTTP/HTTPS targets for Gorion Boost config tests.
+# Format:
+#   Label = "https://host"
+#   Label = "GET:https://host/path"  -> force real GET instead of HEAD
+#   Label = "WSS:wss://host/path"    -> websocket handshake check
+#   Label = "PING:1.1.1.1"           -> ping only
+
+DiscordMain = "https://discord.com"
+DiscordGateway = "https://gateway.discord.gg"
+DiscordApiExperiments = "GET:https://discord.com/api/v9/experiments"
+DiscordGatewayWS = "WSS:wss://gateway.discord.gg/?v=9&encoding=json"
+DiscordCDN = "https://cdn.discordapp.com"
+DiscordUpdates = "https://updates.discord.com"
+
+YouTubeWeb = "https://www.youtube.com"
+YouTubeShort = "https://youtu.be"
+YouTubeImage = "https://i.ytimg.com"
+YouTubeVideoRedirect = "https://redirector.googlevideo.com"
+
+GoogleMain = "https://www.google.com"
+GoogleGstatic = "https://www.gstatic.com"
+
+CloudflareWeb = "https://www.cloudflare.com"
+CloudflareCDN = "https://cdnjs.cloudflare.com"

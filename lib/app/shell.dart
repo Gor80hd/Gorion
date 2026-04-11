@@ -227,6 +227,9 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     final pendingZapretStart =
         launchRequest.pendingElevatedAction ==
         PendingElevatedLaunchAction.startZapret;
+    final pendingZapretTest =
+        launchRequest.pendingElevatedAction ==
+        PendingElevatedLaunchAction.testZapretConfigs;
     final dashboardState = ref.read(dashboardControllerProvider);
     final zapretState = ref.read(zapretControllerProvider);
     if (dashboardState.bootstrapping || zapretState.bootstrapping) {
@@ -234,12 +237,16 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     }
 
     if (!Platform.isWindows ||
-        (!pendingZapretStart && !zapretState.settings.startOnAppLaunch)) {
+        (!pendingZapretStart &&
+            !pendingZapretTest &&
+            !zapretState.settings.startOnAppLaunch)) {
       _startupZapretHandled = true;
       return;
     }
 
-    if (!pendingZapretStart && !zapretState.settings.hasInstallDirectory) {
+    if (!pendingZapretStart &&
+        !pendingZapretTest &&
+        !zapretState.settings.hasInstallDirectory) {
       _startupZapretHandled = true;
       return;
     }
@@ -259,7 +266,12 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     }
 
     _startupZapretHandled = true;
-    await ref.read(zapretControllerProvider.notifier).start();
+    final controller = ref.read(zapretControllerProvider.notifier);
+    if (pendingZapretTest) {
+      await controller.runHttpConfigTests();
+      return;
+    }
+    await controller.start();
   }
 
   Future<void> _syncZapretTunConflict(DashboardState state) {

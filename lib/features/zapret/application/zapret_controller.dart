@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
+import 'package:gorion_clean/features/zapret/data/zapret_config_test_service.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
@@ -19,11 +20,20 @@ final zapretRuntimeServiceProvider = Provider<ZapretRuntimeService>((ref) {
   return service;
 });
 
+final zapretConfigTestServiceProvider = Provider<ZapretConfigTestService>((
+  ref,
+) {
+  return ZapretConfigTestService(
+    runtimeService: ref.read(zapretRuntimeServiceProvider),
+  );
+});
+
 final zapretControllerProvider =
     StateNotifierProvider<ZapretController, ZapretState>((ref) {
       return ZapretController(
         repository: ref.read(zapretSettingsRepositoryProvider),
         runtimeService: ref.read(zapretRuntimeServiceProvider),
+        configTestService: ref.read(zapretConfigTestServiceProvider),
         elevationService: ref.read(windowsElevationServiceProvider),
       );
     });
@@ -42,6 +52,11 @@ class ZapretState {
     this.statusMessage,
     this.errorMessage,
     this.logs = const [],
+    this.configTestInProgress = false,
+    this.configTestCompleted = 0,
+    this.configTestTotal = 0,
+    this.configTestCurrentConfigLabel,
+    this.configTestSuite,
   });
 
   final bool bootstrapping;
@@ -56,6 +71,11 @@ class ZapretState {
   final String? statusMessage;
   final String? errorMessage;
   final List<String> logs;
+  final bool configTestInProgress;
+  final int configTestCompleted;
+  final int configTestTotal;
+  final String? configTestCurrentConfigLabel;
+  final ZapretConfigTestSuite? configTestSuite;
 
   bool get canStart {
     return !bootstrapping &&
@@ -89,6 +109,13 @@ class ZapretState {
     String? errorMessage,
     bool clearErrorMessage = false,
     List<String>? logs,
+    bool? configTestInProgress,
+    int? configTestCompleted,
+    int? configTestTotal,
+    String? configTestCurrentConfigLabel,
+    bool clearConfigTestCurrentConfigLabel = false,
+    ZapretConfigTestSuite? configTestSuite,
+    bool clearConfigTestSuite = false,
   }) {
     return ZapretState(
       bootstrapping: bootstrapping ?? this.bootstrapping,
@@ -113,6 +140,15 @@ class ZapretState {
           ? null
           : errorMessage ?? this.errorMessage,
       logs: logs ?? this.logs,
+      configTestInProgress: configTestInProgress ?? this.configTestInProgress,
+      configTestCompleted: configTestCompleted ?? this.configTestCompleted,
+      configTestTotal: configTestTotal ?? this.configTestTotal,
+      configTestCurrentConfigLabel: clearConfigTestCurrentConfigLabel
+          ? null
+          : configTestCurrentConfigLabel ?? this.configTestCurrentConfigLabel,
+      configTestSuite: clearConfigTestSuite
+          ? null
+          : configTestSuite ?? this.configTestSuite,
     );
   }
 }
@@ -121,11 +157,15 @@ class ZapretController extends StateNotifier<ZapretState> {
   ZapretController({
     required ZapretSettingsRepository repository,
     required ZapretRuntimeService runtimeService,
+    ZapretConfigTestService? configTestService,
     WindowsElevationService? elevationService,
     ZapretState initialState = const ZapretState(),
     bool loadOnInit = true,
   }) : _repository = repository,
        _runtimeService = runtimeService,
+       _configTestService =
+           configTestService ??
+           ZapretConfigTestService(runtimeService: runtimeService),
        _elevationService =
            elevationService ?? const NoopWindowsElevationService(),
        super(initialState) {
@@ -136,6 +176,7 @@ class ZapretController extends StateNotifier<ZapretState> {
 
   final ZapretSettingsRepository _repository;
   final ZapretRuntimeService _runtimeService;
+  final ZapretConfigTestService _configTestService;
   final WindowsElevationService _elevationService;
 
   Future<void> setInstallDirectory(String value) async {
@@ -326,6 +367,136 @@ class ZapretController extends StateNotifier<ZapretState> {
       state = state.copyWith(
         errorMessage: _describeError(error),
         clearStatusMessage: true,
+      );
+    }
+  }
+
+  Future<void> runHttpConfigTests() async {
+    if (state.bootstrapping || state.busy) {
+      return;
+    }
+    if (!Platform.isWindows) {
+      state = state.copyWith(
+        errorMessage:
+            'Автотест конфигов Boost сейчас доступен только на Windows.',
+        clearStatusMessage: true,
+      );
+      return;
+    }
+    if (state.stage == ZapretStage.running ||
+        state.stage == ZapretStage.starting) {
+      state = state.copyWith(
+        errorMessage:
+            'Остановите текущий Boost перед прогоном стандартного теста конфигов.',
+        clearStatusMessage: true,
+      );
+      return;
+    }
+    if (state.tunConflictActive) {
+      state = state.copyWith(
+        errorMessage:
+            'Сначала отключите TUN-режим, затем можно запускать стандартный тест конфигов.',
+        clearStatusMessage: true,
+      );
+      return;
+    }
+
+    final settings = await _ensureHydratedSettings();
+    if (!settings.hasInstallDirectory) {
+      state = state.copyWith(
+        errorMessage: 'Сначала укажите каталог установки zapret.',
+        clearStatusMessage: true,
+      );
+      return;
+    }
+
+    if (await _maybeRelaunchForElevation(
+      action: PendingElevatedLaunchAction.testZapretConfigs,
+      successMessage:
+          'Запрошены права администратора. После подтверждения UAC Gorion перезапустится и продолжит тестирование конфигов Boost.',
+      cancelledMessage:
+          'Запрос прав администратора был отменён. Тестирование конфигов не запущено.',
+      failureMessagePrefix:
+          'Не удалось запросить права администратора для тестирования конфигов Boost',
+    )) {
+      return;
+    }
+
+    final availableConfigs = _runtimeService.listAvailableProfiles(
+      settings.normalizedInstallDirectory,
+    );
+    if (availableConfigs.isEmpty) {
+      state = state.copyWith(
+        errorMessage: 'В папке zapret не найдено ни одного конфига для теста.',
+        clearStatusMessage: true,
+      );
+      return;
+    }
+
+    state = state.copyWith(
+      busy: true,
+      clearErrorMessage: true,
+      clearStatusMessage: true,
+      configTestInProgress: true,
+      configTestCompleted: 0,
+      configTestTotal: availableConfigs.length,
+      clearConfigTestCurrentConfigLabel: true,
+    );
+
+    try {
+      final suite = await _configTestService.runHttpSuite(
+        settings: settings,
+        onProgress: (completed, total, config) {
+          state = state.copyWith(
+            configTestInProgress: true,
+            configTestCompleted: completed,
+            configTestTotal: total,
+            configTestCurrentConfigLabel: config.label,
+            logs: _runtimeService.logs,
+          );
+        },
+      );
+
+      final bestWorking = suite.bestWorkingResult;
+      var savedSettings = settings;
+      if (bestWorking != null &&
+          bestWorking.config.fileName != settings.effectiveConfigFileName) {
+        savedSettings = await _repository.save(
+          settings.copyWith(configFileName: bestWorking.config.fileName),
+        );
+      }
+      final normalizedSettings = _normalizeSettingsModel(savedSettings);
+      final normalizedConfigs = _runtimeService.listAvailableProfiles(
+        normalizedSettings.normalizedInstallDirectory,
+      );
+
+      final statusMessage = bestWorking == null
+          ? suite.summary
+          : bestWorking.config.fileName == settings.effectiveConfigFileName
+          ? '${suite.summary} Лучший конфиг уже был выбран.'
+          : '${suite.summary} Выбран автоматически: ${bestWorking.config.label}.';
+
+      state = state.copyWith(
+        busy: false,
+        settings: normalizedSettings,
+        availableConfigs: normalizedConfigs,
+        statusMessage: statusMessage,
+        clearErrorMessage: true,
+        logs: _runtimeService.logs,
+        configTestInProgress: false,
+        configTestCompleted: suite.results.length,
+        configTestTotal: suite.results.length,
+        clearConfigTestCurrentConfigLabel: true,
+        configTestSuite: suite,
+      );
+    } on Object catch (error) {
+      state = state.copyWith(
+        busy: false,
+        errorMessage: _describeError(error),
+        clearStatusMessage: true,
+        logs: _runtimeService.logs,
+        configTestInProgress: false,
+        clearConfigTestCurrentConfigLabel: true,
       );
     }
   }
@@ -663,7 +834,16 @@ class ZapretController extends StateNotifier<ZapretState> {
         details.contains('требует повышения');
   }
 
-  Future<bool> _maybeRelaunchForElevation() async {
+  Future<bool> _maybeRelaunchForElevation({
+    PendingElevatedLaunchAction action =
+        PendingElevatedLaunchAction.startZapret,
+    String successMessage =
+        'Запрошены права администратора. После подтверждения UAC Gorion перезапустится и продолжит запуск zapret.',
+    String cancelledMessage =
+        'Запрос прав администратора был отменён. zapret не запущен.',
+    String failureMessagePrefix =
+        'Не удалось запросить права администратора для zapret',
+  }) async {
     if (!Platform.isWindows) {
       return false;
     }
@@ -680,24 +860,19 @@ class ZapretController extends StateNotifier<ZapretState> {
     }
 
     try {
-      await _elevationService.relaunchAsAdministrator(
-        action: PendingElevatedLaunchAction.startZapret,
-      );
+      await _elevationService.relaunchAsAdministrator(action: action);
       state = state.copyWith(
-        statusMessage:
-            'Запрошены права администратора. После подтверждения UAC Gorion перезапустится и продолжит запуск zapret.',
+        statusMessage: successMessage,
         clearErrorMessage: true,
       );
     } on ElevationRequestCancelledException {
       state = state.copyWith(
-        errorMessage:
-            'Запрос прав администратора был отменён. zapret не запущен.',
+        errorMessage: cancelledMessage,
         clearStatusMessage: true,
       );
     } on Object catch (error) {
       state = state.copyWith(
-        errorMessage:
-            'Не удалось запросить права администратора для zapret: $error',
+        errorMessage: '$failureMessagePrefix: $error',
         clearStatusMessage: true,
       );
     }

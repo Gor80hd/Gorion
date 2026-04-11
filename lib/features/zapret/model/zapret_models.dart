@@ -1,3 +1,5 @@
+// ignore_for_file: use_null_aware_elements
+
 import 'package:path/path.dart' as p;
 
 String formatZapretConfigLabel(String fileName) {
@@ -500,7 +502,16 @@ enum ZapretStage {
   };
 }
 
-enum ZapretProbeKind { http, ping }
+enum ZapretProbeKind {
+  http11,
+  tls12,
+  tls13,
+  http11Get,
+  tls12Get,
+  tls13Get,
+  websocket,
+  ping,
+}
 
 class ZapretProbeTarget {
   const ZapretProbeTarget({
@@ -537,8 +548,8 @@ class ZapretProbeResult {
         ? null
         : details!.trim();
     final description = [
-      if (suffix case final suffix?) suffix,
-      if (detailText case final detailText?) detailText,
+      if (suffix != null) suffix,
+      if (detailText != null) detailText,
     ].join(' • ');
     if (description.isEmpty) {
       return '${target.label}: ${success ? 'ok' : 'fail'}';
@@ -588,6 +599,168 @@ class ZapretProbeReport {
       return 'Обязательные проверки пройдены: $requiredPassedCount/$requiredTotalCount.';
     }
     return 'Пройдено $requiredPassedCount/$requiredTotalCount; не прошли: $failedLabels.';
+  }
+}
+
+class ZapretConfigTestResult {
+  const ZapretConfigTestResult({
+    required this.config,
+    required this.report,
+    this.launchError,
+  });
+
+  final ZapretConfigOption config;
+  final ZapretProbeReport report;
+  final String? launchError;
+
+  bool get launchSucceeded => launchError == null;
+
+  bool get failedTesting {
+    return launchSucceeded && successCount == 0;
+  }
+
+  bool get partiallyWorking {
+    return launchSucceeded && successCount > 0 && !fullyWorking;
+  }
+
+  bool get fullyWorking {
+    return launchSucceeded &&
+        report.requiredTotalCount > 0 &&
+        report.allRequiredPassed;
+  }
+
+  int get successCount => report.requiredPassedCount;
+
+  int get failureCount =>
+      report.requiredTotalCount - report.requiredPassedCount;
+
+  int get pingSuccessCount {
+    return report.results
+        .where(
+          (result) =>
+              !result.target.requiredForSuccess &&
+              result.target.kind == ZapretProbeKind.ping &&
+              result.success,
+        )
+        .length;
+  }
+
+  int? get averageLatencyMs {
+    final latencies = report.passedRequiredResults
+        .map((result) => result.latencyMs)
+        .whereType<int>()
+        .toList();
+    if (latencies.isEmpty) {
+      return null;
+    }
+    final total = latencies.reduce((left, right) => left + right);
+    return (total / latencies.length).round();
+  }
+
+  int? get totalLatencyMs {
+    final latencies = report.passedRequiredResults
+        .map((result) => result.latencyMs)
+        .whereType<int>()
+        .toList();
+    if (latencies.isEmpty) {
+      return null;
+    }
+    return latencies.reduce((left, right) => left + right);
+  }
+
+  String get scoreLabel {
+    final latency = averageLatencyMs;
+    final latencyLabel = latency == null
+        ? 'нет замеров'
+        : 'в среднем $latency ms';
+    if (!launchSucceeded) {
+      return 'Не запустился';
+    }
+    return '$successCount/${report.requiredTotalCount} основных проверок • ping ok: $pingSuccessCount • $latencyLabel';
+  }
+
+  String get summary {
+    if (launchError case final message?) {
+      return '${config.label}: не запустился • $message';
+    }
+    if (fullyWorking) {
+      return '${config.label}: всё прошло • $scoreLabel';
+    }
+    if (failedTesting) {
+      return '${config.label}: провал тестирования • $scoreLabel';
+    }
+    final failedLabels = report.failedRequiredResults
+        .map((result) => result.target.label)
+        .join(', ');
+    final suffix = failedLabels.isEmpty
+        ? scoreLabel
+        : '$scoreLabel • сбои: $failedLabels';
+    return '${config.label}: частично • $suffix';
+  }
+}
+
+class ZapretConfigTestSuite {
+  const ZapretConfigTestSuite({
+    required this.targets,
+    required this.results,
+    required this.targetsPath,
+    this.ignoredTargetCount = 0,
+  });
+
+  final List<ZapretProbeTarget> targets;
+  final List<ZapretConfigTestResult> results;
+  final String targetsPath;
+  final int ignoredTargetCount;
+
+  ZapretConfigTestResult? get bestResult {
+    if (results.isEmpty) {
+      return null;
+    }
+    return results.first;
+  }
+
+  ZapretConfigTestResult? get bestWorkingResult {
+    for (final result in results) {
+      if (result.fullyWorking) {
+        return result;
+      }
+    }
+    return null;
+  }
+
+  Iterable<ZapretConfigTestResult> get fullyWorkingResults {
+    return results.where((result) => result.fullyWorking);
+  }
+
+  Iterable<ZapretConfigTestResult> get alternativeWorkingResults {
+    final bestWorking = bestWorkingResult;
+    return fullyWorkingResults.where((result) => result != bestWorking);
+  }
+
+  Iterable<ZapretConfigTestResult> get partialResults {
+    return results.where((result) => result.partiallyWorking);
+  }
+
+  Iterable<ZapretConfigTestResult> get failedToLaunchResults {
+    return results.where((result) => !result.launchSucceeded);
+  }
+
+  String get summary {
+    final bestWorking = bestWorkingResult;
+    if (bestWorking != null) {
+      return 'Лучший конфиг: ${bestWorking.config.label}. Полностью прошли ${fullyWorkingResults.length}/${results.length}.';
+    }
+
+    final fallback = bestResult;
+    if (fallback == null) {
+      return 'Тесты не дали результатов.';
+    }
+
+    if (!fallback.launchSucceeded || fallback.failedTesting) {
+      return 'Тестирование провалено: ни один конфиг не прошёл основные проверки.';
+    }
+
+    return 'Полностью рабочий конфиг не найден. Лучший доступный вариант: ${fallback.config.label} (${fallback.successCount}/${fallback.report.requiredTotalCount}).';
   }
 }
 
