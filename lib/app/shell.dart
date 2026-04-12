@@ -682,7 +682,7 @@ class _TitleContent extends StatelessWidget {
             strokeOpacity: theme.brightness == Brightness.dark ? 0.34 : 0.26,
             strokeWidth: 0.9,
             child: Text(
-              '1.0.0 beta',
+              '1.0.1 beta',
               style: TextStyle(
                 fontFamily: 'IBMPlexSans',
                 fontSize: 10,
