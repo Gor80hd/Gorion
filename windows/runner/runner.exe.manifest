@@ -3,12 +3,12 @@
   <assemblyIdentity
       type="win32"
       name="gorion_clean"
-      version="1.0.1.2"
+      version="1.2.0.2"
       processorArchitecture="amd64"/>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
       </requestedPrivileges>
     </security>
   </trustInfo>

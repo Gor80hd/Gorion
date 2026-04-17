@@ -27,7 +27,12 @@ void main() {
     expect(openaiPreset.geositeTags, contains('openai'));
     expect(
       openaiPreset.domainSuffixes,
-      containsAll(['chatgpt.com', 'oaistatic.com', 'oaiusercontent.com']),
+      containsAll([
+        'openai.com',
+        'chatgpt.com',
+        'oaistatic.com',
+        'oaiusercontent.com',
+      ]),
     );
   });
 

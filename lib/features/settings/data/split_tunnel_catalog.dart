@@ -222,11 +222,11 @@ const splitTunnelPresets = <SplitTunnelPreset>[
   SplitTunnelPreset(
     id: 'openai-proxy',
     label: 'OpenAI / ChatGPT proxy',
-    description:
-        'Принудительно оставлять OpenAI и ChatGPT на proxy-маршруте.',
+    description: 'Принудительно оставлять OpenAI и ChatGPT на proxy-маршруте.',
     action: SplitTunnelAction.proxy,
     geositeTags: ['openai'],
     domainSuffixes: [
+      'openai.com',
       'chatgpt.com',
       'oaistatic.com',
       'oaiusercontent.com',

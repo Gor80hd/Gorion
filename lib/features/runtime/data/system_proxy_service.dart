@@ -13,6 +13,37 @@ public static extern bool InternetSetOption(System.IntPtr hInternet, int dwOptio
 [Gorion.WinInet]::InternetSetOption([System.IntPtr]::Zero, 39, [System.IntPtr]::Zero, 0) | Out-Null
 [Gorion.WinInet]::InternetSetOption([System.IntPtr]::Zero, 37, [System.IntPtr]::Zero, 0) | Out-Null
 ''';
+const managedWindowsSystemProxyOverrideEntries = <String>[
+  '<local>',
+  'localhost',
+  '127.*',
+  '10.*',
+  '172.16.*',
+  '172.17.*',
+  '172.18.*',
+  '172.19.*',
+  '172.20.*',
+  '172.21.*',
+  '172.22.*',
+  '172.23.*',
+  '172.24.*',
+  '172.25.*',
+  '172.26.*',
+  '172.27.*',
+  '172.28.*',
+  '172.29.*',
+  '172.30.*',
+  '172.31.*',
+  '192.168.*',
+];
+
+String buildManagedWindowsSystemProxyOverride() {
+  return managedWindowsSystemProxyOverrideEntries.join(';');
+}
+
+String buildManagedWindowsSystemProxyServer(int mixedPort) {
+  return '127.0.0.1:$mixedPort';
+}
 
 typedef ProxyLogSink = void Function(String line, {bool isError});
 
@@ -73,17 +104,28 @@ class SystemProxyService {
     final previous = await _readWindowsSettings();
     final managed = previous.copyWith(
       proxyEnable: 1,
-      proxyServer: _managedProxyServer(mixedPort),
-      proxyOverride: '<local>;localhost;127.*',
+      proxyServer: buildManagedWindowsSystemProxyServer(mixedPort),
+      proxyOverride: buildManagedWindowsSystemProxyOverride(),
       autoConfigUrl: null,
     );
-
-    await _applyWindowsSettings(managed);
-
     final lease = SystemProxyLease._(
       _SystemProxyMarker(previousSettings: previous, managedSettings: managed),
     );
     await _writeMarker(runtimeDir, lease._marker);
+
+    try {
+      await _applyWindowsSettings(managed);
+    } on Object catch (_) {
+      try {
+        await _applyWindowsSettings(previous);
+      } on Object {
+        // Keep the marker if rollback fails so the next startup or watchdog
+        // still has the data needed to attempt a restore.
+        rethrow;
+      }
+      await _deleteMarker(runtimeDir);
+      rethrow;
+    }
     onLog('Windows system proxy enabled through 127.0.0.1:$mixedPort.');
     return lease;
   }
@@ -245,10 +287,6 @@ $_winInetRefreshScript
     }
 
     return stdoutText;
-  }
-
-  String _managedProxyServer(int mixedPort) {
-    return 'http=127.0.0.1:$mixedPort;https=127.0.0.1:$mixedPort;socks=127.0.0.1:$mixedPort';
   }
 }
 

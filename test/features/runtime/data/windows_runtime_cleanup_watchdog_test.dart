@@ -17,6 +17,12 @@ void main() {
       expect(script, contains('runtime-process.json'));
       expect(script, contains('system-proxy.json'));
       expect(script, contains(r'Stop-Process -Id $childPid -Force'));
+      expect(
+        script,
+        contains(
+          "if (!(Test-ProcessAlive \$childPid)) {\n    Cleanup-ProxyState\n    if (\$markerPid -eq \$childPid) {",
+        ),
+      );
     },
   );
 }

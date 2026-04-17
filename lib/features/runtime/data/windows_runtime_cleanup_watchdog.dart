@@ -197,6 +197,10 @@ while ($true) {
   }
 
   if (!(Test-ProcessAlive $childPid)) {
+    Cleanup-ProxyState
+    if ($markerPid -eq $childPid) {
+      Remove-Item $runtimeProcessMarkerPath -Force -ErrorAction SilentlyContinue
+    }
     break
   }
 

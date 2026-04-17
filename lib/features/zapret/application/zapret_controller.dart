@@ -16,7 +16,7 @@ final zapretSettingsRepositoryProvider = Provider<ZapretSettingsRepository>(
 );
 
 final zapretRuntimeServiceProvider = Provider<ZapretRuntimeService>((ref) {
-  final service = ZapretRuntimeService();
+  final service = buildZapretRuntimeService();
   ref.onDispose(service.dispose);
   return service;
 });
@@ -865,6 +865,9 @@ class ZapretController extends StateNotifier<ZapretState> {
         'Не удалось запросить права администратора для Gorion Boost',
   }) async {
     if (!Platform.isWindows) {
+      return false;
+    }
+    if (_runtimeService.launchesWithEmbeddedPrivilegeBroker) {
       return false;
     }
 

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:gorion_clean/core/windows/privileged_helper_client.dart';
+import 'package:gorion_clean/core/windows/privileged_helper_protocol.dart';
 import 'package:gorion_clean/core/logging/gorion_console_log.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
 import 'package:gorion_clean/features/runtime/data/windows_runtime_cleanup_watchdog.dart';
@@ -12,6 +14,16 @@ import 'package:gorion_clean/features/zapret/model/zapret_settings.dart';
 import 'package:path/path.dart' as p;
 
 const _runtimeProcessMarkerFileName = 'runtime-process.json';
+
+ZapretRuntimeService buildZapretRuntimeService() {
+  if (Platform.isWindows && WindowsPrivilegedHelperClient.isProvisionedSync()) {
+    return _PrivilegedHelperZapretRuntimeService(
+      helperClient: WindowsPrivilegedHelperClient(),
+    );
+  }
+
+  return ZapretRuntimeService();
+}
 
 class ZapretRuntimeService {
   ZapretRuntimeService({
@@ -33,6 +45,7 @@ class ZapretRuntimeService {
   ZapretRuntimeSession? get session => _session;
 
   List<String> get logs => List.unmodifiable(_logs);
+  bool get launchesWithEmbeddedPrivilegeBroker => false;
 
   void recordDiagnostic(String line, {bool isError = false}) {
     _appendLog(line, isError: isError);
@@ -338,4 +351,116 @@ class _RuntimeProcessMarker {
   const _RuntimeProcessMarker({required this.pid});
 
   final int pid;
+}
+
+class _PrivilegedHelperZapretRuntimeService extends ZapretRuntimeService {
+  _PrivilegedHelperZapretRuntimeService({
+    required WindowsPrivilegedHelperClient helperClient,
+  }) : _helperClient = helperClient;
+
+  final WindowsPrivilegedHelperClient _helperClient;
+  ZapretRuntimeSession? _remoteSession;
+  final List<String> _remoteLogs = <String>[];
+  Timer? _statePollTimer;
+  void Function(int exitCode)? _onExit;
+  bool _pollInFlight = false;
+
+  @override
+  ZapretRuntimeSession? get session => _remoteSession;
+
+  @override
+  List<String> get logs => List.unmodifiable(_remoteLogs);
+
+  @override
+  bool get launchesWithEmbeddedPrivilegeBroker => true;
+
+  @override
+  void recordDiagnostic(String line, {bool isError = false}) {
+    final prefix = isError ? '[ошибка]' : '[инфо]';
+    _remoteLogs.add('$prefix $line');
+    if (_remoteLogs.length > 200) {
+      _remoteLogs.removeRange(0, _remoteLogs.length - 200);
+    }
+    unawaited(
+      _helperClient
+          .recordZapretDiagnostic(line: line, isError: isError)
+          .then((snapshot) => _replaceState(snapshot))
+          .catchError((_) => null),
+    );
+  }
+
+  @override
+  Future<ZapretRuntimeSession> start({
+    required ZapretSettings settings,
+    required void Function(int exitCode) onExit,
+    bool preserveLogs = false,
+  }) async {
+    final snapshot = await _helperClient.startZapret(
+      settings: settings,
+      preserveLogs: preserveLogs,
+    );
+    _replaceState(snapshot);
+    _onExit = onExit;
+    _startPolling();
+    final session = _remoteSession;
+    if (session == null) {
+      throw StateError(
+        'Privileged helper did not return a running zapret session.',
+      );
+    }
+    return session;
+  }
+
+  @override
+  Future<void> stop() async {
+    _statePollTimer?.cancel();
+    _statePollTimer = null;
+    _onExit = null;
+    final snapshot = await _helperClient.stopZapret();
+    _replaceState(snapshot);
+  }
+
+  @override
+  void dispose() {
+    unawaited(stop());
+  }
+
+  void _startPolling() {
+    _statePollTimer?.cancel();
+    _statePollTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      unawaited(_pollState());
+    });
+  }
+
+  Future<void> _pollState() async {
+    if (_pollInFlight) {
+      return;
+    }
+    _pollInFlight = true;
+    final previousSession = _remoteSession;
+    try {
+      final snapshot = await _helperClient.fetchZapretState();
+      _replaceState(snapshot);
+      if (previousSession != null && snapshot.session == null) {
+        _statePollTimer?.cancel();
+        _statePollTimer = null;
+        final callback = _onExit;
+        _onExit = null;
+        if (callback != null) {
+          callback(snapshot.lastExitCode ?? 0);
+        }
+      }
+    } on Object {
+      // Keep the last known state; the GUI can retry on the next poll.
+    } finally {
+      _pollInFlight = false;
+    }
+  }
+
+  void _replaceState(PrivilegedHelperZapretSnapshot snapshot) {
+    _remoteSession = snapshot.session;
+    _remoteLogs
+      ..clear()
+      ..addAll(snapshot.logs);
+  }
 }

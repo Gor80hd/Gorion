@@ -29,7 +29,7 @@ final profileRepositoryProvider = Provider<ProfileRepository>(
 );
 
 final singboxRuntimeServiceProvider = Provider<SingboxRuntimeService>((ref) {
-  final service = SingboxRuntimeService();
+  final service = buildSingboxRuntimeService();
   ref.onDispose(service.dispose);
   return service;
 });
@@ -2339,6 +2339,9 @@ class DashboardController extends StateNotifier<DashboardState> {
 
   Future<bool> _maybeRelaunchForTunElevation() async {
     if (!Platform.isWindows || state.runtimeMode != RuntimeMode.tun) {
+      return false;
+    }
+    if (_runtimeService.launchesWithEmbeddedPrivilegeBroker) {
       return false;
     }
 

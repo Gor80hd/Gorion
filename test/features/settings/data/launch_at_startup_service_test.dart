@@ -6,15 +6,15 @@ import 'package:gorion_clean/features/settings/data/launch_at_startup_service.da
 void main() {
   group('DesktopLaunchAtStartupService', () {
     test(
-      'creates elevated scheduled task and disables legacy run entry',
+      'enables the startup entry and removes the legacy scheduled task',
       () async {
         final processRunner = _FakeProcessRunner();
-        final legacyService = _FakeLaunchAtStartupService(enabled: true);
+        final startupEntryService = _FakeLaunchAtStartupService(enabled: false);
         final service = DesktopLaunchAtStartupService(
           appName: 'Gorion',
           appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
           processRunner: processRunner.call,
-          legacyRunEntryService: legacyService,
+          startupEntryService: startupEntryService,
         );
 
         processRunner.queue(0);
@@ -22,65 +22,7 @@ void main() {
         final enabled = await service.setEnabled(true);
 
         expect(enabled, isTrue);
-        expect(legacyService.setEnabledCalls, [false]);
-        expect(processRunner.invocations, hasLength(1));
-        expect(
-          processRunner.invocations.single.arguments.last,
-          contains('Register-ScheduledTask'),
-        );
-        expect(
-          processRunner.invocations.single.arguments.last,
-          contains('RunLevel Highest'),
-        );
-      },
-    );
-
-    test('reports enabled after migrating legacy startup entry', () async {
-      final processRunner = _FakeProcessRunner();
-      final legacyService = _FakeLaunchAtStartupService(enabled: true);
-      final service = DesktopLaunchAtStartupService(
-        appName: 'Gorion',
-        appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
-        processRunner: processRunner.call,
-        legacyRunEntryService: legacyService,
-      );
-
-      processRunner.queue(1);
-      processRunner.queue(0);
-
-      final enabled = await service.isEnabled();
-
-      expect(enabled, isTrue);
-      expect(legacyService.setEnabledCalls, [false]);
-      expect(processRunner.invocations, hasLength(2));
-      expect(
-        processRunner.invocations.first.arguments.last,
-        contains('Get-ScheduledTask'),
-      );
-      expect(
-        processRunner.invocations.last.arguments.last,
-        contains('Register-ScheduledTask'),
-      );
-    });
-
-    test(
-      'disabling autostart removes scheduled task and legacy run entry',
-      () async {
-        final processRunner = _FakeProcessRunner();
-        final legacyService = _FakeLaunchAtStartupService(enabled: true);
-        final service = DesktopLaunchAtStartupService(
-          appName: 'Gorion',
-          appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
-          processRunner: processRunner.call,
-          legacyRunEntryService: legacyService,
-        );
-
-        processRunner.queue(0);
-
-        final disabled = await service.setEnabled(false);
-
-        expect(disabled, isTrue);
-        expect(legacyService.setEnabledCalls, [false]);
+        expect(startupEntryService.setEnabledCalls, [true]);
         expect(processRunner.invocations, hasLength(1));
         expect(
           processRunner.invocations.single.arguments.last,
@@ -89,33 +31,118 @@ void main() {
       },
     );
 
-    test('quotes Windows arguments for scheduled task actions', () async {
+    test('reports enabled after migrating legacy startup entry', () async {
       final processRunner = _FakeProcessRunner();
-      final legacyService = _FakeLaunchAtStartupService(enabled: false);
+      final startupEntryService = _FakeLaunchAtStartupService(enabled: false);
       final service = DesktopLaunchAtStartupService(
         appName: 'Gorion',
         appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
-        args: const ['--profile=Main Node', '--title=He said "hi"'],
         processRunner: processRunner.call,
-        legacyRunEntryService: legacyService,
+        startupEntryService: startupEntryService,
       );
 
       processRunner.queue(0);
+      processRunner.queue(0);
 
-      await service.setEnabled(true);
+      final enabled = await service.isEnabled();
 
-      final script = processRunner.invocations.single.arguments.last;
-      expect(script, contains('-Argument'));
-      expect(script, contains('"--profile=Main Node"'));
-      expect(script, contains(r'"--title=He said \"hi\""'));
+      expect(enabled, isTrue);
+      expect(startupEntryService.setEnabledCalls, [true]);
+      expect(processRunner.invocations, hasLength(2));
+      expect(
+        processRunner.invocations.first.arguments.last,
+        contains('Get-ScheduledTask'),
+      );
+      expect(
+        processRunner.invocations.last.arguments.last,
+        contains('Unregister-ScheduledTask'),
+      );
+    });
+
+    test(
+      'disabling autostart removes the startup entry and legacy task',
+      () async {
+        final processRunner = _FakeProcessRunner();
+        final startupEntryService = _FakeLaunchAtStartupService(enabled: true);
+        final service = DesktopLaunchAtStartupService(
+          appName: 'Gorion',
+          appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+          processRunner: processRunner.call,
+          startupEntryService: startupEntryService,
+        );
+
+        processRunner.queue(0);
+
+        final disabled = await service.setEnabled(false);
+
+        expect(disabled, isTrue);
+        expect(startupEntryService.setEnabledCalls, [false]);
+        expect(processRunner.invocations, hasLength(1));
+        expect(
+          processRunner.invocations.single.arguments.last,
+          contains('Unregister-ScheduledTask'),
+        );
+      },
+    );
+
+    test(
+      'keeps reporting enabled when a legacy scheduled task exists',
+      () async {
+        final processRunner = _FakeProcessRunner();
+        final startupEntryService = _FakeLaunchAtStartupService(
+          enabled: false,
+          setEnabledResult: false,
+        );
+        final service = DesktopLaunchAtStartupService(
+          appName: 'Gorion',
+          appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+          processRunner: processRunner.call,
+          startupEntryService: startupEntryService,
+        );
+
+        processRunner.queue(0);
+
+        final enabled = await service.isEnabled();
+
+        expect(enabled, isTrue);
+        expect(startupEntryService.setEnabledCalls, [true]);
+        expect(processRunner.invocations, hasLength(1));
+        expect(
+          processRunner.invocations.single.arguments.last,
+          contains('Get-ScheduledTask'),
+        );
+      },
+    );
+
+    test('ignores legacy scheduled task cleanup failures on enable', () async {
+      final processRunner = _FakeProcessRunner();
+      final startupEntryService = _FakeLaunchAtStartupService(enabled: false);
+      final service = DesktopLaunchAtStartupService(
+        appName: 'Gorion',
+        appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+        processRunner: processRunner.call,
+        startupEntryService: startupEntryService,
+      );
+
+      processRunner.queue(1, stderr: 'Access is denied');
+
+      final enabled = await service.setEnabled(true);
+
+      expect(enabled, isTrue);
+      expect(startupEntryService.setEnabledCalls, [true]);
+      expect(processRunner.invocations, hasLength(1));
     });
   });
 }
 
 class _FakeLaunchAtStartupService implements LaunchAtStartupService {
-  _FakeLaunchAtStartupService({required this.enabled});
+  _FakeLaunchAtStartupService({
+    required this.enabled,
+    this.setEnabledResult = true,
+  });
 
   bool enabled;
+  final bool setEnabledResult;
   final List<bool> setEnabledCalls = <bool>[];
 
   @override
@@ -126,8 +153,10 @@ class _FakeLaunchAtStartupService implements LaunchAtStartupService {
   @override
   Future<bool> setEnabled(bool enabled) async {
     setEnabledCalls.add(enabled);
-    this.enabled = enabled;
-    return true;
+    if (setEnabledResult) {
+      this.enabled = enabled;
+    }
+    return setEnabledResult;
   }
 }
 

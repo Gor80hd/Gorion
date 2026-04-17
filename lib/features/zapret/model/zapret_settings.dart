@@ -1,11 +1,13 @@
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
 
 class ZapretSettings {
+  static const defaultGameFilterMode = ZapretGameFilterMode.all;
+
   const ZapretSettings({
     this.installDirectory = '',
     this.configFileName = 'general.conf',
     ZapretGameFilterMode? gameFilterMode,
-    bool gameFilterEnabled = false,
+    bool gameFilterEnabled = true,
     this.preset = ZapretPreset.recommended,
     this.strategyProfile,
     this.customProfile,
@@ -110,13 +112,22 @@ class ZapretSettings {
   }
 
   factory ZapretSettings.fromJson(Map<String, dynamic> json) {
+    final rawGameFilterMode = switch ((
+      json.containsKey('gameFilterMode'),
+      json.containsKey('gameFilterEnabled'),
+    )) {
+      (true, _) => json['gameFilterMode'],
+      (false, true) => json['gameFilterEnabled'],
+      (false, false) => null,
+    };
+
     return ZapretSettings(
       installDirectory: json['installDirectory']?.toString().trim() ?? '',
       configFileName:
           json['configFileName']?.toString().trim() ?? 'general.conf',
-      gameFilterMode: ZapretGameFilterMode.fromJsonValue(
-        json['gameFilterMode'] ?? json['gameFilterEnabled'],
-      ),
+      gameFilterMode: rawGameFilterMode == null
+          ? defaultGameFilterMode
+          : ZapretGameFilterMode.fromJsonValue(rawGameFilterMode),
       preset: ZapretPreset.fromJsonValue(json['preset']),
       strategyProfile: ZapretStrategyProfile.fromJsonValue(
         json['strategyProfile'],

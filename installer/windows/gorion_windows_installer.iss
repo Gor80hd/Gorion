@@ -11,7 +11,15 @@
 #endif
 
 #ifndef AppVersion
-  #define AppVersion "1.0.1"
+  #define AppVersion "1.2.0"
+#endif
+
+#ifndef PrivilegedHelperTaskName
+  #define PrivilegedHelperTaskName "Gorion Privileged Helper"
+#endif
+
+#ifndef PrivilegedHelperArg
+  #define PrivilegedHelperArg "--gorion-privileged-helper"
 #endif
 
 #ifndef SourceDir
@@ -58,5 +66,102 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
+[UninstallDelete]
+Type: files; Name: "{app}\gorion_privileged_helper.installed"
+
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function BuildPrivilegedHelperCreateScript(): String;
+begin
+  Result :=
+    '$taskName = ''{#PrivilegedHelperTaskName}''' + #13#10 +
+    '$appPath = ''' + ExpandConstant('{app}\{#AppExeName}') + '''' + #13#10 +
+    '$userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name' + #13#10 +
+    '$action = New-ScheduledTaskAction -Execute $appPath -Argument ''{#PrivilegedHelperArg}''' + #13#10 +
+    '$trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId' + #13#10 +
+    '$principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Highest' + #13#10 +
+    'Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null' + #13#10 +
+    'Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null' + #13#10 +
+    'Start-ScheduledTask -TaskName $taskName | Out-Null';
+end;
+
+function BuildPrivilegedHelperRemoveScript(): String;
+begin
+  Result :=
+    '$taskName = ''{#PrivilegedHelperTaskName}''' + #13#10 +
+    '$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue' + #13#10 +
+    'if ($null -ne $task) {' + #13#10 +
+    '  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null' + #13#10 +
+    '  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null' + #13#10 +
+    '}';
+end;
+
+function RunPowerShellScript(const Script: String): Boolean;
+var
+  ScriptPath: String;
+  Params: String;
+  ResultCode: Integer;
+begin
+  ScriptPath := ExpandConstant('{tmp}\gorion_privileged_helper.ps1');
+  if not SaveStringToFile(ScriptPath, Script, False) then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  Params :=
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ScriptPath + '"';
+  Result :=
+    Exec(
+      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      Params,
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) and (ResultCode = 0);
+  DeleteFile(ScriptPath);
+end;
+
+procedure EnsurePrivilegedHelperMarker();
+begin
+  SaveStringToFile(
+    ExpandConstant('{app}\gorion_privileged_helper.installed'),
+    '',
+    False
+  );
+end;
+
+procedure RemovePrivilegedHelperMarker();
+begin
+  DeleteFile(ExpandConstant('{app}\gorion_privileged_helper.installed'));
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssInstall then
+  begin
+    RunPowerShellScript(BuildPrivilegedHelperRemoveScript());
+    RemovePrivilegedHelperMarker();
+  end;
+
+  if CurStep = ssPostInstall then
+  begin
+    if RunPowerShellScript(BuildPrivilegedHelperCreateScript()) then
+    begin
+      EnsurePrivilegedHelperMarker();
+    end;
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    RunPowerShellScript(BuildPrivilegedHelperRemoveScript());
+    RemovePrivilegedHelperMarker();
+  end;
+end;

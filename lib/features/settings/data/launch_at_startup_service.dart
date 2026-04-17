@@ -18,15 +18,13 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
     required String appPath,
     List<String> args = const [],
     LaunchAtStartupProcessRunner? processRunner,
-    LaunchAtStartupService? legacyRunEntryService,
+    LaunchAtStartupService? startupEntryService,
   }) : _taskName = _buildTaskName(appName),
-       _appPath = _normalizeExecutablePath(appPath),
-       _args = List.unmodifiable(args),
        _processRunner =
            processRunner ??
            ((executable, arguments) => Process.run(executable, arguments)),
-       _legacyRunEntryService =
-           legacyRunEntryService ?? const NoopLaunchAtStartupService();
+       _startupEntryService =
+           startupEntryService ?? const NoopLaunchAtStartupService();
 
   factory DesktopLaunchAtStartupService.configure({
     required String appName,
@@ -38,7 +36,7 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
       appName: appName,
       appPath: appPath,
       args: args,
-      legacyRunEntryService: LegacyRunEntryLaunchAtStartupService.configure(
+      startupEntryService: RunEntryLaunchAtStartupService.configure(
         appName: appName,
         appPath: appPath,
         packageName: packageName,
@@ -48,26 +46,25 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
   }
 
   final String _taskName;
-  final String _appPath;
-  final List<String> _args;
   final LaunchAtStartupProcessRunner _processRunner;
-  final LaunchAtStartupService _legacyRunEntryService;
+  final LaunchAtStartupService _startupEntryService;
 
   @override
   Future<bool> isEnabled() async {
-    final scheduledTaskEnabled = await _isScheduledTaskEnabled();
-    if (scheduledTaskEnabled) {
+    final startupEntryEnabled = await _startupEntryService.isEnabled();
+    if (startupEntryEnabled) {
+      await _deleteScheduledTaskSilently();
       return true;
     }
 
-    final legacyEnabled = await _legacyRunEntryService.isEnabled();
-    if (!legacyEnabled) {
+    final scheduledTaskEnabled = await _isScheduledTaskEnabled();
+    if (!scheduledTaskEnabled) {
       return false;
     }
 
-    final migrated = await _createScheduledTask();
+    final migrated = await _enableStartupEntrySilently();
     if (migrated) {
-      await _disableLegacyRunEntrySilently();
+      await _deleteScheduledTaskSilently();
     }
     return true;
   }
@@ -75,17 +72,17 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
   @override
   Future<bool> setEnabled(bool enabled) async {
     if (enabled) {
-      final scheduledTaskEnabled = await _createScheduledTask();
-      if (!scheduledTaskEnabled) {
+      final startupEntryEnabled = await _startupEntryService.setEnabled(true);
+      if (!startupEntryEnabled) {
         return false;
       }
-      await _disableLegacyRunEntrySilently();
+      await _deleteScheduledTaskSilently();
       return true;
     }
 
-    final scheduledTaskDisabled = await _deleteScheduledTask();
-    final legacyRunEntryDisabled = await _disableLegacyRunEntrySilently();
-    return scheduledTaskDisabled && legacyRunEntryDisabled;
+    final startupEntryDisabled = await _startupEntryService.setEnabled(false);
+    final scheduledTaskDisabled = await _deleteScheduledTaskSilently();
+    return startupEntryDisabled && scheduledTaskDisabled;
   }
 
   Future<bool> _isScheduledTaskEnabled() async {
@@ -102,17 +99,6 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
     );
   }
 
-  Future<bool> _createScheduledTask() async {
-    final result = await _runPowerShell(_buildCreateTaskScript());
-    if (result.exitCode == 0) {
-      return true;
-    }
-    _throwPowerShellException(
-      result,
-      'Не удалось создать автозапуск Windows с правами администратора.',
-    );
-  }
-
   Future<bool> _deleteScheduledTask() async {
     final result = await _runPowerShell(_buildDeleteTaskScript());
     if (result.exitCode == 0) {
@@ -124,9 +110,17 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
     );
   }
 
-  Future<bool> _disableLegacyRunEntrySilently() async {
+  Future<bool> _enableStartupEntrySilently() async {
     try {
-      return await _legacyRunEntryService.setEnabled(false);
+      return await _startupEntryService.setEnabled(true);
+    } on Object {
+      return false;
+    }
+  }
+
+  Future<bool> _deleteScheduledTaskSilently() async {
+    try {
+      return await _deleteScheduledTask();
     } on Object {
       return false;
     }
@@ -157,29 +151,6 @@ try {
     [Console]::Error.WriteLine(\$message)
   }
   exit 2
-}
-''';
-  }
-
-  String _buildCreateTaskScript() {
-    final actionCommand = _args.isEmpty
-        ? '  \$action = New-ScheduledTaskAction -Execute ${_toPowerShellLiteral(_appPath)}'
-        : '  \$action = New-ScheduledTaskAction -Execute ${_toPowerShellLiteral(_appPath)} -Argument ${_toPowerShellLiteral(_buildWindowsArgumentLine(_args))}';
-
-    return '''
-try {
-  \$userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-  \$trigger = New-ScheduledTaskTrigger -AtLogOn -User \$userId
-  \$principal = New-ScheduledTaskPrincipal -UserId \$userId -LogonType Interactive -RunLevel Highest
-$actionCommand
-  Register-ScheduledTask -TaskName ${_toPowerShellLiteral(_taskName)} -Action \$action -Trigger \$trigger -Principal \$principal -Force | Out-Null
-  exit 0
-} catch {
-  \$message = \$_.Exception.Message
-  if (\$message) {
-    [Console]::Error.WriteLine(\$message)
-  }
-  exit 1
 }
 ''';
   }
@@ -244,68 +215,15 @@ try {
     return '$normalized Elevated Startup';
   }
 
-  static String _normalizeExecutablePath(String value) {
-    final trimmed = value.trim();
-    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-      return trimmed.substring(1, trimmed.length - 1);
-    }
-    return trimmed;
-  }
-
-  static String _buildWindowsArgumentLine(List<String> args) {
-    return args.map(_quoteWindowsCommandLineArgument).join(' ');
-  }
-
-  static String _quoteWindowsCommandLineArgument(String value) {
-    if (value.isEmpty) {
-      return '""';
-    }
-
-    final needsQuotes = value.contains(RegExp(r'[\s"]'));
-    if (!needsQuotes) {
-      return value;
-    }
-
-    final buffer = StringBuffer('"');
-    var backslashCount = 0;
-    for (final rune in value.runes) {
-      final char = String.fromCharCode(rune);
-      if (char == r'\') {
-        backslashCount += 1;
-        continue;
-      }
-      if (char == '"') {
-        buffer.write(_repeatBackslashes(backslashCount * 2 + 1));
-        buffer.write('"');
-        backslashCount = 0;
-        continue;
-      }
-      if (backslashCount > 0) {
-        buffer.write(_repeatBackslashes(backslashCount));
-        backslashCount = 0;
-      }
-      buffer.write(char);
-    }
-    if (backslashCount > 0) {
-      buffer.write(_repeatBackslashes(backslashCount * 2));
-    }
-    buffer.write('"');
-    return buffer.toString();
-  }
-
-  static String _repeatBackslashes(int count) {
-    return List.filled(count, r'\').join();
-  }
-
   static String _toPowerShellLiteral(String value) {
     return "'${value.replaceAll("'", "''")}'";
   }
 }
 
-class LegacyRunEntryLaunchAtStartupService implements LaunchAtStartupService {
-  LegacyRunEntryLaunchAtStartupService._(this._launchAtStartup);
+class RunEntryLaunchAtStartupService implements LaunchAtStartupService {
+  RunEntryLaunchAtStartupService._(this._launchAtStartup);
 
-  factory LegacyRunEntryLaunchAtStartupService.configure({
+  factory RunEntryLaunchAtStartupService.configure({
     required String appName,
     required String appPath,
     String? packageName,
@@ -317,7 +235,7 @@ class LegacyRunEntryLaunchAtStartupService implements LaunchAtStartupService {
       packageName: packageName,
       args: args,
     );
-    return LegacyRunEntryLaunchAtStartupService._(launchAtStartup);
+    return RunEntryLaunchAtStartupService._(launchAtStartup);
   }
 
   final LaunchAtStartup _launchAtStartup;

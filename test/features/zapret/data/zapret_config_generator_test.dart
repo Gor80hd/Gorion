@@ -28,7 +28,7 @@ void main() {
   });
 
   test(
-    'builds launch args from selected general.conf with disabled game filter',
+    'builds launch args from selected general.conf with explicit disabled game filter',
     () async {
       final packageDir = await _createZapretPackage();
       addTearDown(() => packageDir.delete(recursive: true));
@@ -37,6 +37,7 @@ void main() {
         ZapretSettings(
           installDirectory: packageDir.path,
           configFileName: 'general.conf',
+          gameFilterMode: ZapretGameFilterMode.disabled,
         ),
       );
 
@@ -51,10 +52,7 @@ void main() {
       expect(configuration.summary, 'general');
       expect(configuration.arguments, contains('--wf-tcp-out=80,443'));
       expect(configuration.arguments, contains('--wf-udp-out=443'));
-      expect(
-        configuration.arguments,
-        contains('--payload=quic_initial'),
-      );
+      expect(configuration.arguments, contains('--payload=quic_initial'));
       expect(
         configuration.arguments,
         contains(
@@ -118,14 +116,10 @@ void main() {
       final packageDir = await _createZapretPackage();
       addTearDown(() => packageDir.delete(recursive: true));
 
-      await _writeConfig(
-        packageDir,
-        'general (ALT2).conf',
-        '''
+      await _writeConfig(packageDir, 'general (ALT2).conf', '''
 --wf-tcp=443
 --filter-tcp=443 --hostlist="%LISTS%list-google.txt" --dpi-desync=split2 --dpi-desync-split-pos=1,midsld --dpi-desync-fooling=badseq
-''',
-      );
+''');
 
       final configuration = generator.build(
         ZapretSettings(
@@ -138,7 +132,9 @@ void main() {
       expect(configuration.arguments, contains('--payload=tls_client_hello'));
       expect(
         configuration.arguments,
-        contains('--lua-desync=multisplit:tcp_seq=-10000:tcp_ack=-66000:pos=1,midsld'),
+        contains(
+          '--lua-desync=multisplit:tcp_seq=-10000:tcp_ack=-66000:pos=1,midsld',
+        ),
       );
     },
   );
@@ -149,7 +145,9 @@ void main() {
       final packageDir = await _createZapretPackage(createUserLists: false);
       addTearDown(() => packageDir.delete(recursive: true));
 
-      final filesIpSetAll = File(p.join(packageDir.path, 'files', 'ipset-all.txt'));
+      final filesIpSetAll = File(
+        p.join(packageDir.path, 'files', 'ipset-all.txt'),
+      );
       if (filesIpSetAll.existsSync()) {
         filesIpSetAll.deleteSync();
       }

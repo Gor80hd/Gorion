@@ -55,9 +55,16 @@ flutter run -d windows
 
 `flutter build windows --release` creates a runnable folder, not a single installer.
 
-The Windows executable is configured to always request administrator rights.
-Windows autostart is implemented through an elevated Scheduled Task so the app
-also comes up with admin rights after user logon.
+The Windows executable now starts with normal user rights (`asInvoker`), so the
+desktop shortcut does not show the UAC shield overlay.
+
+The Windows installer provisions a privileged background helper through an
+elevated Scheduled Task. The regular GUI talks to that helper over localhost
+for Windows-only elevated flows such as TUN and Gorion Boost, so day-to-day
+manual launches no longer need a fresh UAC prompt.
+
+The existing Windows autostart option still uses an elevated Scheduled Task,
+which keeps the logon flow compatible with the previous behavior.
 
 To produce one Windows installer `.exe`, this repository now includes:
 
