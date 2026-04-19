@@ -240,7 +240,8 @@ void main() {
 
     await controller.shutdownForAppExit();
 
-    expect(runtimeService.stopCalls, 1);
+    expect(runtimeService.stopForAppExitCalls, 1);
+    expect(runtimeService.stopCalls, 0);
   });
 
   test('http config test auto-selects the best fully working config', () async {
@@ -433,6 +434,7 @@ class _FakeZapretRuntimeService extends ZapretRuntimeService {
 
   int startCalls = 0;
   int stopCalls = 0;
+  int stopForAppExitCalls = 0;
   int hydrateCalls = 0;
   Object? startError;
   void Function(int exitCode)? _onExit;
@@ -516,6 +518,12 @@ class _FakeZapretRuntimeService extends ZapretRuntimeService {
   @override
   Future<void> stop() async {
     stopCalls += 1;
+    _activeSession = null;
+  }
+
+  @override
+  Future<void> stopForAppExit() async {
+    stopForAppExitCalls += 1;
     _activeSession = null;
   }
 }

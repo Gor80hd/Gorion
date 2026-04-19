@@ -1110,7 +1110,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     _cancelPendingConnectOperation();
     _stopAutoSelectionMonitoring();
     try {
-      await _runtimeService.stop();
+      await _runtimeService.stopForAppExit();
     } on Object {
       return;
     }

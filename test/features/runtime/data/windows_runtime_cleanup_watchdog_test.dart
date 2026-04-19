@@ -16,6 +16,8 @@ void main() {
       expect(script, contains("O''Brien"));
       expect(script, contains('runtime-process.json'));
       expect(script, contains('system-proxy.json'));
+      expect(script, contains('Get-ProxyEndpointKeys'));
+      expect(script, contains('Test-ManagedProxySettingsMatch'));
       expect(script, contains(r'Stop-Process -Id $childPid -Force'));
       expect(
         script,

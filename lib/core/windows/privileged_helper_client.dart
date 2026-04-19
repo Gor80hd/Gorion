@@ -70,6 +70,14 @@ class WindowsPrivilegedHelperClient {
     return PrivilegedHelperRuntimeSnapshot.fromJson(response);
   }
 
+  Future<PrivilegedHelperRuntimeSnapshot?> stopRuntimeIfAvailable() async {
+    final response = await _requestIfAvailable('POST', '/runtime/stop');
+    if (response == null) {
+      return null;
+    }
+    return PrivilegedHelperRuntimeSnapshot.fromJson(response);
+  }
+
   Future<PrivilegedHelperZapretSnapshot> fetchZapretState() async {
     final response = await _request('GET', '/zapret/state');
     return PrivilegedHelperZapretSnapshot.fromJson(response);
@@ -89,6 +97,14 @@ class WindowsPrivilegedHelperClient {
 
   Future<PrivilegedHelperZapretSnapshot> stopZapret() async {
     final response = await _request('POST', '/zapret/stop');
+    return PrivilegedHelperZapretSnapshot.fromJson(response);
+  }
+
+  Future<PrivilegedHelperZapretSnapshot?> stopZapretIfAvailable() async {
+    final response = await _requestIfAvailable('POST', '/zapret/stop');
+    if (response == null) {
+      return null;
+    }
     return PrivilegedHelperZapretSnapshot.fromJson(response);
   }
 
@@ -150,7 +166,33 @@ class WindowsPrivilegedHelperClient {
     Map<String, dynamic>? body,
   }) async {
     await ensureAvailable();
+    return _sendRequest(method, path, body: body);
+  }
 
+  Future<Map<String, dynamic>?> _requestIfAvailable(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    if (!Platform.isWindows || !isProvisionedSync()) {
+      return null;
+    }
+    if (!await _isHealthy()) {
+      return null;
+    }
+
+    try {
+      return await _sendRequest(method, path, body: body);
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>> _sendRequest(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
     final info = await _loadConnectionInfo();
     final client = HttpClient()..connectionTimeout = _requestTimeout;
     try {

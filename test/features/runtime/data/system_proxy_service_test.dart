@@ -18,4 +18,30 @@ void main() {
       orderedEquals(managedWindowsSystemProxyOverrideEntries),
     );
   });
+
+  test(
+    'windowsProxyServerPointsToManagedEndpoint accepts per-protocol loopback normalization',
+    () {
+      expect(
+        windowsProxyServerPointsToManagedEndpoint(
+          currentProxyServer: 'http=localhost:7038;https=127.0.0.1:7038',
+          managedProxyServer: '127.0.0.1:7038',
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'windowsProxyServerPointsToManagedEndpoint rejects a different loopback port',
+    () {
+      expect(
+        windowsProxyServerPointsToManagedEndpoint(
+          currentProxyServer: 'http=127.0.0.1:7040;https=127.0.0.1:7040',
+          managedProxyServer: '127.0.0.1:7038',
+        ),
+        isFalse,
+      );
+    },
+  );
 }

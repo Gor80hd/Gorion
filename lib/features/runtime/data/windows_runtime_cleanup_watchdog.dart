@@ -78,6 +78,77 @@ function Normalize-ProxyValue([object] $value) {
   return $text.Trim()
 }
 
+function Normalize-ProxyHost([string] $host) {
+  $normalized = ([string]$host).Trim().ToLowerInvariant()
+  switch ($normalized) {
+    '127.0.0.1' { return 'loopback' }
+    'localhost' { return 'loopback' }
+    '::1' { return 'loopback' }
+    '0:0:0:0:0:0:0:1' { return 'loopback' }
+    default { return $normalized }
+  }
+}
+
+function Get-ProxyEndpointKeys([object] $value) {
+  $normalized = Normalize-ProxyValue $value
+  $keys = New-Object 'System.Collections.Generic.HashSet[string]'
+  if ([string]::IsNullOrWhiteSpace($normalized)) {
+    return @($keys)
+  }
+
+  foreach ($entry in ($normalized -split ';')) {
+    $candidate = Normalize-ProxyValue $entry
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+      continue
+    }
+
+    if ($candidate.Contains('=')) {
+      $parts = $candidate.Split('=', 2)
+      if ($parts.Length -eq 2) {
+        $candidate = Normalize-ProxyValue $parts[1]
+      }
+    }
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+      continue
+    }
+
+    if (-not $candidate.Contains('://')) {
+      $candidate = "http://$candidate"
+    }
+
+    try {
+      $uri = [Uri]$candidate
+    } catch {
+      continue
+    }
+
+    if ($null -eq $uri -or [string]::IsNullOrWhiteSpace($uri.Host) -or $uri.Port -le 0) {
+      continue
+    }
+
+    $key = '{0}:{1}' -f (Normalize-ProxyHost $uri.Host), $uri.Port
+    [void]$keys.Add($key)
+  }
+
+  return @($keys)
+}
+
+function Test-ProxyServerTargetsManagedEndpoint([object] $currentProxyServer, [object] $managedProxyServer) {
+  $currentKeys = Get-ProxyEndpointKeys $currentProxyServer
+  $managedKeys = Get-ProxyEndpointKeys $managedProxyServer
+  if ($currentKeys.Count -eq 0 -or $currentKeys.Count -ne $managedKeys.Count) {
+    return $false
+  }
+
+  foreach ($key in $managedKeys) {
+    if ($key -notin $currentKeys) {
+      return $false
+    }
+  }
+
+  return $true
+}
+
 function Test-ProcessAlive([int] $processId) {
   if ($processId -le 0) {
     return $false
@@ -119,6 +190,19 @@ function Test-ProxySettingsMatch($left, $right) {
     (Normalize-ProxyValue $left.proxyServer) -eq (Normalize-ProxyValue $right.proxyServer) -and
     (Normalize-ProxyValue $left.proxyOverride) -eq (Normalize-ProxyValue $right.proxyOverride) -and
     (Normalize-ProxyValue $left.autoConfigUrl) -eq (Normalize-ProxyValue $right.autoConfigUrl)
+}
+
+function Test-ManagedProxySettingsMatch($current, $managed) {
+  if (Test-ProxySettingsMatch $current $managed) {
+    return $true
+  }
+  if ($null -eq $current -or $null -eq $managed) {
+    return $false
+  }
+  if ([int]$current.proxyEnable -ne 1 -or [int]$managed.proxyEnable -ne 1) {
+    return $false
+  }
+  return Test-ProxyServerTargetsManagedEndpoint $current.proxyServer $managed.proxyServer
 }
 
 function Refresh-WinInet() {
@@ -170,7 +254,7 @@ function Cleanup-ProxyState() {
     }
 
     $current = Get-CurrentProxySettings
-    if (Test-ProxySettingsMatch $current $marker.managedSettings) {
+    if (Test-ManagedProxySettingsMatch $current $marker.managedSettings) {
       Apply-ProxySettings $marker.previousSettings
     }
   } catch {

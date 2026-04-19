@@ -670,7 +670,7 @@ class ZapretController extends StateNotifier<ZapretState> {
 
   Future<void> shutdownForAppExit() async {
     try {
-      await _runtimeService.stop();
+      await _runtimeService.stopForAppExit();
     } on Object {
       return;
     }

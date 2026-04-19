@@ -32,9 +32,20 @@ Current WinHTTP proxy settings:
   });
 
   test('managed WinHTTP proxy server targets the local mixed inbound', () {
-    expect(
-      buildManagedWindowsWinHttpProxyServer(7038),
-      '127.0.0.1:7038',
-    );
+    expect(buildManagedWindowsWinHttpProxyServer(7038), '127.0.0.1:7038');
   });
+
+  test(
+    'WinHTTP managed proxy detection accepts equivalent per-protocol loopback endpoints',
+    () {
+      final current = WindowsWinHttpProxySettings(
+        proxyServer: 'http=localhost:7038;https=127.0.0.1:7038',
+      );
+      final managed = WindowsWinHttpProxySettings(
+        proxyServer: '127.0.0.1:7038',
+      );
+
+      expect(current.isManagedBy(managed), isTrue);
+    },
+  );
 }

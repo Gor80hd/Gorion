@@ -45,6 +45,85 @@ String buildManagedWindowsSystemProxyServer(int mixedPort) {
   return '127.0.0.1:$mixedPort';
 }
 
+bool windowsProxyServerPointsToManagedEndpoint({
+  required String? currentProxyServer,
+  required String? managedProxyServer,
+}) {
+  final currentEndpoints = _parseWindowsProxyServerEndpointKeys(
+    currentProxyServer,
+  );
+  final managedEndpoints = _parseWindowsProxyServerEndpointKeys(
+    managedProxyServer,
+  );
+  if (currentEndpoints.isEmpty || managedEndpoints.isEmpty) {
+    return false;
+  }
+  if (currentEndpoints.length != managedEndpoints.length) {
+    return false;
+  }
+  return currentEndpoints.containsAll(managedEndpoints);
+}
+
+Set<String> _parseWindowsProxyServerEndpointKeys(String? proxyServer) {
+  final normalized = _normalizeWindowsProxyText(proxyServer);
+  if (normalized == null) {
+    return const <String>{};
+  }
+
+  final endpoints = <String>{};
+  for (final entry in normalized.split(';')) {
+    final endpoint = _tryParseWindowsProxyEndpointKey(entry);
+    if (endpoint != null) {
+      endpoints.add(endpoint);
+    }
+  }
+  return endpoints;
+}
+
+String? _tryParseWindowsProxyEndpointKey(String value) {
+  var candidate = _normalizeWindowsProxyText(value);
+  if (candidate == null) {
+    return null;
+  }
+
+  final equalsIndex = candidate.indexOf('=');
+  if (equalsIndex >= 0 && equalsIndex + 1 < candidate.length) {
+    candidate = _normalizeWindowsProxyText(
+      candidate.substring(equalsIndex + 1),
+    );
+  }
+  if (candidate == null) {
+    return null;
+  }
+
+  final withScheme = candidate.contains('://')
+      ? candidate
+      : 'http://$candidate';
+  final parsed = Uri.tryParse(withScheme);
+  final host = parsed?.host;
+  if (host == null || host.isEmpty || parsed == null || !parsed.hasPort) {
+    return null;
+  }
+
+  return '${_normalizeWindowsProxyHost(host)}:${parsed.port}';
+}
+
+String _normalizeWindowsProxyHost(String host) {
+  final normalized = host.trim().toLowerCase();
+  return switch (normalized) {
+    '127.0.0.1' || 'localhost' || '::1' || '0:0:0:0:0:0:0:1' => 'loopback',
+    _ => normalized,
+  };
+}
+
+String? _normalizeWindowsProxyText(String? value) {
+  final trimmed = value?.trim();
+  if (trimmed == null || trimmed.isEmpty) {
+    return null;
+  }
+  return trimmed;
+}
+
 typedef ProxyLogSink = void Function(String line, {bool isError});
 
 class SystemProxyService {
@@ -66,7 +145,7 @@ class SystemProxyService {
 
     try {
       final current = await _readWindowsSettings();
-      if (current.matches(marker.managedSettings)) {
+      if (current.isManagedBy(marker.managedSettings)) {
         await _applyWindowsSettings(marker.previousSettings);
         onLog(
           'Restored Windows system proxy settings left behind by a previous app session.',
@@ -146,7 +225,7 @@ class SystemProxyService {
       }
 
       final current = await _readWindowsSettings();
-      if (!current.matches(marker.managedSettings)) {
+      if (!current.isManagedBy(marker.managedSettings)) {
         onLog(
           'Windows system proxy settings changed outside Gorion; skipping restore to avoid overwriting newer values.',
         );
@@ -371,6 +450,19 @@ class _WindowsProxySettings {
         _normalize(autoConfigUrl) == _normalize(other.autoConfigUrl);
   }
 
+  bool isManagedBy(_WindowsProxySettings managed) {
+    if (matches(managed)) {
+      return true;
+    }
+    if (proxyEnable != 1 || managed.proxyEnable != 1) {
+      return false;
+    }
+    return windowsProxyServerPointsToManagedEndpoint(
+      currentProxyServer: proxyServer,
+      managedProxyServer: managed.proxyServer,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'proxyEnable': proxyEnable,
@@ -390,10 +482,6 @@ class _WindowsProxySettings {
   }
 
   static String? _normalize(String? value) {
-    final trimmed = value?.trim();
-    if (trimmed == null || trimmed.isEmpty) {
-      return null;
-    }
-    return trimmed;
+    return _normalizeWindowsProxyText(value);
   }
 }

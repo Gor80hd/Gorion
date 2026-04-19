@@ -27,6 +27,16 @@ class WindowsWinHttpProxySettings {
         _normalize(bypassList) == _normalize(other.bypassList);
   }
 
+  bool isManagedBy(WindowsWinHttpProxySettings managed) {
+    if (matches(managed)) {
+      return true;
+    }
+    return windowsProxyServerPointsToManagedEndpoint(
+      currentProxyServer: proxyServer,
+      managedProxyServer: managed.proxyServer,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {'proxyServer': proxyServer, 'bypassList': bypassList};
   }

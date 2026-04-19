@@ -215,8 +215,12 @@ class ZapretRuntimeService {
     await _deleteProcessMarker(runtimeDir, expectedPid: process.pid);
   }
 
+  Future<void> stopForAppExit() async {
+    await stop();
+  }
+
   void dispose() {
-    unawaited(stop());
+    unawaited(stopForAppExit());
   }
 
   Future<Directory> _runtimeDirectory() async {
@@ -421,8 +425,25 @@ class _PrivilegedHelperZapretRuntimeService extends ZapretRuntimeService {
   }
 
   @override
+  Future<void> stopForAppExit() async {
+    _statePollTimer?.cancel();
+    _statePollTimer = null;
+    _onExit = null;
+    if (_remoteSession == null) {
+      return;
+    }
+
+    final snapshot = await _helperClient.stopZapretIfAvailable();
+    if (snapshot == null) {
+      return;
+    }
+
+    _replaceState(snapshot);
+  }
+
+  @override
   void dispose() {
-    unawaited(stop());
+    unawaited(stopForAppExit());
   }
 
   void _startPolling() {

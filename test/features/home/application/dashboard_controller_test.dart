@@ -410,7 +410,8 @@ void main() {
 
       await controller.shutdownForAppExit();
 
-      expect(runtimeService.stopCallCount, 1);
+      expect(runtimeService.stopForAppExitCallCount, 1);
+      expect(runtimeService.stopCallCount, 0);
     });
 
     test(
@@ -2055,6 +2056,7 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   final RuntimeSession _startSession;
   int startCallCount = 0;
   int stopCallCount = 0;
+  int stopForAppExitCallCount = 0;
   final List<String?> selectedServerTags = <String?>[];
   final List<String> templateConfigs = <String>[];
 
@@ -2087,6 +2089,11 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   @override
   Future<void> stop() async {
     stopCallCount += 1;
+  }
+
+  @override
+  Future<void> stopForAppExit() async {
+    stopForAppExitCallCount += 1;
   }
 }
 

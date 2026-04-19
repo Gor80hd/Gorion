@@ -327,8 +327,12 @@ class SingboxRuntimeService {
     }
   }
 
+  Future<void> stopForAppExit() async {
+    await stop();
+  }
+
   void dispose() {
-    unawaited(stop());
+    unawaited(stopForAppExit());
   }
 
   Future<File> _prepareBinary(Directory runtimeDir) async {
@@ -439,7 +443,7 @@ class SingboxRuntimeService {
 
     try {
       final current = await helperClient.readWinHttpProxySettings();
-      if (current.matches(marker.managedSettings)) {
+      if (current.isManagedBy(marker.managedSettings)) {
         await helperClient.applyWinHttpProxySettings(marker.previousSettings);
         _pushLog(
           'Restored WinHTTP proxy settings left behind by a previous app session.',
@@ -514,7 +518,7 @@ class SingboxRuntimeService {
 
     try {
       final current = await helperClient.readWinHttpProxySettings();
-      if (!current.matches(marker.managedSettings)) {
+      if (!current.isManagedBy(marker.managedSettings)) {
         _pushLog(
           'WinHTTP proxy settings changed outside Gorion; skipping restore to avoid overwriting newer values.',
         );
@@ -703,8 +707,23 @@ class _PrivilegedHelperSingboxRuntimeService extends SingboxRuntimeService {
   }
 
   @override
+  Future<void> stopForAppExit() async {
+    if (_remoteSession == null) {
+      return;
+    }
+
+    final snapshot = await _helperClient.stopRuntimeIfAvailable();
+    if (snapshot == null) {
+      return;
+    }
+
+    _remoteSession = snapshot.session;
+    _replaceLogs(snapshot.logs);
+  }
+
+  @override
   void dispose() {
-    unawaited(stop());
+    unawaited(stopForAppExit());
   }
 
   void _replaceLogs(List<String> nextLogs) {
@@ -782,8 +801,25 @@ class _AdaptiveSingboxRuntimeService extends SingboxRuntimeService {
   }
 
   @override
+  Future<void> stopForAppExit() async {
+    final activeService = _activeService;
+    _activeService = null;
+    if (activeService != null) {
+      await activeService.stopForAppExit();
+      return;
+    }
+
+    if (_localService.session != null) {
+      await _localService.stopForAppExit();
+    }
+    if (_helperService.session != null) {
+      await _helperService.stopForAppExit();
+    }
+  }
+
+  @override
   void dispose() {
-    unawaited(stop());
+    unawaited(stopForAppExit());
   }
 
   SingboxRuntimeService _serviceForMode(RuntimeMode mode) {
