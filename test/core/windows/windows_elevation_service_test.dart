@@ -26,4 +26,15 @@ void main() {
     );
     expect(request.resumesAfterElevation, isTrue);
   });
+
+  test('parses the launch-at-startup marker from startup args', () {
+    final request = AppLaunchRequest.fromArgs(const [
+      '--foo=bar',
+      gorionLaunchAtStartupArg,
+    ]);
+
+    expect(request.launchedAtStartup, isTrue);
+    expect(request.pendingElevatedAction, isNull);
+    expect(request.resumesAfterElevation, isFalse);
+  });
 }

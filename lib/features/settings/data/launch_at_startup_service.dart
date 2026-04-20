@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:launch_at_startup/launch_at_startup.dart';
 
 typedef LaunchAtStartupProcessRunner =
@@ -20,6 +21,9 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
     LaunchAtStartupProcessRunner? processRunner,
     LaunchAtStartupService? startupEntryService,
   }) : _taskName = _buildTaskName(appName),
+       _appName = appName,
+       _hasLegacyStartupEntryMigration = args.isNotEmpty,
+       _legacyStartupEntryValue = _buildRegistryValue(appPath, const []),
        _processRunner =
            processRunner ??
            ((executable, arguments) => Process.run(executable, arguments)),
@@ -46,6 +50,9 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
   }
 
   final String _taskName;
+  final String _appName;
+  final bool _hasLegacyStartupEntryMigration;
+  final String _legacyStartupEntryValue;
   final LaunchAtStartupProcessRunner _processRunner;
   final LaunchAtStartupService _startupEntryService;
 
@@ -54,6 +61,15 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
     final startupEntryEnabled = await _startupEntryService.isEnabled();
     if (startupEntryEnabled) {
       await _deleteScheduledTaskSilently();
+      return true;
+    }
+
+    if (_hasLegacyStartupEntryMigration &&
+        await _isLegacyStartupEntryEnabled()) {
+      final migrated = await _enableStartupEntrySilently();
+      if (migrated) {
+        await _deleteScheduledTaskSilently();
+      }
       return true;
     }
 
@@ -137,6 +153,20 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
     ]);
   }
 
+  Future<bool> _isLegacyStartupEntryEnabled() async {
+    final result = await _runPowerShell(_buildLegacyStartupEntryExistsScript());
+    if (result.exitCode == 0) {
+      return true;
+    }
+    if (result.exitCode == 1) {
+      return false;
+    }
+    _throwPowerShellException(
+      result,
+      'Не удалось проверить legacy startup entry Windows.',
+    );
+  }
+
   String _buildTaskExistsScript() {
     return '''
 try {
@@ -170,6 +200,32 @@ try {
     [Console]::Error.WriteLine(\$message)
   }
   exit 1
+}
+''';
+  }
+
+  String _buildLegacyStartupEntryExistsScript() {
+    return '''
+try {
+  \$runKeyPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
+  \$approvedKeyPath = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run'
+  \$valueName = ${_toPowerShellLiteral(_appName)}
+  \$expectedValue = ${_toPowerShellLiteral(_legacyStartupEntryValue)}
+  \$runValue = Get-ItemPropertyValue -Path \$runKeyPath -Name \$valueName -ErrorAction SilentlyContinue
+  if (\$runValue -ne \$expectedValue) {
+    exit 1
+  }
+  \$approved = Get-ItemPropertyValue -Path \$approvedKeyPath -Name \$valueName -ErrorAction SilentlyContinue
+  if (\$null -eq \$approved -or \$approved.Length -eq 0 -or (\$approved[0] % 2) -eq 0) {
+    exit 0
+  }
+  exit 1
+} catch {
+  \$message = \$_.Exception.Message
+  if (\$message) {
+    [Console]::Error.WriteLine(\$message)
+  }
+  exit 2
 }
 ''';
   }
@@ -213,6 +269,14 @@ try {
     final trimmed = appName.trim();
     final normalized = trimmed.isEmpty ? 'gorion' : trimmed;
     return '$normalized Elevated Startup';
+  }
+
+  static String _buildRegistryValue(String appPath, List<String> args) {
+    final executable = _quoteExecutablePath(appPath);
+    if (args.isEmpty) {
+      return executable;
+    }
+    return '$executable ${args.join(' ')}';
   }
 
   static String _toPowerShellLiteral(String value) {
@@ -279,7 +343,7 @@ LaunchAtStartupService buildLaunchAtStartupService({
     appName: appName,
     appPath: appPath ?? Platform.resolvedExecutable,
     packageName: packageName,
-    args: args,
+    args: args.isEmpty ? const [gorionLaunchAtStartupArg] : args,
   );
 }
 

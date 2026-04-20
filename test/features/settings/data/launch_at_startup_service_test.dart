@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
 
 void main() {
@@ -58,6 +59,42 @@ void main() {
         contains('Unregister-ScheduledTask'),
       );
     });
+
+    test(
+      'migrates a legacy run entry without the startup marker argument',
+      () async {
+        final processRunner = _FakeProcessRunner();
+        final startupEntryService = _FakeLaunchAtStartupService(enabled: false);
+        final service = DesktopLaunchAtStartupService(
+          appName: 'Gorion',
+          appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+          args: const [gorionLaunchAtStartupArg],
+          processRunner: processRunner.call,
+          startupEntryService: startupEntryService,
+        );
+
+        processRunner.queue(0);
+        processRunner.queue(0);
+
+        final enabled = await service.isEnabled();
+
+        expect(enabled, isTrue);
+        expect(startupEntryService.setEnabledCalls, [true]);
+        expect(processRunner.invocations, hasLength(2));
+        expect(
+          processRunner.invocations.first.arguments.last,
+          contains(r'CurrentVersion\Run'),
+        );
+        expect(
+          processRunner.invocations.first.arguments.last,
+          contains(r'"C:\Program Files\Gorion\gorion_clean.exe"'),
+        );
+        expect(
+          processRunner.invocations.last.arguments.last,
+          contains('Unregister-ScheduledTask'),
+        );
+      },
+    );
 
     test(
       'disabling autostart removes the startup entry and legacy task',

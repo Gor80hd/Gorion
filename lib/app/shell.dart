@@ -271,7 +271,40 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       await controller.runHttpConfigTests();
       return;
     }
+
+    if (launchRequest.launchedAtStartup &&
+        !await _prepareZapretAutoStartAfterWindowsLaunch(controller)) {
+      return;
+    }
+
     await controller.start();
+  }
+
+  Future<bool> _prepareZapretAutoStartAfterWindowsLaunch(
+    ZapretController controller,
+  ) async {
+    // A blind delay used to paper over a cold-start bug where Boost launched
+    // before its runtime layout and selected profile had fully settled. A
+    // second bootstrap pass reproduces the part of a manual app restart that
+    // actually fixed the issue, without delaying startup itself.
+    await controller.reload();
+    if (!mounted) {
+      return false;
+    }
+
+    final dashboardState = ref.read(dashboardControllerProvider);
+    final zapretState = ref.read(zapretControllerProvider);
+    if (dashboardState.bootstrapping ||
+        zapretState.bootstrapping ||
+        _isTunActive(dashboardState) ||
+        zapretState.tunConflictActive ||
+        dashboardState.connectionStage == ConnectionStage.starting ||
+        zapretState.stage == ZapretStage.running ||
+        zapretState.busy) {
+      return false;
+    }
+
+    return true;
   }
 
   Future<void> _syncZapretTunConflict(DashboardState state) {
@@ -682,7 +715,7 @@ class _TitleContent extends StatelessWidget {
             strokeOpacity: theme.brightness == Brightness.dark ? 0.34 : 0.26,
             strokeWidth: 0.9,
             child: Text(
-              '1.2.0 beta',
+              '1.2.1 beta',
               style: TextStyle(
                 fontFamily: 'IBMPlexSans',
                 fontSize: 10,

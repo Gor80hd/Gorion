@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 const _pendingActionArgPrefix = '--gorion-pending-action=';
+const gorionLaunchAtStartupArg = '--gorion-launched-at-startup';
 
 enum PendingElevatedLaunchAction {
   connectTun('connect-tun'),
@@ -32,19 +33,30 @@ enum PendingElevatedLaunchAction {
 }
 
 class AppLaunchRequest {
-  const AppLaunchRequest({this.pendingElevatedAction});
+  const AppLaunchRequest({
+    this.pendingElevatedAction,
+    this.launchedAtStartup = false,
+  });
 
   final PendingElevatedLaunchAction? pendingElevatedAction;
+  final bool launchedAtStartup;
 
   bool get resumesAfterElevation => pendingElevatedAction != null;
 
   static AppLaunchRequest fromArgs(List<String> args) {
     PendingElevatedLaunchAction? pendingElevatedAction;
+    var launchedAtStartup = false;
     for (final arg in args) {
       pendingElevatedAction =
           PendingElevatedLaunchAction.fromArg(arg) ?? pendingElevatedAction;
+      if (arg.trim().toLowerCase() == gorionLaunchAtStartupArg) {
+        launchedAtStartup = true;
+      }
     }
-    return AppLaunchRequest(pendingElevatedAction: pendingElevatedAction);
+    return AppLaunchRequest(
+      pendingElevatedAction: pendingElevatedAction,
+      launchedAtStartup: launchedAtStartup,
+    );
   }
 }
 
