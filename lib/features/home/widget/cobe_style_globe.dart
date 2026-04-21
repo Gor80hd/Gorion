@@ -13,6 +13,9 @@ const Color _cobeLightSphereColor = Colors.white;
 const Color _cobeLightLandColor = Colors.black;
 const int _cobeMapSamples = 16000;
 const double _maxTiltAngle = 0.86;
+const double _connectedYawSwingNear = 0.085;
+const double _connectedYawSwingFar = 0.032;
+const double _connectedSwingCycles = 8;
 
 Future<List<_GlobeLandDot>>? _cachedLandDotsFuture;
 
@@ -89,9 +92,27 @@ class CobeStyleGlobe extends HookWidget {
     final focusLatLon = _midpointLatLon(sourceLatLon, destinationLatLon);
     final focusPhi = -_degToRad(focusLatLon.$2);
     final focusTheta = _degToRad(focusLatLon.$1).clamp(-0.72, 0.72);
+    final routeDistance = _angularDistance(
+      _vectorFromLatLon(sourceLatLon.$1, sourceLatLon.$2),
+      _vectorFromLatLon(destinationLatLon.$1, destinationLatLon.$2),
+    );
     final idlePhi = sourcePhi + (rotationValue * math.pi * 2);
-    final driftPhi = math.sin(rotationValue * math.pi * 2) * 0.04;
-    final driftTheta = math.sin(rotationValue * math.pi * 2 * 0.65) * 0.018;
+    final connectedSwingAmplitude =
+        ui.lerpDouble(
+          _connectedYawSwingNear,
+          _connectedYawSwingFar,
+          (routeDistance / math.pi).clamp(0.0, 1.0),
+        ) ??
+        _connectedYawSwingFar;
+    final connectedSwing =
+        math.sin(rotationValue * math.pi * 2 * _connectedSwingCycles) *
+        connectedSwingAmplitude;
+    final driftPhi = isConnected
+        ? connectedSwing
+        : math.sin(rotationValue * math.pi * 2) * 0.04;
+    final driftTheta = isConnected
+        ? 0.0
+        : math.sin(rotationValue * math.pi * 2 * 0.65) * 0.018;
 
     final basePhi =
         ui.lerpDouble(idlePhi, focusPhi + driftPhi, focusProgress) ?? idlePhi;
