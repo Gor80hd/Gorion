@@ -345,6 +345,55 @@ void main() {
     );
 
     test(
+      'detached probe timeout degrades the candidate instead of hanging maintenance',
+      () async {
+        final service = AutoSelectorService(
+          measureGroupDelay:
+              ({
+                required RuntimeSession session,
+                required String groupTag,
+                required String testUrl,
+              }) async => const {'server-a': 40},
+          loadSelectedTag:
+              ({
+                required RuntimeSession session,
+                required String selectorTag,
+              }) async => 'server-a',
+          selectProxy:
+              ({
+                required RuntimeSession session,
+                required String selectorTag,
+                required String serverTag,
+              }) async {},
+          probeViaLocalProxy:
+              ({required int mixedPort, required Uri url}) async => true,
+          measureThroughputViaLocalProxy:
+              ({required int mixedPort, required Uri url}) async => 64 * 1024,
+          probeDetachedServer:
+              ({
+                required RuntimeSession session,
+                required ServerEntry server,
+                required bool checkIp,
+                required String domainProbeUrl,
+                required String ipProbeUrl,
+                required String throughputProbeUrl,
+              }) => Completer<AutoSelectDetachedProbeResult>().future,
+          pause: (_) async {},
+          detachedProbeTimeout: const Duration(milliseconds: 20),
+        );
+
+        await expectLater(
+          service.selectBestServer(
+            session: _session,
+            servers: [_servers.first],
+            domainProbeUrl: _domainProbeUrl,
+          ),
+          throwsFormatException,
+        );
+      },
+    );
+
+    test(
       'automatic maintenance skips live-proxy re-probe for a server that passed recently',
       () async {
         // server-a is healthy on live proxy; server-b is faster but within the
@@ -431,35 +480,39 @@ void main() {
         expect(
           harness.liveProbeUrls.length,
           greaterThan(liveProbeCountAfterFirst),
-          reason: 'the current server should be probed again once the cache TTL elapses',
+          reason:
+              'the current server should be probed again once the cache TTL elapses',
         );
       },
     );
 
-    test('verify current server can skip the IP probe when checkIp is disabled', () async {
-      final harness = _AutoSelectHarness(
-        initialSelectedTag: 'server-a',
-        delays: const {'server-a': 48},
-        domainResults: const {'server-a': true},
-        ipResults: const {'server-a': false},
-      );
-      final service = harness.build();
+    test(
+      'verify current server can skip the IP probe when checkIp is disabled',
+      () async {
+        final harness = _AutoSelectHarness(
+          initialSelectedTag: 'server-a',
+          delays: const {'server-a': 48},
+          domainResults: const {'server-a': true},
+          ipResults: const {'server-a': false},
+        );
+        final service = harness.build();
 
-      final probe = await service.verifyCurrentServer(
-        session: _session,
-        server: _servers.first,
-        domainProbeUrl: _domainProbeUrl,
-        checkIp: false,
-      );
+        final probe = await service.verifyCurrentServer(
+          session: _session,
+          server: _servers.first,
+          domainProbeUrl: _domainProbeUrl,
+          checkIp: false,
+        );
 
-      expect(probe.domainProbeOk, isTrue);
-      expect(probe.ipProbeOk, isTrue);
-      expect(probe.fullyHealthy, isTrue);
-      expect(
-        harness.liveProbeUrls.where((url) => url.contains('1.1.1.1')),
-        isEmpty,
-      );
-    });
+        expect(probe.domainProbeOk, isTrue);
+        expect(probe.ipProbeOk, isTrue);
+        expect(probe.fullyHealthy, isTrue);
+        expect(
+          harness.liveProbeUrls.where((url) => url.contains('1.1.1.1')),
+          isEmpty,
+        );
+      },
+    );
 
     test(
       'automatic maintenance probes cooling-down servers as last-resort recovery',

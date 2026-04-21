@@ -138,6 +138,7 @@ class AutoSelectorService {
     this.minimumUsableThroughput = 24 * 1024,
     this.throughputPreferenceWindowMs = 90,
     this.throughputProbeUrl = defaultAutoSelectThroughputProbeUrl,
+    this.detachedProbeTimeout = const Duration(seconds: 10),
     this.switchCooldown = const Duration(seconds: 8),
     this.failedProbeCooldown = const Duration(seconds: 45),
     this.proxySettleDelay = const Duration(milliseconds: 700),
@@ -179,6 +180,7 @@ class AutoSelectorService {
   final int minimumUsableThroughput;
   final int throughputPreferenceWindowMs;
   final String throughputProbeUrl;
+  final Duration detachedProbeTimeout;
   final Duration switchCooldown;
   final Duration failedProbeCooldown;
   final Duration proxySettleDelay;
@@ -751,14 +753,15 @@ class AutoSelectorService {
             ),
           )
         : true;
-    final measuredThroughput = await _measureThroughputViaLocalProxyWithFallback(
-      mixedPort: session.mixedPort,
-      urls: resolveAutoSelectThroughputProbeUrls(
-        throughputProbeUrl,
-        rotationKey:
-            '${session.profileId}::${server.tag}::live::throughput',
-      ),
-    );
+    final measuredThroughput =
+        await _measureThroughputViaLocalProxyWithFallback(
+          mixedPort: session.mixedPort,
+          urls: resolveAutoSelectThroughputProbeUrls(
+            throughputProbeUrl,
+            rotationKey:
+                '${session.profileId}::${server.tag}::live::throughput',
+          ),
+        );
     final usableThroughput = measuredThroughput >= minimumUsableThroughput
         ? measuredThroughput
         : 0;
@@ -790,7 +793,7 @@ class AutoSelectorService {
         domainProbeUrl: domainProbeUrl,
         ipProbeUrl: ipProbeUrl,
         throughputProbeUrl: throughputProbeUrl,
-      );
+      ).timeout(detachedProbeTimeout);
       final usableThroughput =
           detachedProbe.throughputBytesPerSecond >= minimumUsableThroughput
           ? detachedProbe.throughputBytesPerSecond
@@ -1354,7 +1357,7 @@ class AutoSelectorService {
 }
 
 class _DetachedAutoSelectProbe {
-  static const _probeTimeout = Duration(seconds: 14);
+  static const _maxStartupAttempts = 3;
   static const _startupTimeout = Duration(seconds: 8);
   static const _httpProbeTimeout = Duration(seconds: 3);
   static const _throughputTimeout = Duration(seconds: 2);
@@ -1385,140 +1388,178 @@ class _DetachedAutoSelectProbe {
       subdirectory: p.join('maintain', const Uuid().v4()),
     );
     Process? process;
+    ReservedLoopbackPort? mixedReservation;
     StreamSubscription<String>? stdoutSubscription;
     StreamSubscription<String>? stderrSubscription;
     int? startupExitCode;
 
+    Future<void> cleanupAttempt() async {
+      if (mixedReservation != null) {
+        await mixedReservation!.close();
+        mixedReservation = null;
+      }
+
+      await stdoutSubscription?.cancel();
+      await stderrSubscription?.cancel();
+      stdoutSubscription = null;
+      stderrSubscription = null;
+
+      final activeProcess = process;
+      process = null;
+      startupExitCode = null;
+      if (activeProcess == null) {
+        return;
+      }
+
+      activeProcess.kill();
+      try {
+        await activeProcess.exitCode.timeout(const Duration(seconds: 4));
+      } on TimeoutException {
+        activeProcess.kill(ProcessSignal.sigkill);
+        await activeProcess.exitCode.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => -1,
+        );
+      }
+    }
+
     try {
       final binaryFile = await prepareSingboxBinary(runtimeDir);
-      final mixedPort = await findFreePort();
-      final configJson = buildMinimalProbeConfig(
-        outbound: outbound,
-        mixedPort: mixedPort,
-      );
-
       final configFile = File(p.join(runtimeDir.path, 'maintain-config.json'));
-      await configFile.writeAsString(configJson);
 
-      process = await Process.start(
-        binaryFile.path,
-        ['run', '-c', configFile.path],
-        workingDirectory: runtimeDir.path,
-        mode: ProcessStartMode.normal,
-      );
-      stdoutSubscription = process.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((_) {});
-      stderrSubscription = process.stderr
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((_) {});
-      process.exitCode.then((code) {
-        startupExitCode = code;
-      });
-
-      return await (() async {
-        // Wait for the local proxy port to accept connections rather than
-        // polling the Clash API — the minimal config has no Clash API at all.
-        final portReady = await waitForLocalPortReady(
-          mixedPort,
-          timeout: _startupTimeout,
-          abortReason: () {
-            final exitCode = startupExitCode;
-            if (exitCode == null) return null;
-            return 'Detached post-connect sing-box probe exited early with code $exitCode.';
-          },
-        );
-        if (!portReady) {
-          return const AutoSelectDetachedProbeResult(
-            domainProbeOk: false,
-            ipProbeOk: false,
-            throughputBytesPerSecond: 0,
+      for (var attempt = 1; attempt <= _maxStartupAttempts; attempt += 1) {
+        try {
+          mixedReservation = await reserveLoopbackPort();
+          final mixedPort = mixedReservation!.port;
+          final configJson = buildMinimalProbeConfig(
+            outbound: outbound,
+            mixedPort: mixedPort,
           );
-        }
+          await configFile.writeAsString(configJson);
 
-        final domainProbeTargets = [
-          for (
-            final candidateUrl in resolveAutoSelectDomainProbeUrls(
+          await mixedReservation!.close();
+          mixedReservation = null;
+          final startedProcess = await Process.start(
+            binaryFile.path,
+            ['run', '-c', configFile.path],
+            workingDirectory: runtimeDir.path,
+            mode: ProcessStartMode.normal,
+          );
+          process = startedProcess;
+          stdoutSubscription = startedProcess.stdout
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())
+              .listen((_) {});
+          stderrSubscription = startedProcess.stderr
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())
+              .listen((_) {});
+          startedProcess.exitCode.then((code) {
+            if (identical(process, startedProcess)) {
+              startupExitCode = code;
+            }
+          });
+
+          // Wait for the local proxy port to accept connections rather than
+          // polling the Clash API — the minimal config has no Clash API at all.
+          final portReady = await waitForLocalPortReady(
+            mixedPort,
+            timeout: _startupTimeout,
+            abortReason: () {
+              final exitCode = startupExitCode;
+              if (exitCode == null) {
+                return null;
+              }
+              return 'Detached post-connect sing-box probe exited early with code $exitCode.';
+            },
+          );
+          if (!portReady) {
+            if (attempt < _maxStartupAttempts) {
+              await cleanupAttempt();
+              continue;
+            }
+            return const AutoSelectDetachedProbeResult(
+              domainProbeOk: false,
+              ipProbeOk: false,
+              throughputBytesPerSecond: 0,
+            );
+          }
+
+          final domainProbeTargets = [
+            for (final candidateUrl in resolveAutoSelectDomainProbeUrls(
               domainProbeUrl,
               rotationKey: '$profileId::$serverTag::detached::domain',
-            )
-          )
-            Uri.parse(candidateUrl),
-        ];
-        final ipProbeTargets = [
-          for (
-            final candidateUrl in resolveAutoSelectIpProbeUrls(
+            ))
+              Uri.parse(candidateUrl),
+          ];
+          final ipProbeTargets = [
+            for (final candidateUrl in resolveAutoSelectIpProbeUrls(
               ipProbeUrl,
               rotationKey: '$profileId::$serverTag::detached::ip',
-            )
-          )
-            Uri.parse(candidateUrl),
-        ];
-        final throughputProbeTargets = [
-          for (
-            final candidateUrl in resolveAutoSelectThroughputProbeUrls(
+            ))
+              Uri.parse(candidateUrl),
+          ];
+          final throughputProbeTargets = [
+            for (final candidateUrl in resolveAutoSelectThroughputProbeUrls(
               throughputProbeUrl,
               rotationKey: '$profileId::$serverTag::detached::throughput',
-            )
-          )
-            Uri.parse(candidateUrl),
-        ];
+            ))
+              Uri.parse(candidateUrl),
+          ];
 
-        late final bool domainProbeOk;
-        late final bool ipProbeOk;
-        if (checkIp) {
-          final probeResults = await Future.wait<bool>([
-            probeHttpViaLocalProxyTargets(
+          late final bool domainProbeOk;
+          late final bool ipProbeOk;
+          if (checkIp) {
+            final probeResults = await Future.wait<bool>([
+              probeHttpViaLocalProxyTargets(
+                mixedPort: mixedPort,
+                urls: domainProbeTargets,
+                timeout: _httpProbeTimeout,
+              ),
+              probeHttpViaLocalProxyTargets(
+                mixedPort: mixedPort,
+                urls: ipProbeTargets,
+                timeout: _httpProbeTimeout,
+              ),
+            ]);
+            domainProbeOk = probeResults[0];
+            ipProbeOk = probeResults[1];
+          } else {
+            domainProbeOk = await probeHttpViaLocalProxyTargets(
               mixedPort: mixedPort,
               urls: domainProbeTargets,
               timeout: _httpProbeTimeout,
-            ),
-            probeHttpViaLocalProxyTargets(
-              mixedPort: mixedPort,
-              urls: ipProbeTargets,
-              timeout: _httpProbeTimeout,
-            ),
-          ]);
-          domainProbeOk = probeResults[0];
-          ipProbeOk = probeResults[1];
-        } else {
-          domainProbeOk = await probeHttpViaLocalProxyTargets(
-            mixedPort: mixedPort,
-            urls: domainProbeTargets,
-            timeout: _httpProbeTimeout,
-          );
-          ipProbeOk = true;
-        }
-        final throughputBytesPerSecond =
-            await measureDownloadThroughputViaLocalProxyTargets(
-              mixedPort: mixedPort,
-              urls: throughputProbeTargets,
-              timeout: _throughputTimeout,
             );
+            ipProbeOk = true;
+          }
+          final throughputBytesPerSecond =
+              await measureDownloadThroughputViaLocalProxyTargets(
+                mixedPort: mixedPort,
+                urls: throughputProbeTargets,
+                timeout: _throughputTimeout,
+              );
 
-        return AutoSelectDetachedProbeResult(
-          domainProbeOk: domainProbeOk,
-          ipProbeOk: ipProbeOk,
-          throughputBytesPerSecond: throughputBytesPerSecond,
-        );
-      })().timeout(_probeTimeout);
-    } finally {
-      await stdoutSubscription?.cancel();
-      await stderrSubscription?.cancel();
-      if (process != null) {
-        process.kill();
-        try {
-          await process.exitCode.timeout(const Duration(seconds: 4));
-        } on TimeoutException {
-          process.kill(ProcessSignal.sigkill);
-          await process.exitCode.timeout(
-            const Duration(seconds: 2),
-            onTimeout: () => -1,
+          return AutoSelectDetachedProbeResult(
+            domainProbeOk: domainProbeOk,
+            ipProbeOk: ipProbeOk,
+            throughputBytesPerSecond: throughputBytesPerSecond,
           );
+        } on Object {
+          if (attempt < _maxStartupAttempts) {
+            await cleanupAttempt();
+            continue;
+          }
+          rethrow;
         }
       }
+
+      return const AutoSelectDetachedProbeResult(
+        domainProbeOk: false,
+        ipProbeOk: false,
+        throughputBytesPerSecond: 0,
+      );
+    } finally {
+      await cleanupAttempt();
       if (await runtimeDir.exists()) {
         try {
           await runtimeDir.delete(recursive: true);

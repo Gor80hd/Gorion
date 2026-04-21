@@ -69,6 +69,7 @@ $childPid = __CHILD_PID__
 $runtimeDir = '__RUNTIME_DIR__'
 $runtimeProcessMarkerPath = Join-Path $runtimeDir 'runtime-process.json'
 $systemProxyMarkerPath = Join-Path $runtimeDir 'system-proxy.json'
+$winHttpProxyMarkerPath = Join-Path $runtimeDir 'winhttp-proxy.json'
 
 function Normalize-ProxyValue([object] $value) {
   $text = [string]$value
@@ -76,6 +77,40 @@ function Normalize-ProxyValue([object] $value) {
     return $null
   }
   return $text.Trim()
+}
+
+function Get-BypassListKeys([object] $value) {
+  $normalized = Normalize-ProxyValue $value
+  $keys = New-Object 'System.Collections.Generic.HashSet[string]'
+  if ([string]::IsNullOrWhiteSpace($normalized)) {
+    return @($keys)
+  }
+
+  foreach ($entry in ($normalized -split ';')) {
+    $candidate = Normalize-ProxyValue $entry
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+      continue
+    }
+    [void]$keys.Add($candidate.ToLowerInvariant())
+  }
+
+  return @($keys)
+}
+
+function Test-BypassListMatch($left, $right) {
+  $leftKeys = Get-BypassListKeys $left
+  $rightKeys = Get-BypassListKeys $right
+  if ($leftKeys.Count -ne $rightKeys.Count) {
+    return $false
+  }
+
+  foreach ($key in $rightKeys) {
+    if ($key -notin $leftKeys) {
+      return $false
+    }
+  }
+
+  return $true
 }
 
 function Normalize-ProxyHost([string] $host) {
@@ -188,7 +223,7 @@ function Test-ProxySettingsMatch($left, $right) {
   }
   return [int]$left.proxyEnable -eq [int]$right.proxyEnable -and
     (Normalize-ProxyValue $left.proxyServer) -eq (Normalize-ProxyValue $right.proxyServer) -and
-    (Normalize-ProxyValue $left.proxyOverride) -eq (Normalize-ProxyValue $right.proxyOverride) -and
+    (Test-BypassListMatch $left.proxyOverride $right.proxyOverride) -and
     (Normalize-ProxyValue $left.autoConfigUrl) -eq (Normalize-ProxyValue $right.autoConfigUrl)
 }
 
@@ -200,6 +235,12 @@ function Test-ManagedProxySettingsMatch($current, $managed) {
     return $false
   }
   if ([int]$current.proxyEnable -ne 1 -or [int]$managed.proxyEnable -ne 1) {
+    return $false
+  }
+  if (!(Test-BypassListMatch $current.proxyOverride $managed.proxyOverride)) {
+    return $false
+  }
+  if ((Normalize-ProxyValue $current.autoConfigUrl) -ne (Normalize-ProxyValue $managed.autoConfigUrl)) {
     return $false
   }
   return Test-ProxyServerTargetsManagedEndpoint $current.proxyServer $managed.proxyServer
@@ -242,11 +283,103 @@ function Apply-ProxySettings($settings) {
   Refresh-WinInet
 }
 
+function Get-WinHttpProxySettings() {
+  $output = (& netsh.exe winhttp show proxy 2>$null | Out-String)
+  if ($LASTEXITCODE -ne 0) {
+    return $null
+  }
+  $normalized = ([string]$output) -replace "`r", ''
+  if ($normalized.Contains('Direct access (no proxy server).') -or $normalized.Contains('Прямой доступ (без прокси-сервера).')) {
+    return [pscustomobject]@{
+      proxyServer = $null
+      bypassList = $null
+    }
+  }
+
+  $proxyMatch = [regex]::Match(
+    $normalized,
+    '^\s*Proxy Server\(s\)\s*:\s*(.+?)\s*$',
+    [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Multiline
+  )
+  $bypassMatch = [regex]::Match(
+    $normalized,
+    '^\s*Bypass List\s*:\s*(.*?)\s*$',
+    [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Multiline
+  )
+  $proxyServer = if ($proxyMatch.Success) { Normalize-ProxyValue $proxyMatch.Groups[1].Value } else { $null }
+  $bypassList = if ($bypassMatch.Success) { Normalize-ProxyValue $bypassMatch.Groups[1].Value } else { $null }
+  if ($null -eq $proxyServer -and $null -eq $bypassList) {
+    $genericMatches = [regex]::Matches(
+      $normalized,
+      '^\s+\S.*?:\s*(.*?)\s*$',
+      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Multiline
+    )
+    if ($genericMatches.Count -ge 1) {
+      $proxyServer = Normalize-ProxyValue $genericMatches[0].Groups[1].Value
+    }
+    if ($genericMatches.Count -ge 2) {
+      $bypassList = Normalize-ProxyValue $genericMatches[1].Groups[1].Value
+    }
+  }
+
+  return [pscustomobject]@{
+    proxyServer = $proxyServer
+    bypassList = $bypassList
+  }
+}
+
+function Test-WinHttpSettingsMatch($left, $right) {
+  if ($null -eq $left -or $null -eq $right) {
+    return $false
+  }
+  return (Normalize-ProxyValue $left.proxyServer) -eq (Normalize-ProxyValue $right.proxyServer) -and
+    (Test-BypassListMatch $left.bypassList $right.bypassList)
+}
+
+function Test-ManagedWinHttpSettingsMatch($current, $managed) {
+  if (Test-WinHttpSettingsMatch $current $managed) {
+    return $true
+  }
+  if ($null -eq $current -or $null -eq $managed) {
+    return $false
+  }
+  if (!(Test-BypassListMatch $current.bypassList $managed.bypassList)) {
+    return $false
+  }
+  return Test-ProxyServerTargetsManagedEndpoint $current.proxyServer $managed.proxyServer
+}
+
+function Invoke-Netsh([string[]] $arguments) {
+  & netsh.exe @arguments | Out-Null
+  return $LASTEXITCODE -eq 0
+}
+
+function Apply-WinHttpProxySettings($settings) {
+  $proxyServer = Normalize-ProxyValue $settings.proxyServer
+  if ([string]::IsNullOrWhiteSpace($proxyServer)) {
+    return Invoke-Netsh -arguments @('winhttp', 'reset', 'proxy')
+  }
+
+  $arguments = @(
+    'winhttp',
+    'set',
+    'proxy',
+    "proxy-server=$proxyServer"
+  )
+  $bypassList = Normalize-ProxyValue $settings.bypassList
+  if (-not [string]::IsNullOrWhiteSpace($bypassList)) {
+    $arguments += "bypass-list=$bypassList"
+  }
+
+  return Invoke-Netsh -arguments $arguments
+}
+
 function Cleanup-ProxyState() {
   if (!(Test-Path $systemProxyMarkerPath)) {
     return
   }
 
+  $shouldDeleteMarker = $false
   try {
     $marker = Get-Content $systemProxyMarkerPath -Raw | ConvertFrom-Json
     if ($null -eq $marker) {
@@ -256,35 +389,76 @@ function Cleanup-ProxyState() {
     $current = Get-CurrentProxySettings
     if (Test-ManagedProxySettingsMatch $current $marker.managedSettings) {
       Apply-ProxySettings $marker.previousSettings
+      $shouldDeleteMarker = $true
+    } else {
+      $shouldDeleteMarker = $true
     }
   } catch {
   } finally {
-    Remove-Item $systemProxyMarkerPath -Force -ErrorAction SilentlyContinue
+    if ($shouldDeleteMarker) {
+      Remove-Item $systemProxyMarkerPath -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function Cleanup-WinHttpProxyState() {
+  if (!(Test-Path $winHttpProxyMarkerPath)) {
+    return
+  }
+
+  $shouldDeleteMarker = $false
+  try {
+    $marker = Get-Content $winHttpProxyMarkerPath -Raw | ConvertFrom-Json
+    if ($null -eq $marker) {
+      return
+    }
+
+    $current = Get-WinHttpProxySettings
+    if ($null -eq $current) {
+      return
+    }
+    if (Test-ManagedWinHttpSettingsMatch $current $marker.managedSettings) {
+      if (Apply-WinHttpProxySettings $marker.previousSettings) {
+        $shouldDeleteMarker = $true
+      }
+    } else {
+      $shouldDeleteMarker = $true
+    }
+  } catch {
+  } finally {
+    if ($shouldDeleteMarker) {
+      Remove-Item $winHttpProxyMarkerPath -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function Cleanup-OwnedRuntimeState([object] $markerPid) {
+  if ($null -ne $markerPid -and $markerPid -ne $childPid) {
+    return
+  }
+  Cleanup-ProxyState
+  Cleanup-WinHttpProxyState
+  if ($markerPid -eq $childPid) {
+    Remove-Item $runtimeProcessMarkerPath -Force -ErrorAction SilentlyContinue
   }
 }
 
 while ($true) {
   $markerPid = Get-MarkerPid
-  if ($null -ne $markerPid -and $markerPid -ne $childPid) {
-    break
-  }
-
   if (!(Test-ProcessAlive $parentPid)) {
     if (Test-ProcessAlive $childPid) {
       Stop-Process -Id $childPid -Force -ErrorAction SilentlyContinue
     }
-    Cleanup-ProxyState
-    if ($markerPid -eq $childPid) {
-      Remove-Item $runtimeProcessMarkerPath -Force -ErrorAction SilentlyContinue
-    }
+    Cleanup-OwnedRuntimeState $markerPid
     break
   }
 
   if (!(Test-ProcessAlive $childPid)) {
-    Cleanup-ProxyState
-    if ($markerPid -eq $childPid) {
-      Remove-Item $runtimeProcessMarkerPath -Force -ErrorAction SilentlyContinue
-    }
+    Cleanup-OwnedRuntimeState $markerPid
+    break
+  }
+
+  if ($null -ne $markerPid -and $markerPid -ne $childPid) {
     break
   }
 

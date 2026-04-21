@@ -31,6 +31,21 @@ Current WinHTTP proxy settings:
     expect(settings.bypassList, 'localhost;127.*;<local>');
   });
 
+  test('parseWinHttpShowProxyOutput falls back to localized field labels', () {
+    const output = '''
+Текущие параметры прокси WinHTTP:
+
+    Сервер(ы) прокси :  http=127.0.0.1:7038;https=127.0.0.1:7038
+    Список исключений:  localhost;127.*;<local>
+''';
+
+    final settings = parseWinHttpShowProxyOutput(output);
+
+    expect(settings.isDirect, isFalse);
+    expect(settings.proxyServer, 'http=127.0.0.1:7038;https=127.0.0.1:7038');
+    expect(settings.bypassList, 'localhost;127.*;<local>');
+  });
+
   test('managed WinHTTP proxy server targets the local mixed inbound', () {
     expect(buildManagedWindowsWinHttpProxyServer(7038), '127.0.0.1:7038');
   });
@@ -40,12 +55,40 @@ Current WinHTTP proxy settings:
     () {
       final current = WindowsWinHttpProxySettings(
         proxyServer: 'http=localhost:7038;https=127.0.0.1:7038',
+        bypassList: 'localhost;127.*;<local>',
       );
       final managed = WindowsWinHttpProxySettings(
         proxyServer: '127.0.0.1:7038',
+        bypassList: 'localhost;127.*;<local>',
       );
 
       expect(current.isManagedBy(managed), isTrue);
     },
   );
+
+  test('WinHTTP managed proxy detection rejects a different bypass list', () {
+    final current = WindowsWinHttpProxySettings(
+      proxyServer: 'http=localhost:7038;https=127.0.0.1:7038',
+      bypassList: 'localhost;127.*;<local>;intranet.local',
+    );
+    final managed = WindowsWinHttpProxySettings(
+      proxyServer: '127.0.0.1:7038',
+      bypassList: 'localhost;127.*;<local>',
+    );
+
+    expect(current.isManagedBy(managed), isFalse);
+  });
+
+  test('WinHTTP managed proxy detection accepts reordered bypass entries', () {
+    final current = WindowsWinHttpProxySettings(
+      proxyServer: 'http=localhost:7038;https=127.0.0.1:7038',
+      bypassList: '127.*;<local>;LOCALHOST',
+    );
+    final managed = WindowsWinHttpProxySettings(
+      proxyServer: '127.0.0.1:7038',
+      bypassList: 'localhost;127.*;<local>',
+    );
+
+    expect(current.isManagedBy(managed), isTrue);
+  });
 }

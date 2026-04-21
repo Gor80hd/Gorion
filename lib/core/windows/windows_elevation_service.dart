@@ -49,7 +49,7 @@ class AppLaunchRequest {
     for (final arg in args) {
       pendingElevatedAction =
           PendingElevatedLaunchAction.fromArg(arg) ?? pendingElevatedAction;
-      if (arg.trim().toLowerCase() == gorionLaunchAtStartupArg) {
+      if (_isLaunchAtStartupArg(arg)) {
         launchedAtStartup = true;
       }
     }
@@ -91,7 +91,7 @@ class PowerShellWindowsElevationService implements WindowsElevationService {
   PowerShellWindowsElevationService({
     List<String> currentArgs = const [],
     Future<void> Function(int exitCode)? exitCurrentProcess,
-  }) : _currentArgs = _sanitizeArgs(currentArgs),
+  }) : _currentArgs = sanitizeArgsForRelaunch(currentArgs),
        _exitCurrentProcess = exitCurrentProcess ?? _defaultExitCurrentProcess;
 
   final List<String> _currentArgs;
@@ -183,11 +183,16 @@ class PowerShellWindowsElevationService implements WindowsElevationService {
     );
   }
 
-  static List<String> _sanitizeArgs(List<String> args) {
+  @visibleForTesting
+  static List<String> sanitizeArgsForRelaunch(List<String> args) {
     return [
       for (final arg in args)
-        if (!arg.startsWith(_pendingActionArgPrefix)) arg,
+        if (!_shouldStripFromRelaunchArgs(arg)) arg,
     ];
+  }
+
+  static bool _shouldStripFromRelaunchArgs(String arg) {
+    return arg.startsWith(_pendingActionArgPrefix);
   }
 
   static Future<void> _defaultExitCurrentProcess(int exitCode) async {
@@ -274,4 +279,8 @@ WindowsElevationService buildWindowsElevationService({
     currentArgs: currentArgs,
     exitCurrentProcess: exitCurrentProcess,
   );
+}
+
+bool _isLaunchAtStartupArg(String arg) {
+  return arg.trim().toLowerCase() == gorionLaunchAtStartupArg;
 }

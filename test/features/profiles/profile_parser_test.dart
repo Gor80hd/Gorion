@@ -213,6 +213,63 @@ void main() {
       expect(parsed.servers.single.displayName, '🇳🇴 Норвегия, Осло');
     });
 
+    test('parseContent tolerates malformed profile headers', () {
+      final parser = ProfileParser();
+      final config = jsonEncode({
+        'outbounds': [
+          {
+            'type': 'vless',
+            'tag': 'nl-edge-1',
+            'server': 'edge-1.example.com',
+            'server_port': 443,
+          },
+        ],
+      });
+
+      final parsed = parser.parseContent(
+        rawContent: config,
+        source: Uri.parse('https://example.com/subscription.json'),
+        headers: const {
+          'profile-title': 'Bad%ZZHeader',
+          'content-disposition': "attachment; filename*=UTF-8''broken%ZZname",
+        },
+      );
+
+      expect(parsed.name, 'Bad%ZZHeader');
+      expect(parsed.servers.single.tag, 'nl-edge-1');
+    });
+
+    test('parseContent falls back to latin1 for non-UTF8 payloads', () {
+      final configBytes = latin1.encode(
+        '{"outbounds":[{"type":"vless","tag":"caf\xe9-server","server":"edge.example.com","server_port":443}]}',
+      );
+      expect(
+        ProfileParser.decodeResponseBodyForTesting(configBytes),
+        contains('café-server'),
+      );
+    });
+
+    test(
+      'parseContent keeps mostly-valid UTF-8 readable when one byte is malformed',
+      () {
+        final validBytes = utf8.encode(
+          '{"outbounds":[{"type":"vless","tag":"Привет-server","server":"edge.example.com","server_port":443}]}',
+        );
+        final corruptedBytes = List<int>.from(validBytes);
+        final corruptIndex = corruptedBytes.indexOf(0xD0);
+        expect(corruptIndex, greaterThanOrEqualTo(0));
+        corruptedBytes[corruptIndex] = 0xFF;
+
+        final decoded = ProfileParser.decodeResponseBodyForTesting(
+          corruptedBytes,
+        );
+
+        expect(decoded, contains('server'));
+        expect(decoded, contains('ривет'));
+        expect(decoded, isNot(contains('Ð')));
+      },
+    );
+
     test(
       'parseContent assigns the same fingerprint to exact duplicate outbounds',
       () {

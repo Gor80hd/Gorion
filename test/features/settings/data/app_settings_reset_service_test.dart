@@ -136,7 +136,15 @@ class _FakeLaunchAtStartupService implements LaunchAtStartupService {
   }
 
   @override
-  Future<bool> setEnabled(bool enabled) async {
+  Future<LaunchAtStartupPriority> getPriority() async {
+    return LaunchAtStartupPriority.standard;
+  }
+
+  @override
+  Future<bool> setEnabled(
+    bool enabled, {
+    LaunchAtStartupPriority priority = LaunchAtStartupPriority.standard,
+  }) async {
     setEnabledCalls.add(enabled);
     if (enabled == false && !allowDisable) {
       return false;

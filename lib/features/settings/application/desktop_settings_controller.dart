@@ -82,6 +82,18 @@ Future<DesktopSettingsState> loadDesktopSettingsBootstrap({
   } on Object {
     launchAtStartupEnabled = false;
   }
+  if (launchAtStartupEnabled) {
+    try {
+      settings = settings.copyWith(
+        launchAtStartupPriority: await effectiveLaunchAtStartupService
+            .getPriority(),
+      );
+    } on Object {
+      settings = settings.copyWith(
+        launchAtStartupPriority: settings.launchAtStartupPriority,
+      );
+    }
+  }
 
   return DesktopSettingsState(
     settings: settings,
@@ -111,7 +123,10 @@ class DesktopSettingsController extends StateNotifier<DesktopSettingsState> {
     var nextSettings = previousState.settings;
     var nextLaunchAtStartupEnabled = previousState.launchAtStartupEnabled;
     try {
-      final updated = await _launchAtStartupService.setEnabled(enabled);
+      final updated = await _launchAtStartupService.setEnabled(
+        enabled,
+        priority: previousState.settings.launchAtStartupPriority,
+      );
       if (!updated) {
         throw StateError('Не удалось обновить автозапуск Windows.');
       }
@@ -142,6 +157,44 @@ class DesktopSettingsController extends StateNotifier<DesktopSettingsState> {
     await _saveSettings(state.settings.copyWith(launchMinimized: nextEnabled));
   }
 
+  Future<void> setLaunchAtStartupPriority(
+    LaunchAtStartupPriority priority,
+  ) async {
+    if (state.busy || state.settings.launchAtStartupPriority == priority) {
+      return;
+    }
+
+    final previousState = state;
+    state = state.copyWith(busy: true, clearErrorMessage: true);
+    try {
+      if (previousState.launchAtStartupEnabled) {
+        final updated = await _launchAtStartupService.setEnabled(
+          true,
+          priority: priority,
+        );
+        if (!updated) {
+          throw StateError(
+            'Не удалось обновить приоритет автозагрузки Windows.',
+          );
+        }
+      }
+
+      final settings = await _repository.save(
+        previousState.settings.copyWith(launchAtStartupPriority: priority),
+      );
+      state = previousState.copyWith(
+        busy: false,
+        settings: settings,
+        clearErrorMessage: true,
+      );
+    } on Object catch (error) {
+      state = previousState.copyWith(
+        busy: false,
+        errorMessage: error.toString(),
+      );
+    }
+  }
+
   Future<void> setKeepRunningInTrayOnClose(bool enabled) async {
     await _saveSettings(
       state.settings.copyWith(keepRunningInTrayOnClose: enabled),
@@ -163,9 +216,20 @@ class DesktopSettingsController extends StateNotifier<DesktopSettingsState> {
       final launchAtStartupEnabledFuture = _launchAtStartupService.isEnabled();
       final settings = await settingsFuture;
       final launchAtStartupEnabled = await launchAtStartupEnabledFuture;
+      var effectiveSettings = settings;
+      if (launchAtStartupEnabled) {
+        try {
+          effectiveSettings = settings.copyWith(
+            launchAtStartupPriority: await _launchAtStartupService
+                .getPriority(),
+          );
+        } on Object {
+          effectiveSettings = settings;
+        }
+      }
       state = state.copyWith(
         busy: false,
-        settings: settings,
+        settings: effectiveSettings,
         launchAtStartupEnabled: launchAtStartupEnabled,
       );
     } on Object catch (error) {

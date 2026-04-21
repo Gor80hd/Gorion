@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
+import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
 import 'package:launch_at_startup/launch_at_startup.dart';
 
 typedef LaunchAtStartupProcessRunner =
@@ -10,7 +11,12 @@ typedef LaunchAtStartupProcessRunner =
 abstract interface class LaunchAtStartupService {
   Future<bool> isEnabled();
 
-  Future<bool> setEnabled(bool enabled);
+  Future<LaunchAtStartupPriority> getPriority();
+
+  Future<bool> setEnabled(
+    bool enabled, {
+    LaunchAtStartupPriority priority = LaunchAtStartupPriority.standard,
+  });
 }
 
 class DesktopLaunchAtStartupService implements LaunchAtStartupService {
@@ -22,6 +28,8 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
     LaunchAtStartupService? startupEntryService,
   }) : _taskName = _buildTaskName(appName),
        _appName = appName,
+       _appPath = appPath,
+       _args = List.unmodifiable(args),
        _hasLegacyStartupEntryMigration = args.isNotEmpty,
        _legacyStartupEntryValue = _buildRegistryValue(appPath, const []),
        _processRunner =
@@ -51,6 +59,8 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
 
   final String _taskName;
   final String _appName;
+  final String _appPath;
+  final List<String> _args;
   final bool _hasLegacyStartupEntryMigration;
   final String _legacyStartupEntryValue;
   final LaunchAtStartupProcessRunner _processRunner;
@@ -58,40 +68,58 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
 
   @override
   Future<bool> isEnabled() async {
+    final scheduledTaskEnabled = await _isScheduledTaskEnabled();
+    if (scheduledTaskEnabled) {
+      return true;
+    }
+
     final startupEntryEnabled = await _startupEntryService.isEnabled();
     if (startupEntryEnabled) {
-      await _deleteScheduledTaskSilently();
       return true;
     }
 
     if (_hasLegacyStartupEntryMigration &&
         await _isLegacyStartupEntryEnabled()) {
-      final migrated = await _enableStartupEntrySilently();
-      if (migrated) {
-        await _deleteScheduledTaskSilently();
-      }
       return true;
     }
 
-    final scheduledTaskEnabled = await _isScheduledTaskEnabled();
-    if (!scheduledTaskEnabled) {
-      return false;
-    }
-
-    final migrated = await _enableStartupEntrySilently();
-    if (migrated) {
-      await _deleteScheduledTaskSilently();
-    }
-    return true;
+    return false;
   }
 
   @override
-  Future<bool> setEnabled(bool enabled) async {
+  Future<LaunchAtStartupPriority> getPriority() async {
+    final scheduledTaskEnabled = await _isScheduledTaskEnabled();
+    if (scheduledTaskEnabled) {
+      return LaunchAtStartupPriority.first;
+    }
+    return LaunchAtStartupPriority.standard;
+  }
+
+  @override
+  Future<bool> setEnabled(
+    bool enabled, {
+    LaunchAtStartupPriority priority = LaunchAtStartupPriority.standard,
+  }) async {
     if (enabled) {
+      if (priority == LaunchAtStartupPriority.first) {
+        final scheduledTaskEnabled = await _createScheduledTask();
+        if (!scheduledTaskEnabled) {
+          return false;
+        }
+
+        final startupEntryDisabled = await _disableStartupEntrySilently();
+        if (!startupEntryDisabled) {
+          await _deleteScheduledTaskSilently();
+          return false;
+        }
+        return true;
+      }
+
       final startupEntryEnabled = await _startupEntryService.setEnabled(true);
       if (!startupEntryEnabled) {
         return false;
       }
+
       await _deleteScheduledTaskSilently();
       return true;
     }
@@ -126,9 +154,20 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
     );
   }
 
-  Future<bool> _enableStartupEntrySilently() async {
+  Future<bool> _createScheduledTask() async {
+    final result = await _runPowerShell(_buildCreateTaskScript());
+    if (result.exitCode == 0) {
+      return true;
+    }
+    _throwPowerShellException(
+      result,
+      'Не удалось включить приоритетный автозапуск Windows.',
+    );
+  }
+
+  Future<bool> _disableStartupEntrySilently() async {
     try {
-      return await _startupEntryService.setEnabled(true);
+      return await _startupEntryService.setEnabled(false);
     } on Object {
       return false;
     }
@@ -193,6 +232,30 @@ try {
     exit 0
   }
   Unregister-ScheduledTask -TaskName ${_toPowerShellLiteral(_taskName)} -Confirm:\$false -ErrorAction Stop
+  exit 0
+} catch {
+  \$message = \$_.Exception.Message
+  if (\$message) {
+    [Console]::Error.WriteLine(\$message)
+  }
+  exit 1
+}
+''';
+  }
+
+  String _buildCreateTaskScript() {
+    final argumentString = _joinWindowsArguments(_args);
+    final actionArgumentClause = argumentString.isEmpty
+        ? ''
+        : ' -Argument ${_toPowerShellLiteral(argumentString)}';
+
+    return '''
+try {
+  \$userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+  \$action = New-ScheduledTaskAction -Execute ${_toPowerShellLiteral(_appPath)}$actionArgumentClause
+  \$trigger = New-ScheduledTaskTrigger -AtLogOn -User \$userId
+  \$principal = New-ScheduledTaskPrincipal -UserId \$userId -LogonType Interactive -RunLevel Highest
+  Register-ScheduledTask -TaskName ${_toPowerShellLiteral(_taskName)} -Action \$action -Trigger \$trigger -Principal \$principal -Description ${_toPowerShellLiteral('Launch $_appName at logon before standard startup entries.')} -Force | Out-Null
   exit 0
 } catch {
   \$message = \$_.Exception.Message
@@ -282,6 +345,21 @@ try {
   static String _toPowerShellLiteral(String value) {
     return "'${value.replaceAll("'", "''")}'";
   }
+
+  static String _joinWindowsArguments(List<String> args) {
+    return args.map(_quoteCommandLineArgument).join(' ').trim();
+  }
+
+  static String _quoteCommandLineArgument(String value) {
+    final escaped = value.replaceAll('"', r'\"');
+    if (escaped.isEmpty) {
+      return '""';
+    }
+    if (escaped.contains(RegExp(r'\s'))) {
+      return '"$escaped"';
+    }
+    return escaped;
+  }
 }
 
 class RunEntryLaunchAtStartupService implements LaunchAtStartupService {
@@ -310,7 +388,15 @@ class RunEntryLaunchAtStartupService implements LaunchAtStartupService {
   }
 
   @override
-  Future<bool> setEnabled(bool enabled) {
+  Future<LaunchAtStartupPriority> getPriority() async {
+    return LaunchAtStartupPriority.standard;
+  }
+
+  @override
+  Future<bool> setEnabled(
+    bool enabled, {
+    LaunchAtStartupPriority priority = LaunchAtStartupPriority.standard,
+  }) {
     return enabled ? _launchAtStartup.enable() : _launchAtStartup.disable();
   }
 }
@@ -324,7 +410,15 @@ class NoopLaunchAtStartupService implements LaunchAtStartupService {
   }
 
   @override
-  Future<bool> setEnabled(bool enabled) async {
+  Future<LaunchAtStartupPriority> getPriority() async {
+    return LaunchAtStartupPriority.standard;
+  }
+
+  @override
+  Future<bool> setEnabled(
+    bool enabled, {
+    LaunchAtStartupPriority priority = LaunchAtStartupPriority.standard,
+  }) async {
     return enabled == false;
   }
 }

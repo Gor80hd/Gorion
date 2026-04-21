@@ -26,6 +26,7 @@ void main() {
       launchMinimized: true,
       keepRunningInTrayOnClose: false,
       autoConnectOnLaunch: true,
+      launchAtStartupPriority: LaunchAtStartupPriority.first,
     );
 
     await repository.save(savedSettings);
@@ -56,6 +57,7 @@ void main() {
       expect(loaded.launchMinimized, isTrue);
       expect(loaded.keepRunningInTrayOnClose, isTrue);
       expect(loaded.autoConnectOnLaunch, isFalse);
+      expect(loaded.launchAtStartupPriority, LaunchAtStartupPriority.standard);
     },
   );
 }

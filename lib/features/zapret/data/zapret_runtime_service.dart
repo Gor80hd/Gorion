@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:gorion_clean/core/process/running_process_lookup.dart';
 import 'package:gorion_clean/core/windows/privileged_helper_client.dart';
 import 'package:gorion_clean/core/windows/privileged_helper_protocol.dart';
 import 'package:gorion_clean/core/logging/gorion_console_log.dart';
@@ -29,13 +31,18 @@ class ZapretRuntimeService {
   ZapretRuntimeService({
     ZapretConfigGenerator? generator,
     WindowsRuntimeCleanupWatchdog? windowsRuntimeCleanupWatchdog,
+    Future<RunningProcessLookup> Function(int pid)? runningProcessLookupReader,
   }) : _generator = generator ?? const ZapretConfigGenerator(),
        _windowsRuntimeCleanupWatchdog =
            windowsRuntimeCleanupWatchdog ??
-           const WindowsRuntimeCleanupWatchdog();
+           const WindowsRuntimeCleanupWatchdog(),
+       _runningProcessLookupReader =
+           runningProcessLookupReader ?? _lookupRunningProcess;
 
   final ZapretConfigGenerator _generator;
   final WindowsRuntimeCleanupWatchdog _windowsRuntimeCleanupWatchdog;
+  final Future<RunningProcessLookup> Function(int pid)
+  _runningProcessLookupReader;
   Process? _process;
   ZapretRuntimeSession? _session;
   final List<String> _logs = <String>[];
@@ -103,6 +110,7 @@ class ZapretRuntimeService {
     final runtimeDir = await _runtimeDirectory();
     await stop();
     await _cleanupOrphanedProcess(runtimeDir);
+    await _throwIfOrphanedProcessMarkerStillPresent(runtimeDir);
     if (!preserveLogs) {
       _logs.clear();
     } else if (_logs.isNotEmpty) {
@@ -180,9 +188,11 @@ class ZapretRuntimeService {
     process.exitCode.then((code) {
       unawaited(_deleteProcessMarker(runtimeDir, expectedPid: process.pid));
       _appendLog('zapret завершился с кодом $code.', isError: code != 0);
-      _process = null;
-      _session = null;
-      onExit(code);
+      if (identical(_process, process)) {
+        _process = null;
+        _session = null;
+        onExit(code);
+      }
     });
 
     return _session!;
@@ -208,8 +218,15 @@ class ZapretRuntimeService {
     try {
       await process.exitCode.timeout(const Duration(seconds: 4));
     } on TimeoutException {
+      _appendLog(
+        'zapret не завершился корректно, выполняется принудительная остановка.',
+        isError: true,
+      );
       process.kill(ProcessSignal.sigkill);
-      await process.exitCode.timeout(const Duration(seconds: 2));
+      await process.exitCode.timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => -1,
+      );
     }
 
     await _deleteProcessMarker(runtimeDir, expectedPid: process.pid);
@@ -227,10 +244,44 @@ class ZapretRuntimeService {
     return ensureGorionRuntimeDirectory(subdirectory: 'zapret2');
   }
 
+  @visibleForTesting
+  Future<void> cleanupOrphanedProcessForTesting(Directory runtimeDir) {
+    return _cleanupOrphanedProcess(runtimeDir);
+  }
+
+  @visibleForTesting
+  Future<void> ensureNoOrphanedProcessConflictForTesting(Directory runtimeDir) {
+    return _throwIfOrphanedProcessMarkerStillPresent(runtimeDir);
+  }
+
   Future<void> _cleanupOrphanedProcess(Directory runtimeDir) async {
     final marker = await _readProcessMarker(runtimeDir);
     if (marker == null) {
       return;
+    }
+
+    final matchStatus = await _inspectOrphanedProcessMarker(marker);
+    switch (matchStatus) {
+      case _OrphanedProcessMatch.matches:
+        break;
+      case _OrphanedProcessMatch.mismatches:
+        _appendLog(
+          'Осиротевший PID ${marker.pid} больше не похож на сохранённый процесс zapret, поэтому marker будет очищен без принудительной остановки.',
+        );
+        await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
+        return;
+      case _OrphanedProcessMatch.missingProcess:
+        _appendLog(
+          'Удаляется устаревший marker процесса zapret PID ${marker.pid}.',
+        );
+        await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
+        return;
+      case _OrphanedProcessMatch.inconclusive:
+        _appendLog(
+          'Не удалось надёжно подтвердить осиротевший процесс zapret PID ${marker.pid}; marker будет сохранён до следующей попытки очистки.',
+          isError: true,
+        );
+        return;
     }
 
     final killed = Process.killPid(marker.pid);
@@ -246,6 +297,19 @@ class ZapretRuntimeService {
     }
 
     await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
+  }
+
+  Future<void> _throwIfOrphanedProcessMarkerStillPresent(
+    Directory runtimeDir,
+  ) async {
+    final marker = await _readProcessMarker(runtimeDir);
+    if (marker == null) {
+      return;
+    }
+
+    throw StateError(
+      'Gorion could not safely verify whether a previous zapret runtime with PID ${marker.pid} is still active. Starting a second runtime is blocked to avoid conflicting Boost sessions. Close the previous app instance or reboot, then try again.',
+    );
   }
 
   Future<void> _writeProcessMarker(
@@ -285,7 +349,15 @@ class ZapretRuntimeService {
         return null;
       }
 
-      return _RuntimeProcessMarker(pid: pid);
+      return _RuntimeProcessMarker(
+        pid: pid,
+        executablePath: decoded['executablePath']?.toString(),
+        workingDirectory: decoded['workingDirectory']?.toString(),
+        arguments: (decoded['arguments'] as List?)
+            ?.map((item) => item.toString())
+            .toList(growable: false),
+        updatedAt: DateTime.tryParse(decoded['updatedAt']?.toString() ?? ''),
+      );
     } catch (_) {
       return null;
     }
@@ -328,6 +400,185 @@ class ZapretRuntimeService {
     return int.tryParse(value?.toString() ?? '');
   }
 
+  Future<_OrphanedProcessMatch> _inspectOrphanedProcessMarker(
+    _RuntimeProcessMarker marker,
+  ) async {
+    final executablePath = marker.executablePath?.trim();
+    if (executablePath == null || executablePath.isEmpty) {
+      return _OrphanedProcessMatch.inconclusive;
+    }
+    final arguments = marker.arguments ?? const <String>[];
+    final hasWorkingDirectorySensitiveArguments =
+        _hasWorkingDirectorySensitiveArguments(arguments);
+
+    final lookup = await _runningProcessLookupReader(marker.pid);
+    if (lookup.isMissing) {
+      return _OrphanedProcessMatch.missingProcess;
+    }
+    if (!lookup.isFound) {
+      return _OrphanedProcessMatch.inconclusive;
+    }
+
+    final expectedExecutable = _normalizeComparablePath(executablePath);
+    final currentExecutable = lookup.executablePath == null
+        ? null
+        : _normalizeComparablePath(lookup.executablePath!);
+    if (currentExecutable != null &&
+        currentExecutable.isNotEmpty &&
+        currentExecutable != expectedExecutable) {
+      return _OrphanedProcessMatch.mismatches;
+    }
+    if ((currentExecutable == null || currentExecutable.isEmpty) &&
+        !lookup.normalizedCommandLine.contains(
+          p.basename(executablePath).toLowerCase(),
+        )) {
+      return _OrphanedProcessMatch.mismatches;
+    }
+
+    final workingDirectory = marker.workingDirectory?.trim();
+    if (workingDirectory != null && workingDirectory.isNotEmpty) {
+      final normalizedWorkingDirectory = _normalizeComparablePath(
+        workingDirectory,
+      );
+      final normalizedExpectedExecutableDirectory = _normalizeComparablePath(
+        p.dirname(executablePath),
+      );
+      final executableDirectory =
+          currentExecutable == null || currentExecutable.isEmpty
+          ? null
+          : _normalizeComparablePath(p.dirname(lookup.executablePath!));
+      if (executableDirectory != null &&
+          executableDirectory != normalizedWorkingDirectory) {
+        return _OrphanedProcessMatch.mismatches;
+      }
+      if (hasWorkingDirectorySensitiveArguments &&
+          (normalizedWorkingDirectory !=
+                  normalizedExpectedExecutableDirectory ||
+              executableDirectory == null)) {
+        return _OrphanedProcessMatch.inconclusive;
+      }
+    } else if (hasWorkingDirectorySensitiveArguments) {
+      return _OrphanedProcessMatch.inconclusive;
+    }
+
+    for (final argument in arguments) {
+      final trimmedArgument = argument.trim();
+      if (trimmedArgument.isEmpty) {
+        continue;
+      }
+      if (!_commandLineContainsArgument(
+        lookup.normalizedCommandLine,
+        trimmedArgument,
+      )) {
+        return _OrphanedProcessMatch.mismatches;
+      }
+    }
+
+    return _OrphanedProcessMatch.matches;
+  }
+
+  static Future<RunningProcessLookup> _lookupRunningProcess(int pid) async {
+    if (pid <= 0) {
+      return const RunningProcessLookup.missing();
+    }
+
+    final script =
+        '''
+\$process = Get-CimInstance Win32_Process -Filter "ProcessId = $pid" -ErrorAction SilentlyContinue
+if (\$null -eq \$process) {
+  exit 3
+}
+[pscustomobject]@{
+  executablePath = [string]\$process.ExecutablePath
+  commandLine = [string]\$process.CommandLine
+} | ConvertTo-Json -Compress
+''';
+    final result = await Process.run('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      script,
+    ]);
+    if (result.exitCode == 3) {
+      return const RunningProcessLookup.missing();
+    }
+    if (result.exitCode != 0) {
+      return const RunningProcessLookup.unavailable();
+    }
+
+    try {
+      final decoded = jsonDecode(result.stdout.toString());
+      final json = decoded is Map
+          ? Map<String, dynamic>.from(decoded.cast<String, dynamic>())
+          : null;
+      if (json == null) {
+        return const RunningProcessLookup.unavailable();
+      }
+      return RunningProcessLookup.found(
+        executablePath: json['executablePath']?.toString(),
+        commandLine: json['commandLine']?.toString() ?? '',
+      );
+    } on Object {
+      return const RunningProcessLookup.unavailable();
+    }
+  }
+
+  String _normalizeComparablePath(String value) {
+    return p.normalize(value).replaceAll('\\', '/').toLowerCase();
+  }
+
+  bool _commandLineContainsArgument(
+    String normalizedCommandLine,
+    String argument,
+  ) {
+    final normalizedArgument = _normalizeComparablePath(
+      argument,
+    ).replaceAll('"', '');
+    if (normalizedArgument.isEmpty) {
+      return true;
+    }
+
+    if (normalizedCommandLine.contains(normalizedArgument)) {
+      return true;
+    }
+
+    return normalizedCommandLine
+        .replaceAll('"', '')
+        .contains(normalizedArgument);
+  }
+
+  bool _hasWorkingDirectorySensitiveArguments(List<String> arguments) {
+    for (final argument in arguments) {
+      final trimmedArgument = argument.trim();
+      if (trimmedArgument.isEmpty) {
+        continue;
+      }
+
+      final value = trimmedArgument.contains('=')
+          ? trimmedArgument.substring(trimmedArgument.indexOf('=') + 1).trim()
+          : trimmedArgument;
+      if (value.isEmpty || value.startsWith('-') || p.isAbsolute(value)) {
+        continue;
+      }
+
+      final normalizedValue = value.replaceAll('"', '').trim().toLowerCase();
+      if (normalizedValue.isEmpty) {
+        continue;
+      }
+      if (normalizedValue.contains('\\') || normalizedValue.contains('/')) {
+        return true;
+      }
+      if (RegExp(
+        r'\.(bin|cmd|bat|txt|lua|dll|exe|conf|json)$',
+      ).hasMatch(normalizedValue)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void _appendCommandTrace({
     required String label,
     required String executablePath,
@@ -352,10 +603,22 @@ class ZapretRuntimeService {
 }
 
 class _RuntimeProcessMarker {
-  const _RuntimeProcessMarker({required this.pid});
+  const _RuntimeProcessMarker({
+    required this.pid,
+    this.executablePath,
+    this.workingDirectory,
+    this.arguments,
+    this.updatedAt,
+  });
 
   final int pid;
+  final String? executablePath;
+  final String? workingDirectory;
+  final List<String>? arguments;
+  final DateTime? updatedAt;
 }
+
+enum _OrphanedProcessMatch { matches, mismatches, missingProcess, inconclusive }
 
 class _PrivilegedHelperZapretRuntimeService extends ZapretRuntimeService {
   _PrivilegedHelperZapretRuntimeService({

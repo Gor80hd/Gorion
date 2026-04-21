@@ -44,4 +44,30 @@ void main() {
       );
     },
   );
+
+  test(
+    'windowsProxyBypassListsMatch ignores order and casing for equivalent lists',
+    () {
+      expect(
+        windowsProxyBypassListsMatch(
+          currentBypassList: 'LOCALHOST;127.*;<local>',
+          managedBypassList: '<local>;localhost;127.*',
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'windowsProxyBypassListsMatch rejects a missing bypass entry',
+    () {
+      expect(
+        windowsProxyBypassListsMatch(
+          currentBypassList: 'localhost;127.*',
+          managedBypassList: '<local>;localhost;127.*',
+        ),
+        isFalse,
+      );
+    },
+  );
 }

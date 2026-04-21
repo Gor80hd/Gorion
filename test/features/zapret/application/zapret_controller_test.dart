@@ -61,7 +61,7 @@ void main() {
     expect(controller.state.stage, ZapretStage.stopped);
     expect(
       controller.state.errorMessage,
-      'Сначала укажите каталог установки zapret.',
+      'Сначала укажите каталог установки Gorion Boost.',
     );
   });
 
@@ -143,7 +143,7 @@ void main() {
 
     expect(elevationService.relaunchCallCount, 0);
     expect(runtimeService.startCalls, 0);
-    expect(controller.state.statusMessage, 'Запуск zapret отменён.');
+    expect(controller.state.statusMessage, 'Запуск Gorion Boost отменён.');
   });
 
   test('shows a friendly message when winws requires elevation', () async {
@@ -195,7 +195,7 @@ void main() {
     expect(controller.state.stage, ZapretStage.failed);
     expect(
       controller.state.errorMessage,
-      'zapret отклонил параметры запуска (код 87 / ERROR_INVALID_PARAMETER). Значит, winws не принял один из аргументов текущего конфига.',
+      'Gorion Boost отклонил параметры запуска (код 87 / ERROR_INVALID_PARAMETER). Значит, winws не принял один из аргументов текущего конфига.',
     );
   });
 
@@ -219,7 +219,7 @@ void main() {
     expect(controller.state.stage, ZapretStage.failed);
     expect(
       controller.state.errorMessage,
-      'zapret не смог инициализироваться (код -1073741502 / 0xC0000142). Обычно это сбой инициализации DLL или процесса; сначала попробуйте запустить Gorion от имени администратора.',
+      'Gorion Boost не смог инициализироваться (код -1073741502 / 0xC0000142). Обычно это сбой инициализации DLL или процесса; сначала попробуйте запустить Gorion от имени администратора.',
     );
   });
 

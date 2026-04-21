@@ -120,6 +120,23 @@ Future<File> prepareSingboxBinary(Directory runtimeDir) async {
   return binaryFile;
 }
 
+class ReservedLoopbackPort {
+  const ReservedLoopbackPort._(this.socket);
+
+  final ServerSocket socket;
+
+  int get port => socket.port;
+
+  Future<void> close() {
+    return socket.close();
+  }
+}
+
+Future<ReservedLoopbackPort> reserveLoopbackPort() async {
+  final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+  return ReservedLoopbackPort._(socket);
+}
+
 Future<int> findFreePort() async {
   final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
   final port = socket.port;

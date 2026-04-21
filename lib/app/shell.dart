@@ -19,6 +19,7 @@ import 'package:gorion_clean/features/settings/widget/settings_page.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
 import 'package:gorion_clean/features/zapret/widget/zapret_page.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -49,6 +50,7 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   bool _startupAutoConnectHandled = false;
   bool _startupZapretHandled = false;
   bool _windowDestroyInProgress = false;
+  String _appVersionLabel = '...';
 
   bool get _isDesktop =>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
@@ -83,6 +85,7 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     if (_usesWindowsTray) {
       unawaited(_initializeWindowsTray());
     }
+    unawaited(_loadAppVersionLabel());
   }
 
   @override
@@ -168,6 +171,25 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     }
   }
 
+  Future<void> _loadAppVersionLabel() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final version = packageInfo.version.trim();
+      final buildNumber = packageInfo.buildNumber.trim();
+      final nextLabel = switch ((version.isEmpty, buildNumber.isEmpty)) {
+        (true, _) => null,
+        (false, true) => version,
+        (false, false) => '$version+$buildNumber',
+      };
+      if (!mounted || nextLabel == null || nextLabel == _appVersionLabel) {
+        return;
+      }
+      setState(() => _appVersionLabel = nextLabel);
+    } on Object {
+      // Keep the title bar resilient if package metadata is unavailable.
+    }
+  }
+
   Future<void> _handleDashboardStateChanged(DashboardState state) async {
     await _syncTrayState(state: state);
     await _maybeAutoConnectOnStartup(state);
@@ -191,13 +213,17 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     final launchRequest = ref.read(appLaunchRequestProvider);
     if (launchRequest.pendingElevatedAction ==
         PendingElevatedLaunchAction.connectTun) {
-      _startupAutoConnectHandled = true;
-      if (state.activeProfile == null ||
-          state.busy ||
-          state.connectionStage != ConnectionStage.disconnected) {
+      if (state.activeProfile == null) {
+        if (!state.busy) {
+          _startupAutoConnectHandled = true;
+        }
+        return;
+      }
+      if (state.busy || state.connectionStage != ConnectionStage.disconnected) {
         return;
       }
 
+      _startupAutoConnectHandled = true;
       final controller = ref.read(dashboardControllerProvider.notifier);
       if (state.runtimeMode != RuntimeMode.tun) {
         await controller.setRuntimeMode(RuntimeMode.tun);
@@ -206,15 +232,22 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       return;
     }
 
-    _startupAutoConnectHandled = true;
     final desktopSettingsState = ref.read(desktopSettingsControllerProvider);
-    if (!desktopSettingsState.settings.autoConnectOnLaunch ||
-        state.activeProfile == null ||
-        state.busy ||
-        state.connectionStage != ConnectionStage.disconnected) {
+    if (!desktopSettingsState.settings.autoConnectOnLaunch) {
+      _startupAutoConnectHandled = true;
+      return;
+    }
+    if (state.activeProfile == null) {
+      if (!state.busy) {
+        _startupAutoConnectHandled = true;
+      }
+      return;
+    }
+    if (state.busy || state.connectionStage != ConnectionStage.disconnected) {
       return;
     }
 
+    _startupAutoConnectHandled = true;
     await ref.read(dashboardControllerProvider.notifier).connect();
   }
 
@@ -265,15 +298,17 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       return;
     }
 
-    _startupZapretHandled = true;
     final controller = ref.read(zapretControllerProvider.notifier);
     if (pendingZapretTest) {
+      _startupZapretHandled = true;
       await controller.runHttpConfigTests();
       return;
     }
 
+    _startupZapretHandled = true;
     if (launchRequest.launchedAtStartup &&
         !await _prepareZapretAutoStartAfterWindowsLaunch(controller)) {
+      _startupZapretHandled = false;
       return;
     }
 
@@ -523,6 +558,7 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
                 topInset: topInset,
                 leftInset: leftInset,
                 rightInset: rightInset,
+                versionLabel: _appVersionLabel,
               ),
             ),
             Positioned(
@@ -614,6 +650,7 @@ class _TitleBar extends StatelessWidget {
     required this.topInset,
     required this.leftInset,
     required this.rightInset,
+    required this.versionLabel,
   });
 
   static const double _height = _titleBarHeight;
@@ -622,6 +659,7 @@ class _TitleBar extends StatelessWidget {
   final double topInset;
   final double leftInset;
   final double rightInset;
+  final String versionLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -642,7 +680,7 @@ class _TitleBar extends StatelessWidget {
                   ),
                   child: Align(
                     alignment: Alignment.topLeft,
-                    child: _TitleContent(),
+                    child: _TitleContent(versionLabel: versionLabel),
                   ),
                 ),
               ),
@@ -656,7 +694,7 @@ class _TitleBar extends StatelessWidget {
               ),
               child: Align(
                 alignment: Alignment.topLeft,
-                child: _TitleContent(),
+                child: _TitleContent(versionLabel: versionLabel),
               ),
             ),
           if (isDesktop)
@@ -672,7 +710,9 @@ class _TitleBar extends StatelessWidget {
 }
 
 class _TitleContent extends StatelessWidget {
-  const _TitleContent();
+  const _TitleContent({required this.versionLabel});
+
+  final String versionLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -715,7 +755,7 @@ class _TitleContent extends StatelessWidget {
             strokeOpacity: theme.brightness == Brightness.dark ? 0.34 : 0.26,
             strokeWidth: 0.9,
             child: Text(
-              '1.2.1 beta',
+              versionLabel,
               style: TextStyle(
                 fontFamily: 'IBMPlexSans',
                 fontSize: 10,

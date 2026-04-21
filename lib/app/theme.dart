@@ -141,8 +141,10 @@ extension GorionThemeDataX on ThemeData {
 
   bool get isMonochromeLightGorion {
     return brightness == Brightness.light &&
-        colorScheme.primary.value == gorionMonochromeLightAccent.value &&
-        colorScheme.secondary.value == gorionMonochromeLightSecondary.value;
+        colorScheme.primary.toARGB32() ==
+            gorionMonochromeLightAccent.toARGB32() &&
+        colorScheme.secondary.toARGB32() ==
+            gorionMonochromeLightSecondary.toARGB32();
   }
 
   Color get brandAccent {

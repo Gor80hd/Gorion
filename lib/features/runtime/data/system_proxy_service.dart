@@ -41,6 +41,18 @@ String buildManagedWindowsSystemProxyOverride() {
   return managedWindowsSystemProxyOverrideEntries.join(';');
 }
 
+bool windowsProxyBypassListsMatch({
+  required String? currentBypassList,
+  required String? managedBypassList,
+}) {
+  final currentEntries = _parseWindowsProxyBypassEntries(currentBypassList);
+  final managedEntries = _parseWindowsProxyBypassEntries(managedBypassList);
+  if (currentEntries.length != managedEntries.length) {
+    return false;
+  }
+  return currentEntries.containsAll(managedEntries);
+}
+
 String buildManagedWindowsSystemProxyServer(int mixedPort) {
   return '127.0.0.1:$mixedPort';
 }
@@ -78,6 +90,23 @@ Set<String> _parseWindowsProxyServerEndpointKeys(String? proxyServer) {
     }
   }
   return endpoints;
+}
+
+Set<String> _parseWindowsProxyBypassEntries(String? bypassList) {
+  final normalized = _normalizeWindowsProxyText(bypassList);
+  if (normalized == null) {
+    return const <String>{};
+  }
+
+  final entries = <String>{};
+  for (final entry in normalized.split(';')) {
+    final candidate = _normalizeWindowsProxyText(entry)?.toLowerCase();
+    if (candidate == null) {
+      continue;
+    }
+    entries.add(candidate);
+  }
+  return entries;
 }
 
 String? _tryParseWindowsProxyEndpointKey(String value) {
@@ -143,14 +172,17 @@ class SystemProxyService {
       return;
     }
 
+    var shouldDeleteMarker = false;
     try {
       final current = await _readWindowsSettings();
       if (current.isManagedBy(marker.managedSettings)) {
         await _applyWindowsSettings(marker.previousSettings);
+        shouldDeleteMarker = true;
         onLog(
           'Restored Windows system proxy settings left behind by a previous app session.',
         );
       } else {
+        shouldDeleteMarker = true;
         onLog(
           'Windows system proxy settings changed outside Gorion; keeping the current values and clearing the stale marker.',
         );
@@ -161,7 +193,9 @@ class SystemProxyService {
         isError: true,
       );
     } finally {
-      await _deleteMarker(runtimeDir);
+      if (shouldDeleteMarker) {
+        await _deleteMarker(runtimeDir);
+      }
     }
   }
 
@@ -219,13 +253,16 @@ class SystemProxyService {
       return;
     }
 
+    var shouldDeleteMarker = false;
     try {
       if (!Platform.isWindows) {
+        shouldDeleteMarker = true;
         return;
       }
 
       final current = await _readWindowsSettings();
       if (!current.isManagedBy(marker.managedSettings)) {
+        shouldDeleteMarker = true;
         onLog(
           'Windows system proxy settings changed outside Gorion; skipping restore to avoid overwriting newer values.',
         );
@@ -233,9 +270,12 @@ class SystemProxyService {
       }
 
       await _applyWindowsSettings(marker.previousSettings);
+      shouldDeleteMarker = true;
       onLog('Windows system proxy restored to its previous state.');
     } finally {
-      await _deleteMarker(runtimeDir);
+      if (shouldDeleteMarker) {
+        await _deleteMarker(runtimeDir);
+      }
     }
   }
 
@@ -446,7 +486,10 @@ class _WindowsProxySettings {
   bool matches(_WindowsProxySettings other) {
     return proxyEnable == other.proxyEnable &&
         _normalize(proxyServer) == _normalize(other.proxyServer) &&
-        _normalize(proxyOverride) == _normalize(other.proxyOverride) &&
+        windowsProxyBypassListsMatch(
+          currentBypassList: proxyOverride,
+          managedBypassList: other.proxyOverride,
+        ) &&
         _normalize(autoConfigUrl) == _normalize(other.autoConfigUrl);
   }
 
@@ -455,6 +498,13 @@ class _WindowsProxySettings {
       return true;
     }
     if (proxyEnable != 1 || managed.proxyEnable != 1) {
+      return false;
+    }
+    if (!windowsProxyBypassListsMatch(
+          currentBypassList: proxyOverride,
+          managedBypassList: managed.proxyOverride,
+        ) ||
+        _normalize(autoConfigUrl) != _normalize(managed.autoConfigUrl)) {
       return false;
     }
     return windowsProxyServerPointsToManagedEndpoint(

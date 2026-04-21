@@ -11,7 +11,7 @@
 #endif
 
 #ifndef AppVersion
-  #define AppVersion "1.2.1"
+  #define AppVersion "1.3.0"
 #endif
 
 #ifndef PrivilegedHelperTaskName
@@ -80,11 +80,10 @@ begin
     '$appPath = ''' + ExpandConstant('{app}\{#AppExeName}') + '''' + #13#10 +
     '$userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name' + #13#10 +
     '$action = New-ScheduledTaskAction -Execute $appPath -Argument ''{#PrivilegedHelperArg}''' + #13#10 +
-    '$trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId' + #13#10 +
+    '$trigger = New-ScheduledTaskTrigger -Once -At ([datetime]''2099-01-01T00:00:00'')' + #13#10 +
     '$principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Highest' + #13#10 +
     'Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null' + #13#10 +
-    'Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null' + #13#10 +
-    'Start-ScheduledTask -TaskName $taskName | Out-Null';
+    'Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null';
 end;
 
 function BuildPrivilegedHelperRemoveScript(): String;

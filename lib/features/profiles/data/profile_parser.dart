@@ -99,11 +99,29 @@ class ProfileParser {
   }
 
   static String _decodeResponseBody(List<int> bytes) {
-    final utf8Text = utf8.decode(bytes, allowMalformed: true).trim();
-    if (utf8Text.isNotEmpty) {
+    try {
+      return utf8.decode(bytes).trim();
+    } on FormatException {
+      final utf8Text = utf8.decode(bytes, allowMalformed: true).trim();
+      final latin1Text = latin1.decode(bytes).trim();
+      if (utf8Text.isEmpty) {
+        return latin1Text;
+      }
+      if (latin1Text.isEmpty) {
+        return utf8Text;
+      }
+      if (_utf8MojibakeScore(latin1Text) > 0) {
+        return utf8Text;
+      }
+      if (_replacementCharacterCount(utf8Text) > 0) {
+        return latin1Text;
+      }
       return utf8Text;
     }
-    return latin1.decode(bytes).trim();
+  }
+
+  static String decodeResponseBodyForTesting(List<int> bytes) {
+    return _decodeResponseBody(bytes);
   }
 
   static Map<String, dynamic>? _decodeSubscriptionConfig(String rawContent) {
@@ -899,7 +917,7 @@ class ProfileParser {
       return contentDispositionName;
     }
 
-    final fragment = Uri.decodeComponent(source.fragment).trim();
+    final fragment = _safeUriDecodeComponent(source.fragment).trim();
     if (fragment.isNotEmpty) {
       return fragment;
     }
@@ -920,7 +938,7 @@ class ProfileParser {
       return '';
     }
 
-    final uriDecoded = Uri.decodeFull(rawValue).trim();
+    final uriDecoded = _safeUriDecodeFull(rawValue).trim();
     final base64Payload = uriDecoded.startsWith('base64:')
         ? uriDecoded.substring('base64:'.length).trim()
         : uriDecoded;
@@ -941,7 +959,7 @@ class ProfileParser {
       caseSensitive: false,
     ).firstMatch(rawValue);
     if (utf8Match != null) {
-      return Uri.decodeComponent(utf8Match.group(1) ?? '').trim();
+      return _safeUriDecodeComponent(utf8Match.group(1) ?? '').trim();
     }
 
     final plainMatch = RegExp(
@@ -953,6 +971,47 @@ class ProfileParser {
     }
 
     return '';
+  }
+
+  static String _safeUriDecodeFull(String value) {
+    try {
+      return Uri.decodeFull(value);
+    } on Object {
+      return value;
+    }
+  }
+
+  static String _safeUriDecodeComponent(String value) {
+    try {
+      return Uri.decodeComponent(value);
+    } on Object {
+      return value;
+    }
+  }
+
+  static int _replacementCharacterCount(String value) {
+    var count = 0;
+    for (final rune in value.runes) {
+      if (rune == 0xFFFD) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  static int _utf8MojibakeScore(String value) {
+    var count = 0;
+    for (final rune in value.runes) {
+      switch (rune) {
+        case 0x00C2: // Â
+        case 0x00C3: // Ã
+        case 0x00D0: // Ð
+        case 0x00D1: // Ñ
+        case 0x00F0: // ð
+          count += 1;
+      }
+    }
+    return count;
   }
 
   static SubscriptionInfo? _parseSubscriptionInfo(Map<String, String> headers) {

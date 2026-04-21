@@ -27,6 +27,7 @@ class FlutterWindow : public Win32Window {
   // The project to run.
   flutter::DartProject project_;
   bool show_on_first_frame_ = true;
+  bool session_end_cleanup_attempted_ = false;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;

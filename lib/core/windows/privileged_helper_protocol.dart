@@ -10,9 +10,14 @@ const gorionPrivilegedHelperTaskName = 'Gorion Privileged Helper';
 const gorionPrivilegedHelperProvisionMarkerFileName =
     'gorion_privileged_helper.installed';
 const gorionPrivilegedHelperStateFileName = 'gorion-privileged-helper.json';
+const gorionPrivilegedHelperBootstrapFileName =
+    'gorion-privileged-helper.bootstrap.json';
+const gorionPrivilegedHelperStartupLockFileName =
+    'gorion-privileged-helper.startup.lock';
 const gorionPrivilegedHelperLoopbackHost = '127.0.0.1';
 const gorionPrivilegedHelperLoopbackPort = 47653;
 const gorionPrivilegedHelperAuthHeader = 'x-gorion-helper-token';
+const gorionPrivilegedHelperBootstrapMaxAge = Duration(seconds: 30);
 
 bool isPrivilegedHelperLaunch(List<String> args) {
   return args.any(
@@ -28,6 +33,18 @@ File privilegedHelperProvisionMarkerForExecutable(String executablePath) {
       gorionPrivilegedHelperProvisionMarkerFileName,
     ),
   );
+}
+
+File privilegedHelperStateFileForRuntimeDir(Directory runtimeDir) {
+  return File(p.join(runtimeDir.path, gorionPrivilegedHelperStateFileName));
+}
+
+File privilegedHelperBootstrapFileForRuntimeDir(Directory runtimeDir) {
+  return File(p.join(runtimeDir.path, gorionPrivilegedHelperBootstrapFileName));
+}
+
+File privilegedHelperStartupLockFileForRuntimeDir(Directory runtimeDir) {
+  return File(p.join(runtimeDir.path, gorionPrivilegedHelperStartupLockFileName));
 }
 
 String? normalizedJsonString(dynamic value) {
@@ -57,16 +74,20 @@ List<String> jsonStringList(dynamic value) {
 
 class PrivilegedHelperConnectionInfo {
   const PrivilegedHelperConnectionInfo({
-    required this.token,
+    this.token,
     this.host = gorionPrivilegedHelperLoopbackHost,
     this.port = gorionPrivilegedHelperLoopbackPort,
     this.pid,
+    this.launchId,
+    this.lastError,
   });
 
-  final String token;
+  final String? token;
   final String host;
   final int port;
   final int? pid;
+  final String? launchId;
+  final String? lastError;
 
   String get baseUrl => 'http://$host:$port';
 
@@ -75,29 +96,77 @@ class PrivilegedHelperConnectionInfo {
     String? host,
     int? port,
     int? pid,
+    String? launchId,
+    String? lastError,
     bool clearPid = false,
+    bool clearLastError = false,
   }) {
     return PrivilegedHelperConnectionInfo(
       token: token ?? this.token,
       host: host ?? this.host,
       port: port ?? this.port,
       pid: clearPid ? null : pid ?? this.pid,
+      launchId: launchId ?? this.launchId,
+      lastError: clearLastError ? null : lastError ?? this.lastError,
     );
   }
 
   Map<String, dynamic> toJson() {
-    return {'token': token, 'host': host, 'port': port, 'pid': pid};
+    return {
+      'token': token,
+      'host': host,
+      'port': port,
+      'pid': pid,
+      'launchId': launchId,
+      'lastError': lastError,
+    };
   }
 
   factory PrivilegedHelperConnectionInfo.fromJson(Map<String, dynamic> json) {
     return PrivilegedHelperConnectionInfo(
-      token: normalizedJsonString(json['token']) ?? '',
+      token: normalizedJsonString(json['token']),
       host:
           normalizedJsonString(json['host']) ??
           gorionPrivilegedHelperLoopbackHost,
       port:
           (json['port'] as num?)?.toInt() ?? gorionPrivilegedHelperLoopbackPort,
       pid: (json['pid'] as num?)?.toInt(),
+      launchId: normalizedJsonString(json['launchId']),
+      lastError: normalizedJsonString(json['lastError']),
+    );
+  }
+}
+
+class PrivilegedHelperBootstrapRequest {
+  const PrivilegedHelperBootstrapRequest({
+    required this.token,
+    required this.launchId,
+    required this.createdAt,
+    this.clientPid,
+  });
+
+  final String token;
+  final String launchId;
+  final DateTime createdAt;
+  final int? clientPid;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'token': token,
+      'launchId': launchId,
+      'createdAt': createdAt.toIso8601String(),
+      'clientPid': clientPid,
+    };
+  }
+
+  factory PrivilegedHelperBootstrapRequest.fromJson(Map<String, dynamic> json) {
+    return PrivilegedHelperBootstrapRequest(
+      token: normalizedJsonString(json['token']) ?? '',
+      launchId: normalizedJsonString(json['launchId']) ?? '',
+      createdAt:
+          DateTime.tryParse(normalizedJsonString(json['createdAt']) ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+      clientPid: (json['clientPid'] as num?)?.toInt(),
     );
   }
 }

@@ -567,28 +567,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
     return 'Улучшай связь и загрузку видео без смены сети: выбирай конфиг и управляй Boost в этом разделе.';
   }
 
-  String _configHint(ZapretState state) {
-    if (state.availableConfigs.isEmpty) {
-      return 'Открой папку профилей, добавь свой .conf и нажми обновить конфиги.';
-    }
-    if (state.stage == ZapretStage.running) {
-      return 'Смену конфига можно сохранить сейчас. Новый конфиг применится после следующего включения.';
-    }
-    return 'Здесь выбирается активный конфиг. После обновления списка можно сразу переключиться на свой вариант.';
-  }
-
-  String _profilesDirectoryHint(ZapretState state) {
-    if (!state.settings.hasInstallDirectory) {
-      return 'Папка профилей будет создана автоматически при первом открытии.';
-    }
-
-    final separator = Platform.pathSeparator;
-    final profilesPath =
-        '${state.settings.normalizedInstallDirectory}$separator'
-        'profiles';
-    return 'Папка профилей: ${_middleEllipsis(profilesPath, 72)}';
-  }
-
   String _httpTestProgressLabel(ZapretState state) {
     final current = state.configTestCurrentConfigLabel;
     final progress = '${state.configTestCompleted}/${state.configTestTotal}';
@@ -1588,16 +1566,4 @@ String _probeResultPillLabel(ZapretProbeResult probe) {
   final status = probe.success ? 'ok' : 'fail';
   final latency = probe.latencyMs == null ? '' : ' • ${probe.latencyMs} ms';
   return '${_probeShortLabel(probe.target.label)}: $status$latency';
-}
-
-String _middleEllipsis(String value, int maxLength) {
-  final trimmed = value.trim();
-  if (trimmed.length <= maxLength || maxLength < 9) {
-    return trimmed;
-  }
-
-  final available = maxLength - 3;
-  final prefixLength = available ~/ 2;
-  final suffixLength = available - prefixLength;
-  return '${trimmed.substring(0, prefixLength)}...${trimmed.substring(trimmed.length - suffixLength)}';
 }

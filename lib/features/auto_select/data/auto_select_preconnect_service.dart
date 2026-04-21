@@ -628,7 +628,7 @@ class AutoSelectPreconnectService {
 }
 
 class _DetachedAutoSelectPreconnectProbe {
-  static const _probeTimeout = Duration(seconds: 10);
+  static const _maxStartupAttempts = 3;
   static const _startupTimeout = Duration(seconds: 6);
   static const _httpProbeTimeout = Duration(seconds: 2);
   static const _throughputTimeout = Duration(seconds: 2);
@@ -663,170 +663,218 @@ class _DetachedAutoSelectPreconnectProbe {
       subdirectory: p.join('preconnect', const Uuid().v4()),
     );
     Process? process;
+    ReservedLoopbackPort? mixedReservation;
     StreamSubscription<String>? stdoutSubscription;
     StreamSubscription<String>? stderrSubscription;
     int? startupExitCode;
 
+    Future<void> cleanupAttempt() async {
+      if (mixedReservation != null) {
+        await mixedReservation!.close();
+        mixedReservation = null;
+      }
+
+      await stdoutSubscription?.cancel();
+      await stderrSubscription?.cancel();
+      stdoutSubscription = null;
+      stderrSubscription = null;
+
+      final activeProcess = process;
+      process = null;
+      startupExitCode = null;
+      if (activeProcess == null) {
+        return;
+      }
+
+      activeProcess.kill();
+      try {
+        await activeProcess.exitCode.timeout(const Duration(seconds: 4));
+      } on TimeoutException {
+        activeProcess.kill(ProcessSignal.sigkill);
+        await activeProcess.exitCode.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => -1,
+        );
+      }
+    }
+
     try {
       final binaryFile = await prepareSingboxBinary(runtimeDir);
-      final mixedPort = await findFreePort();
-      final configJson = buildMinimalProbeConfig(
-        outbound: outbound,
-        mixedPort: mixedPort,
-      );
-
       final configFile = File(
         p.join(runtimeDir.path, 'preconnect-config.json'),
       );
-      await configFile.writeAsString(configJson);
 
-      process = await Process.start(
-        binaryFile.path,
-        ['run', '-c', configFile.path],
-        workingDirectory: runtimeDir.path,
-        mode: ProcessStartMode.normal,
-      );
-      stdoutSubscription = process.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((_) {});
-      stderrSubscription = process.stderr
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((_) {});
-      process.exitCode.then((code) {
-        startupExitCode = code;
-      });
-
-      return await (() async {
-        String? exitOrAbortReason() {
-          final externalAbort = abortReason?.call();
-          if (externalAbort != null) {
-            return externalAbort;
-          }
-          final exitCode = startupExitCode;
-          if (exitCode == null) {
-            return null;
-          }
-          return 'Detached pre-connect sing-box probe exited early with code $exitCode.';
-        }
-
-        // Wait for the mixed port to accept connections instead of the Clash
-        // API (the minimal config has no Clash API).
-        final portReady = await waitForLocalPortReady(
-          mixedPort,
-          timeout: _startupTimeout,
-          abortReason: exitOrAbortReason,
+      for (var attempt = 1; attempt <= _maxStartupAttempts; attempt += 1) {
+        final failureResult = AutoSelectPreconnectProbeResult(
+          serverTag: candidate.tag,
+          urlTestDelay: null,
+          domainProbeOk: false,
+          ipProbeOk: false,
+          throughputBytesPerSecond: 0,
         );
-        if (!portReady) {
-          return AutoSelectPreconnectProbeResult(
-            serverTag: candidate.tag,
-            urlTestDelay: null,
-            domainProbeOk: false,
-            ipProbeOk: false,
-            throughputBytesPerSecond: 0,
+        try {
+          mixedReservation = await reserveLoopbackPort();
+          final mixedPort = mixedReservation!.port;
+          final configJson = buildMinimalProbeConfig(
+            outbound: outbound,
+            mixedPort: mixedPort,
           );
-        }
+          await configFile.writeAsString(configJson);
 
-        final domainProbeTargets = [
-          for (final candidateUrl in resolveAutoSelectDomainProbeUrls(
-            settings.domainProbeUrl,
-            rotationKey: '$profileId::${candidate.tag}::preconnect::domain',
-          ))
-            Uri.parse(candidateUrl),
-        ];
-        final ipProbeTargets = [
-          for (final candidateUrl in resolveAutoSelectIpProbeUrls(
-            settings.ipProbeUrl,
-            rotationKey: '$profileId::${candidate.tag}::preconnect::ip',
-          ))
-            Uri.parse(candidateUrl),
-        ];
-        final throughputProbeTargets = [
-          for (final candidateUrl in resolveAutoSelectThroughputProbeUrls(
-            defaultAutoSelectThroughputProbeUrl,
-            rotationKey: '$profileId::${candidate.tag}::preconnect::throughput',
-          ))
-            Uri.parse(candidateUrl),
-        ];
+          await mixedReservation!.close();
+          mixedReservation = null;
+          final startedProcess = await Process.start(
+            binaryFile.path,
+            ['run', '-c', configFile.path],
+            workingDirectory: runtimeDir.path,
+            mode: ProcessStartMode.normal,
+          );
+          process = startedProcess;
+          stdoutSubscription = startedProcess.stdout
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())
+              .listen((_) {});
+          stderrSubscription = startedProcess.stderr
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())
+              .listen((_) {});
+          startedProcess.exitCode.then((code) {
+            if (identical(process, startedProcess)) {
+              startupExitCode = code;
+            }
+          });
 
-        _throwIfPreconnectAborted(abortReason);
+          String? exitOrAbortReason() {
+            final externalAbort = abortReason?.call();
+            if (externalAbort != null) {
+              return externalAbort;
+            }
+            final exitCode = startupExitCode;
+            if (exitCode == null) {
+              return null;
+            }
+            return 'Detached pre-connect sing-box probe exited early with code $exitCode.';
+          }
 
-        late final bool domainProbeOk;
-        late final bool ipProbeOk;
-        if (settings.checkIp) {
-          final probeResults = await Future.wait<bool>([
-            probeHttpViaLocalProxyTargets(
+          // Wait for the mixed port to accept connections instead of the Clash
+          // API (the minimal config has no Clash API).
+          final portReady = await waitForLocalPortReady(
+            mixedPort,
+            timeout: _startupTimeout,
+            abortReason: exitOrAbortReason,
+          );
+          if (!portReady) {
+            _throwIfPreconnectAborted(abortReason);
+            if (attempt < _maxStartupAttempts) {
+              await cleanupAttempt();
+              continue;
+            }
+            return failureResult;
+          }
+
+          final domainProbeTargets = [
+            for (final candidateUrl in resolveAutoSelectDomainProbeUrls(
+              settings.domainProbeUrl,
+              rotationKey: '$profileId::${candidate.tag}::preconnect::domain',
+            ))
+              Uri.parse(candidateUrl),
+          ];
+          final ipProbeTargets = [
+            for (final candidateUrl in resolveAutoSelectIpProbeUrls(
+              settings.ipProbeUrl,
+              rotationKey: '$profileId::${candidate.tag}::preconnect::ip',
+            ))
+              Uri.parse(candidateUrl),
+          ];
+          final throughputProbeTargets = [
+            for (final candidateUrl in resolveAutoSelectThroughputProbeUrls(
+              defaultAutoSelectThroughputProbeUrl,
+              rotationKey:
+                  '$profileId::${candidate.tag}::preconnect::throughput',
+            ))
+              Uri.parse(candidateUrl),
+          ];
+
+          _throwIfPreconnectAborted(abortReason);
+
+          late final bool domainProbeOk;
+          late final bool ipProbeOk;
+          if (settings.checkIp) {
+            final probeResults = await Future.wait<bool>([
+              probeHttpViaLocalProxyTargets(
+                mixedPort: mixedPort,
+                urls: domainProbeTargets,
+                timeout: _httpProbeTimeout,
+                abortReason: abortReason,
+              ),
+              probeHttpViaLocalProxyTargets(
+                mixedPort: mixedPort,
+                urls: ipProbeTargets,
+                timeout: _httpProbeTimeout,
+                abortReason: abortReason,
+              ),
+            ]);
+            domainProbeOk = probeResults[0];
+            ipProbeOk = probeResults[1];
+          } else {
+            domainProbeOk = await probeHttpViaLocalProxyTargets(
               mixedPort: mixedPort,
               urls: domainProbeTargets,
               timeout: _httpProbeTimeout,
               abortReason: abortReason,
-            ),
-            probeHttpViaLocalProxyTargets(
-              mixedPort: mixedPort,
-              urls: ipProbeTargets,
-              timeout: _httpProbeTimeout,
-              abortReason: abortReason,
-            ),
-          ]);
-          domainProbeOk = probeResults[0];
-          ipProbeOk = probeResults[1];
-        } else {
-          domainProbeOk = await probeHttpViaLocalProxyTargets(
-            mixedPort: mixedPort,
-            urls: domainProbeTargets,
-            timeout: _httpProbeTimeout,
-            abortReason: abortReason,
-          );
-          ipProbeOk = true;
-        }
+            );
+            ipProbeOk = true;
+          }
 
-        final hasConnectivitySignal =
-            domainProbeOk || (settings.checkIp && ipProbeOk);
-        if (!hasConnectivitySignal) {
+          final hasConnectivitySignal =
+              domainProbeOk || (settings.checkIp && ipProbeOk);
+          if (!hasConnectivitySignal) {
+            return AutoSelectPreconnectProbeResult(
+              serverTag: candidate.tag,
+              urlTestDelay: null,
+              domainProbeOk: domainProbeOk,
+              ipProbeOk: ipProbeOk,
+              throughputBytesPerSecond: 0,
+            );
+          }
+
+          final throughputBytesPerSecond =
+              await measureDownloadThroughputViaLocalProxyTargets(
+                mixedPort: mixedPort,
+                urls: throughputProbeTargets,
+                timeout: _throughputTimeout,
+                abortReason: abortReason,
+              );
+
+          // urlTestDelay is not available from a minimal config (no Clash API /
+          // URLtest group).  The preconnect ranking falls back to throughput when
+          // delays are absent, which is equivalent to Gorion's behaviour.
           return AutoSelectPreconnectProbeResult(
             serverTag: candidate.tag,
             urlTestDelay: null,
             domainProbeOk: domainProbeOk,
             ipProbeOk: ipProbeOk,
-            throughputBytesPerSecond: 0,
+            throughputBytesPerSecond: throughputBytesPerSecond,
           );
-        }
-
-        final throughputBytesPerSecond =
-            await measureDownloadThroughputViaLocalProxyTargets(
-              mixedPort: mixedPort,
-              urls: throughputProbeTargets,
-              timeout: _throughputTimeout,
-              abortReason: abortReason,
-            );
-
-        // urlTestDelay is not available from a minimal config (no Clash API /
-        // URLtest group).  The preconnect ranking falls back to throughput when
-        // delays are absent, which is equivalent to Gorion's behaviour.
-        return AutoSelectPreconnectProbeResult(
-          serverTag: candidate.tag,
-          urlTestDelay: null,
-          domainProbeOk: domainProbeOk,
-          ipProbeOk: ipProbeOk,
-          throughputBytesPerSecond: throughputBytesPerSecond,
-        );
-      })().timeout(_probeTimeout);
-    } finally {
-      await stdoutSubscription?.cancel();
-      await stderrSubscription?.cancel();
-      if (process != null) {
-        process.kill();
-        try {
-          await process.exitCode.timeout(const Duration(seconds: 4));
-        } on TimeoutException {
-          process.kill(ProcessSignal.sigkill);
-          await process.exitCode.timeout(
-            const Duration(seconds: 2),
-            onTimeout: () => -1,
-          );
+        } on Object {
+          _throwIfPreconnectAborted(abortReason);
+          if (attempt < _maxStartupAttempts) {
+            await cleanupAttempt();
+            continue;
+          }
+          rethrow;
         }
       }
+
+      return AutoSelectPreconnectProbeResult(
+        serverTag: candidate.tag,
+        urlTestDelay: null,
+        domainProbeOk: false,
+        ipProbeOk: false,
+        throughputBytesPerSecond: 0,
+      );
+    } finally {
+      await cleanupAttempt();
       if (await runtimeDir.exists()) {
         try {
           await runtimeDir.delete(recursive: true);

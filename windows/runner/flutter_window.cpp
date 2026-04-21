@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "system_proxy_cleanup.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project,
                              bool show_on_first_frame)
@@ -56,6 +57,12 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == WM_ENDSESSION && wparam != FALSE &&
+      !session_end_cleanup_attempted_) {
+    session_end_cleanup_attempted_ = true;
+    RestoreManagedWindowsSystemProxyForSessionEnd();
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

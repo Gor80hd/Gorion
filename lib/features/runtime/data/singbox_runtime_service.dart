@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:gorion_clean/core/process/running_process_lookup.dart';
 import 'package:gorion_clean/core/windows/privileged_helper_client.dart';
 import 'package:gorion_clean/core/constants/singbox_assets.dart';
 import 'package:gorion_clean/core/logging/gorion_console_log.dart';
@@ -57,15 +59,20 @@ SingboxRuntimeService buildSingboxRuntimeService({
 }
 
 class SingboxRuntimeService {
+  static const _maxStartupAttempts = 3;
+
   SingboxRuntimeService({
     SystemProxyService? systemProxyService,
     WindowsRuntimeCleanupWatchdog? windowsRuntimeCleanupWatchdog,
     WindowsPrivilegedHelperClient? privilegedHelperClient,
+    Future<RunningProcessLookup> Function(int pid)? runningProcessLookupReader,
   }) : _systemProxyService = systemProxyService ?? const SystemProxyService(),
        _windowsRuntimeCleanupWatchdog =
            windowsRuntimeCleanupWatchdog ??
            const WindowsRuntimeCleanupWatchdog(),
-       _privilegedHelperClient = privilegedHelperClient;
+       _privilegedHelperClient = privilegedHelperClient,
+       _runningProcessLookupReader =
+           runningProcessLookupReader ?? _lookupRunningProcess;
 
   Process? _process;
   RuntimeSession? _session;
@@ -75,6 +82,8 @@ class SingboxRuntimeService {
   final SystemProxyService _systemProxyService;
   final WindowsRuntimeCleanupWatchdog _windowsRuntimeCleanupWatchdog;
   final WindowsPrivilegedHelperClient? _privilegedHelperClient;
+  final Future<RunningProcessLookup> Function(int pid)
+  _runningProcessLookupReader;
   SystemProxyLease? _systemProxyLease;
   _WinHttpProxyLease? _winHttpProxyLease;
 
@@ -95,6 +104,7 @@ class SingboxRuntimeService {
     final runtimeDir = await _runtimeDirectory();
     await stop();
     await _cleanupOrphanedProcess(runtimeDir);
+    await _throwIfOrphanedProcessMarkerStillPresent(runtimeDir);
     await _systemProxyService.cleanupOrphanedState(
       runtimeDir: runtimeDir,
       onLog: _pushLog,
@@ -102,157 +112,206 @@ class SingboxRuntimeService {
     await _cleanupOrphanedWinHttpProxyState(runtimeDir);
 
     final binaryFile = await _prepareBinary(runtimeDir);
-    final controllerPort = await _findFreePort();
-    final mixedPort = await _findFreePort();
-    final secret = const Uuid().v4();
 
-    final built = SingboxConfigBuilder.build(
-      templateConfig: templateConfig,
-      splitTunnelSettings: connectionTuningSettings.splitTunnel,
-      mode: mode,
-      mixedPort: mixedPort,
-      controllerPort: controllerPort,
-      controllerSecret: secret,
-      urlTestUrl: urlTestUrl,
-      selectedServerTag: selectedServerTag,
-    );
-
-    final configFile = File(p.join(runtimeDir.path, 'current-config.json'));
-    await configFile.writeAsString(built.configJson);
-
-    _pushLog('Preparing sing-box runtime for profile $profileId.');
-    _pushLog(
-      'Runtime config written to ${configFile.path}. controllerPort=$controllerPort mixedPort=$mixedPort mode=${mode.name} selectedServer=${selectedServerTag ?? '<default>'}.',
-    );
-    for (final line in describeConnectionTuningDiagnostics(
-      originalTemplateConfig: originalTemplateConfig ?? templateConfig,
-      effectiveTemplateConfig: templateConfig,
-      settings: connectionTuningSettings,
-      selectedServerTag: selectedServerTag,
-    )) {
-      _pushLog(line);
-    }
-    _pushLog(
-      'Launching sing-box $singboxVersion: ${binaryFile.path} run -c ${configFile.path}',
-    );
-
-    late final Process process;
-    try {
-      process = await Process.start(
-        binaryFile.path,
-        ['run', '-c', configFile.path],
-        workingDirectory: runtimeDir.path,
-        mode: ProcessStartMode.normal,
-      );
-    } on Object catch (error, stackTrace) {
-      _pushLog('Failed to start sing-box process: $error', isError: true);
-      Error.throwWithStackTrace(error, stackTrace);
-    }
-
-    _process = process;
-    _pushLog('sing-box process started with PID ${process.pid}.');
-    await _writeProcessMarker(
-      runtimeDir,
-      pid: process.pid,
-      binaryPath: binaryFile.path,
-      configPath: configFile.path,
-    );
-    await _windowsRuntimeCleanupWatchdog.arm(
-      runtimeDir: runtimeDir,
-      parentPid: pid,
-      childPid: process.pid,
-      onLog: _pushLog,
-    );
-
-    int? startupExitCode;
-    _stdoutSubscription = process.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) => _pushLog('STDOUT $line'));
-    _stderrSubscription = process.stderr
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) => _pushLog('STDERR $line', isError: true));
-
-    process.exitCode.then((code) {
-      startupExitCode = code;
-      unawaited(_deleteProcessMarker(runtimeDir, expectedPid: process.pid));
-      if (identical(_process, process)) {
-        final lease = _systemProxyLease;
-        final winHttpLease = _winHttpProxyLease;
-        _systemProxyLease = null;
-        _winHttpProxyLease = null;
-        if (lease != null) {
-          unawaited(
-            _systemProxyService.restore(
-              runtimeDir: runtimeDir,
-              lease: lease,
-              onLog: _pushLog,
-            ),
-          );
-        }
-        if (winHttpLease != null) {
-          unawaited(
-            _restoreWinHttpProxy(runtimeDir: runtimeDir, lease: winHttpLease),
-          );
-        }
-        _pushLog('sing-box exited with code $code.');
-        _process = null;
-        _session = null;
-      }
-    });
-
-    final session = RuntimeSession(
-      profileId: profileId,
-      mode: mode,
-      binaryPath: binaryFile.path,
-      configPath: configFile.path,
-      controllerPort: controllerPort,
-      mixedPort: mixedPort,
-      secret: secret,
-      manualSelectorTag: built.manualSelectorTag,
-      autoGroupTag: built.autoGroupTag,
-    );
-
-    final clashClient = ClashApiClient.fromSession(session);
-    try {
-      await clashClient.waitUntilReady(
-        onLog: _pushLog,
-        abortReason: () {
-          final exitCode = startupExitCode;
-          if (exitCode == null) {
-            return null;
-          }
-
-          return 'sing-box exited before the local controller became ready. Exit code: $exitCode. Check runtime logs for stderr details.';
-        },
-      );
-    } on Object catch (error, stackTrace) {
-      _pushLog('The Clash API did not start: $error', isError: true);
-      _pushLog('Stopping sing-box after startup failure.');
-      await stop();
-      Error.throwWithStackTrace(error, stackTrace);
-    }
-
-    if (mode.usesSystemProxy) {
+    Object? startupError;
+    StackTrace? startupStackTrace;
+    for (var attempt = 1; attempt <= _maxStartupAttempts; attempt += 1) {
+      ReservedLoopbackPort? controllerReservation;
+      ReservedLoopbackPort? mixedReservation;
       try {
-        _systemProxyLease = await _systemProxyService.enable(
+        controllerReservation = await reserveLoopbackPort();
+        mixedReservation = await reserveLoopbackPort();
+        final controllerPort = controllerReservation.port;
+        final mixedPort = mixedReservation.port;
+        final secret = const Uuid().v4();
+
+        final built = SingboxConfigBuilder.build(
+          templateConfig: templateConfig,
+          splitTunnelSettings: connectionTuningSettings.splitTunnel,
           mode: mode,
-          runtimeDir: runtimeDir,
           mixedPort: mixedPort,
+          controllerPort: controllerPort,
+          controllerSecret: secret,
+          urlTestUrl: urlTestUrl,
+          selectedServerTag: selectedServerTag,
+        );
+
+        final configFile = File(p.join(runtimeDir.path, 'current-config.json'));
+        await configFile.writeAsString(built.configJson);
+
+        _pushLog('Preparing sing-box runtime for profile $profileId.');
+        _pushLog(
+          'Runtime config written to ${configFile.path}. controllerPort=$controllerPort mixedPort=$mixedPort mode=${mode.name} selectedServer=${selectedServerTag ?? '<default>'}.',
+        );
+        for (final line in describeConnectionTuningDiagnostics(
+          originalTemplateConfig: originalTemplateConfig ?? templateConfig,
+          effectiveTemplateConfig: templateConfig,
+          settings: connectionTuningSettings,
+          selectedServerTag: selectedServerTag,
+        )) {
+          _pushLog(line);
+        }
+        _pushLog(
+          'Launching sing-box $singboxVersion: ${binaryFile.path} run -c ${configFile.path}',
+        );
+
+        await controllerReservation.close();
+        controllerReservation = null;
+        await mixedReservation.close();
+        mixedReservation = null;
+
+        late final Process process;
+        try {
+          process = await Process.start(
+            binaryFile.path,
+            ['run', '-c', configFile.path],
+            workingDirectory: runtimeDir.path,
+            mode: ProcessStartMode.normal,
+          );
+        } on Object catch (error, stackTrace) {
+          _pushLog('Failed to start sing-box process: $error', isError: true);
+          Error.throwWithStackTrace(error, stackTrace);
+        }
+
+        _process = process;
+        _pushLog('sing-box process started with PID ${process.pid}.');
+        await _writeProcessMarker(
+          runtimeDir,
+          pid: process.pid,
+          binaryPath: binaryFile.path,
+          configPath: configFile.path,
+        );
+        await _windowsRuntimeCleanupWatchdog.arm(
+          runtimeDir: runtimeDir,
+          parentPid: pid,
+          childPid: process.pid,
           onLog: _pushLog,
         );
+
+        int? startupExitCode;
+        _stdoutSubscription = process.stdout
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .listen((line) => _pushLog('STDOUT $line'));
+        _stderrSubscription = process.stderr
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .listen((line) => _pushLog('STDERR $line', isError: true));
+
+        process.exitCode.then((code) {
+          startupExitCode = code;
+          unawaited(_deleteProcessMarker(runtimeDir, expectedPid: process.pid));
+          if (identical(_process, process)) {
+            final lease = _systemProxyLease;
+            final winHttpLease = _winHttpProxyLease;
+            _systemProxyLease = null;
+            _winHttpProxyLease = null;
+            if (lease != null) {
+              unawaited(
+                _systemProxyService.restore(
+                  runtimeDir: runtimeDir,
+                  lease: lease,
+                  onLog: _pushLog,
+                ),
+              );
+            }
+            if (winHttpLease != null) {
+              unawaited(
+                _restoreWinHttpProxy(
+                  runtimeDir: runtimeDir,
+                  lease: winHttpLease,
+                ),
+              );
+            }
+            _pushLog('sing-box exited with code $code.');
+            _process = null;
+            _session = null;
+          }
+        });
+
+        final session = RuntimeSession(
+          profileId: profileId,
+          mode: mode,
+          binaryPath: binaryFile.path,
+          configPath: configFile.path,
+          controllerPort: controllerPort,
+          mixedPort: mixedPort,
+          secret: secret,
+          manualSelectorTag: built.manualSelectorTag,
+          autoGroupTag: built.autoGroupTag,
+        );
+
+        final clashClient = ClashApiClient.fromSession(session);
+        try {
+          await clashClient.waitUntilReady(
+            onLog: _pushLog,
+            abortReason: () {
+              final exitCode = startupExitCode;
+              if (exitCode == null) {
+                return null;
+              }
+
+              return 'sing-box exited before the local controller became ready. Exit code: $exitCode. Check runtime logs for stderr details.';
+            },
+          );
+        } on Object catch (error, stackTrace) {
+          _pushLog('The Clash API did not start: $error', isError: true);
+          _pushLog('Stopping sing-box after startup failure.');
+          await stop();
+          Error.throwWithStackTrace(error, stackTrace);
+        }
+
+        if (mode.usesSystemProxy) {
+          try {
+            _systemProxyLease = await _systemProxyService.enable(
+              mode: mode,
+              runtimeDir: runtimeDir,
+              mixedPort: mixedPort,
+              onLog: _pushLog,
+            );
+          } on Object catch (error, stackTrace) {
+            _pushLog(
+              'Failed to enable the system proxy: $error',
+              isError: true,
+            );
+            await stop();
+            Error.throwWithStackTrace(error, stackTrace);
+          }
+          await _enableWinHttpProxy(
+            runtimeDir: runtimeDir,
+            mixedPort: mixedPort,
+          );
+        }
+
+        _pushLog('Clash API is ready on ${session.controllerBaseUrl}.');
+        _session = session;
+        return session;
       } on Object catch (error, stackTrace) {
-        _pushLog('Failed to enable the system proxy: $error', isError: true);
+        startupError = error;
+        startupStackTrace = stackTrace;
+        if (controllerReservation != null) {
+          await controllerReservation.close();
+        }
+        if (mixedReservation != null) {
+          await mixedReservation.close();
+        }
+        if (attempt >= _maxStartupAttempts ||
+            !_shouldRetryStartupAfterError(error)) {
+          break;
+        }
+
+        _pushLog(
+          'Retrying sing-box startup with a fresh local port reservation (attempt ${attempt + 1}/$_maxStartupAttempts).',
+          isError: true,
+        );
         await stop();
-        Error.throwWithStackTrace(error, stackTrace);
       }
-      await _enableWinHttpProxy(runtimeDir: runtimeDir, mixedPort: mixedPort);
     }
 
-    _pushLog('Clash API is ready on ${session.controllerBaseUrl}.');
-    _session = session;
-    return session;
+    if (startupError != null && startupStackTrace != null) {
+      Error.throwWithStackTrace(startupError, startupStackTrace);
+    }
+    throw StateError('Failed to start sing-box for an unknown reason.');
   }
 
   Future<void> stop() async {
@@ -343,14 +402,42 @@ class SingboxRuntimeService {
     return ensureGorionRuntimeDirectory();
   }
 
-  Future<int> _findFreePort() async {
-    return findFreePort();
+  @visibleForTesting
+  Future<void> cleanupOrphanedProcessForTesting(Directory runtimeDir) {
+    return _cleanupOrphanedProcess(runtimeDir);
+  }
+
+  @visibleForTesting
+  Future<void> ensureNoOrphanedProcessConflictForTesting(Directory runtimeDir) {
+    return _throwIfOrphanedProcessMarkerStillPresent(runtimeDir);
   }
 
   Future<void> _cleanupOrphanedProcess(Directory runtimeDir) async {
     final marker = await _readProcessMarker(runtimeDir);
     if (marker == null) {
       return;
+    }
+
+    final matchStatus = await _inspectOrphanedProcessMarker(marker);
+    switch (matchStatus) {
+      case _OrphanedProcessMatch.matches:
+        break;
+      case _OrphanedProcessMatch.mismatches:
+        _pushLog(
+          'Skipping orphaned sing-box cleanup for PID ${marker.pid} because the running process no longer matches the saved runtime marker.',
+        );
+        await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
+        return;
+      case _OrphanedProcessMatch.missingProcess:
+        _pushLog('Removing stale sing-box PID marker for ${marker.pid}.');
+        await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
+        return;
+      case _OrphanedProcessMatch.inconclusive:
+        _pushLog(
+          'Could not verify orphaned sing-box PID ${marker.pid} safely; keeping the runtime marker for a later cleanup attempt.',
+          isError: true,
+        );
+        return;
     }
 
     final killed = Process.killPid(marker.pid);
@@ -364,6 +451,19 @@ class SingboxRuntimeService {
     }
 
     await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
+  }
+
+  Future<void> _throwIfOrphanedProcessMarkerStillPresent(
+    Directory runtimeDir,
+  ) async {
+    final marker = await _readProcessMarker(runtimeDir);
+    if (marker == null) {
+      return;
+    }
+
+    throw StateError(
+      'Gorion could not safely verify whether a previous sing-box runtime with PID ${marker.pid} is still active. Starting a second runtime is blocked to avoid proxy and port conflicts. Close the previous app instance or reboot, then try again.',
+    );
   }
 
   Future<void> _writeProcessMarker(
@@ -401,7 +501,19 @@ class SingboxRuntimeService {
         return null;
       }
 
-      return _RuntimeProcessMarker(pid: pid);
+      final binaryPath = decoded['binaryPath']?.toString().trim();
+      final configPath = decoded['configPath']?.toString().trim();
+
+      return _RuntimeProcessMarker(
+        pid: pid,
+        binaryPath: binaryPath == null || binaryPath.isEmpty
+            ? p.join(runtimeDir.path, resolveSingboxAsset().fileName)
+            : binaryPath,
+        configPath: configPath == null || configPath.isEmpty
+            ? p.join(runtimeDir.path, 'current-config.json')
+            : configPath,
+        updatedAt: DateTime.tryParse(decoded['updatedAt']?.toString() ?? ''),
+      );
     } catch (_) {
       return null;
     }
@@ -501,8 +613,9 @@ class SingboxRuntimeService {
       _pushLog(
         'WinHTTP proxy enabled through 127.0.0.1:$mixedPort for apps that bypass WinINET.',
       );
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
       _pushLog('Failed to sync the WinHTTP proxy: $error', isError: true);
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
@@ -516,19 +629,24 @@ class SingboxRuntimeService {
       return;
     }
 
+    var shouldDeleteMarker = false;
     try {
       final current = await helperClient.readWinHttpProxySettings();
       if (!current.isManagedBy(marker.managedSettings)) {
         _pushLog(
           'WinHTTP proxy settings changed outside Gorion; skipping restore to avoid overwriting newer values.',
         );
+        shouldDeleteMarker = true;
         return;
       }
 
       await helperClient.applyWinHttpProxySettings(marker.previousSettings);
       _pushLog('WinHTTP proxy restored to its previous state.');
+      shouldDeleteMarker = true;
     } finally {
-      await _deleteWinHttpProxyMarker(runtimeDir);
+      if (shouldDeleteMarker) {
+        await _deleteWinHttpProxyMarker(runtimeDir);
+      }
     }
   }
 
@@ -593,6 +711,133 @@ class SingboxRuntimeService {
     return int.tryParse(value?.toString() ?? '');
   }
 
+  bool _shouldRetryStartupAfterError(Object error) {
+    if (error is TimeoutException) {
+      return true;
+    }
+
+    final message = error.toString().toLowerCase();
+    return message.contains('controller became ready') ||
+        message.contains('clash api did not start') ||
+        message.contains('did not become ready in time') ||
+        message.contains('timed out') ||
+        message.contains('address already in use') ||
+        message.contains('listen tcp') ||
+        message.contains('bind');
+  }
+
+  Future<_OrphanedProcessMatch> _inspectOrphanedProcessMarker(
+    _RuntimeProcessMarker marker,
+  ) async {
+    final binaryPath = marker.binaryPath?.trim();
+    if (binaryPath == null || binaryPath.isEmpty) {
+      return _OrphanedProcessMatch.inconclusive;
+    }
+
+    final lookup = await _runningProcessLookupReader(marker.pid);
+    if (lookup.isMissing) {
+      return _OrphanedProcessMatch.missingProcess;
+    }
+    if (!lookup.isFound) {
+      return _OrphanedProcessMatch.inconclusive;
+    }
+
+    final expectedBinary = _normalizeComparablePath(binaryPath);
+    final currentBinary = lookup.executablePath == null
+        ? null
+        : _normalizeComparablePath(lookup.executablePath!);
+    if (currentBinary != null &&
+        currentBinary.isNotEmpty &&
+        currentBinary != expectedBinary) {
+      return _OrphanedProcessMatch.mismatches;
+    }
+    if ((currentBinary == null || currentBinary.isEmpty) &&
+        !lookup.normalizedCommandLine.contains(
+          p.basename(binaryPath).toLowerCase(),
+        )) {
+      return _OrphanedProcessMatch.mismatches;
+    }
+
+    final configPath = marker.configPath?.trim();
+    if (configPath != null && configPath.isNotEmpty) {
+      final normalizedConfigPath = _normalizeComparablePath(configPath);
+      if (!lookup.normalizedCommandLine.contains(normalizedConfigPath)) {
+        return _OrphanedProcessMatch.mismatches;
+      }
+    }
+
+    return _OrphanedProcessMatch.matches;
+  }
+
+  static Future<RunningProcessLookup> _lookupRunningProcess(int pid) async {
+    if (pid <= 0) {
+      return const RunningProcessLookup.missing();
+    }
+
+    if (Platform.isWindows) {
+      final script =
+          '''
+\$process = Get-CimInstance Win32_Process -Filter "ProcessId = $pid" -ErrorAction SilentlyContinue
+if (\$null -eq \$process) {
+  exit 3
+}
+[pscustomobject]@{
+  executablePath = [string]\$process.ExecutablePath
+  commandLine = [string]\$process.CommandLine
+} | ConvertTo-Json -Compress
+''';
+      final result = await Process.run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        script,
+      ]);
+      if (result.exitCode == 3) {
+        return const RunningProcessLookup.missing();
+      }
+      if (result.exitCode != 0) {
+        return const RunningProcessLookup.unavailable();
+      }
+
+      try {
+        final decoded = jsonDecode(result.stdout.toString());
+        final json = decoded is Map
+            ? Map<String, dynamic>.from(decoded.cast<String, dynamic>())
+            : null;
+        if (json == null) {
+          return const RunningProcessLookup.unavailable();
+        }
+        return RunningProcessLookup.found(
+          executablePath: json['executablePath']?.toString(),
+          commandLine: json['commandLine']?.toString() ?? '',
+        );
+      } on Object {
+        return const RunningProcessLookup.unavailable();
+      }
+    }
+
+    final result = await Process.run('ps', ['-p', '$pid', '-o', 'args=']);
+    if (result.exitCode == 1) {
+      return const RunningProcessLookup.missing();
+    }
+    if (result.exitCode != 0) {
+      return const RunningProcessLookup.unavailable();
+    }
+
+    final commandLine = result.stdout.toString().trim();
+    if (commandLine.isEmpty) {
+      return const RunningProcessLookup.unavailable();
+    }
+    return RunningProcessLookup.found(commandLine: commandLine);
+  }
+
+  String _normalizeComparablePath(String value) {
+    final normalized = p.normalize(value).replaceAll('\\', '/');
+    return Platform.isWindows ? normalized.toLowerCase() : normalized;
+  }
+
   void _pushLog(String line, {bool isError = false}) {
     final timestamp = DateTime.now().toIso8601String();
     final entry = '[$timestamp] $line';
@@ -605,10 +850,20 @@ class SingboxRuntimeService {
 }
 
 class _RuntimeProcessMarker {
-  const _RuntimeProcessMarker({required this.pid});
+  const _RuntimeProcessMarker({
+    required this.pid,
+    this.binaryPath,
+    this.configPath,
+    this.updatedAt,
+  });
 
   final int pid;
+  final String? binaryPath;
+  final String? configPath;
+  final DateTime? updatedAt;
 }
+
+enum _OrphanedProcessMatch { matches, mismatches, missingProcess, inconclusive }
 
 class _WinHttpProxyLease {
   const _WinHttpProxyLease._(this._marker);

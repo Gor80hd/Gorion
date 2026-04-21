@@ -26,12 +26,19 @@ void main() {
       final repository = DesktopSettingsRepository(
         storageRootLoader: () async => tempDir,
       );
+      final launchAtStartupService = _FakeLaunchAtStartupService(
+        enabled: true,
+        priority: LaunchAtStartupPriority.first,
+      );
       final controller = DesktopSettingsController(
         repository: repository,
-        launchAtStartupService: _FakeLaunchAtStartupService(enabled: true),
+        launchAtStartupService: launchAtStartupService,
         initialState: const DesktopSettingsState(
           launchAtStartupEnabled: true,
-          settings: DesktopSettings(launchMinimized: true),
+          settings: DesktopSettings(
+            launchMinimized: true,
+            launchAtStartupPriority: LaunchAtStartupPriority.first,
+          ),
         ),
       );
 
@@ -39,7 +46,14 @@ void main() {
 
       expect(controller.state.launchAtStartupEnabled, isFalse);
       expect(controller.state.settings.launchMinimized, isFalse);
+      expect(
+        controller.state.settings.launchAtStartupPriority,
+        LaunchAtStartupPriority.first,
+      );
       expect((await repository.load()).launchMinimized, isFalse);
+      expect(launchAtStartupService.setEnabledCalls, [
+        (enabled: false, priority: LaunchAtStartupPriority.first),
+      ]);
     });
 
     test(
@@ -60,13 +74,54 @@ void main() {
         expect((await repository.load()).launchMinimized, isFalse);
       },
     );
+
+    test(
+      'changing autostart priority re-registers startup and persists setting',
+      () async {
+        final repository = DesktopSettingsRepository(
+          storageRootLoader: () async => tempDir,
+        );
+        final launchAtStartupService = _FakeLaunchAtStartupService(
+          enabled: true,
+        );
+        final controller = DesktopSettingsController(
+          repository: repository,
+          launchAtStartupService: launchAtStartupService,
+          initialState: const DesktopSettingsState(
+            launchAtStartupEnabled: true,
+          ),
+        );
+
+        await controller.setLaunchAtStartupPriority(
+          LaunchAtStartupPriority.first,
+        );
+
+        expect(
+          controller.state.settings.launchAtStartupPriority,
+          LaunchAtStartupPriority.first,
+        );
+        expect(
+          (await repository.load()).launchAtStartupPriority,
+          LaunchAtStartupPriority.first,
+        );
+        expect(launchAtStartupService.setEnabledCalls, [
+          (enabled: true, priority: LaunchAtStartupPriority.first),
+        ]);
+      },
+    );
   });
 }
 
 class _FakeLaunchAtStartupService implements LaunchAtStartupService {
-  _FakeLaunchAtStartupService({required this.enabled});
+  _FakeLaunchAtStartupService({
+    required this.enabled,
+    this.priority = LaunchAtStartupPriority.standard,
+  });
 
   bool enabled;
+  LaunchAtStartupPriority priority;
+  final List<({bool enabled, LaunchAtStartupPriority priority})>
+  setEnabledCalls = <({bool enabled, LaunchAtStartupPriority priority})>[];
 
   @override
   Future<bool> isEnabled() async {
@@ -74,8 +129,20 @@ class _FakeLaunchAtStartupService implements LaunchAtStartupService {
   }
 
   @override
-  Future<bool> setEnabled(bool enabled) async {
+  Future<LaunchAtStartupPriority> getPriority() async {
+    return priority;
+  }
+
+  @override
+  Future<bool> setEnabled(
+    bool enabled, {
+    LaunchAtStartupPriority priority = LaunchAtStartupPriority.standard,
+  }) async {
+    setEnabledCalls.add((enabled: enabled, priority: priority));
     this.enabled = enabled;
+    if (enabled) {
+      this.priority = priority;
+    }
     return true;
   }
 }

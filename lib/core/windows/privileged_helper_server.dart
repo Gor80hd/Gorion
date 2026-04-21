@@ -9,8 +9,6 @@ import 'package:gorion_clean/features/runtime/data/windows_winhttp_proxy_service
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_settings.dart';
-import 'package:path/path.dart' as p;
-import 'package:uuid/uuid.dart';
 
 Future<void> runPrivilegedHelperServer() async {
   final server = _WindowsPrivilegedHelperServer();
@@ -28,6 +26,8 @@ class _WindowsPrivilegedHelperServer {
   final WindowsWinHttpProxyService _winHttpProxyService;
   HttpServer? _server;
   int? _lastZapretExitCode;
+  String? _authToken;
+  PrivilegedHelperConnectionInfo? _connectionInfo;
 
   Future<void> run() async {
     if (!Platform.isWindows) {
@@ -37,18 +37,49 @@ class _WindowsPrivilegedHelperServer {
     final runtimeDir = await ensureGorionRuntimeDirectory(
       subdirectory: 'privileged-helper',
     );
-    final connectionInfo = await _loadOrCreateConnectionInfo(runtimeDir);
+    final bootstrap = await _consumeBootstrapRequest(runtimeDir);
+    if (bootstrap == null) {
+      await _writeFailureState(
+        runtimeDir,
+        const PrivilegedHelperConnectionInfo(
+          lastError:
+              'Privileged helper launch was rejected because no valid bootstrap request was found.',
+        ),
+      );
+      stderr.writeln(
+        'Gorion privileged helper aborted: missing or invalid bootstrap request.',
+      );
+      return;
+    }
+    _authToken = bootstrap.token;
+    _connectionInfo = PrivilegedHelperConnectionInfo(
+      token: bootstrap.token,
+      launchId: bootstrap.launchId,
+    );
 
     try {
       _server = await HttpServer.bind(
         InternetAddress.loopbackIPv4,
-        connectionInfo.port,
+        _connectionInfo!.port,
       );
-    } on SocketException {
+    } on SocketException catch (error) {
+      await _writeFailureState(
+        runtimeDir,
+        _connectionInfo!.copyWith(
+          lastError:
+              'Failed to bind the privileged helper to ${_connectionInfo!.host}:${_connectionInfo!.port}: $error',
+        ),
+      );
+      stderr.writeln(
+        'Gorion privileged helper failed to bind to ${_connectionInfo!.host}:${_connectionInfo!.port}: $error',
+      );
       return;
     }
 
-    await _writeConnectionInfo(runtimeDir, connectionInfo.copyWith(pid: pid));
+    await _writeConnectionInfo(
+      runtimeDir,
+      _connectionInfo!.copyWith(pid: pid, clearLastError: true),
+    );
 
     await for (final request in _server!) {
       unawaited(_handleRequest(request));
@@ -57,23 +88,26 @@ class _WindowsPrivilegedHelperServer {
 
   Future<void> _handleRequest(HttpRequest request) async {
     try {
-      final connectionInfo = await _loadOrCreateConnectionInfo(
-        await ensureGorionRuntimeDirectory(subdirectory: 'privileged-helper'),
-      );
       final token = request.headers.value(gorionPrivilegedHelperAuthHeader);
-      if (token != connectionInfo.token) {
+      final authenticated = token != null && token == _authToken;
+      final method = request.method.toUpperCase();
+      final path = request.uri.path;
+      if (method == 'GET' && path == '/health') {
+        await _writeJson(request.response, HttpStatus.ok, {
+          'ok': true,
+          'authenticated': authenticated,
+          'launchId': _connectionInfo?.launchId,
+          'pid': pid,
+        });
+        return;
+      }
+      if (!authenticated) {
         await _writeJson(request.response, HttpStatus.unauthorized, {
           'error': 'Invalid privileged helper token.',
         });
         return;
       }
 
-      final method = request.method.toUpperCase();
-      final path = request.uri.path;
-      if (method == 'GET' && path == '/health') {
-        await _writeJson(request.response, HttpStatus.ok, {'ok': true});
-        return;
-      }
       if (method == 'GET' && path == '/runtime/state') {
         await _writeJson(
           request.response,
@@ -223,37 +257,54 @@ class _WindowsPrivilegedHelperServer {
     await response.close();
   }
 
-  Future<PrivilegedHelperConnectionInfo> _loadOrCreateConnectionInfo(
+  Future<PrivilegedHelperBootstrapRequest?> _consumeBootstrapRequest(
     Directory runtimeDir,
   ) async {
-    final stateFile = File(
-      p.join(runtimeDir.path, gorionPrivilegedHelperStateFileName),
+    final bootstrapFile = privilegedHelperBootstrapFileForRuntimeDir(
+      runtimeDir,
     );
-    if (await stateFile.exists()) {
-      try {
-        final decoded = jsonDecode(await stateFile.readAsString());
-        final json = asJsonMap(decoded);
-        if (json != null) {
-          final info = PrivilegedHelperConnectionInfo.fromJson(json);
-          if (info.token.trim().isNotEmpty) {
-            return info;
-          }
-        }
-      } on Object {
-        // Ignore broken files and replace them with a fresh token.
-      }
+    if (!await bootstrapFile.exists()) {
+      return null;
     }
 
-    return PrivilegedHelperConnectionInfo(token: const Uuid().v4());
+    try {
+      final decoded = jsonDecode(await bootstrapFile.readAsString());
+      final json = asJsonMap(decoded);
+      if (json == null) {
+        return null;
+      }
+      final bootstrap = PrivilegedHelperBootstrapRequest.fromJson(json);
+      if (bootstrap.token.trim().isEmpty || bootstrap.launchId.trim().isEmpty) {
+        return null;
+      }
+      if (DateTime.now().difference(bootstrap.createdAt) >
+          gorionPrivilegedHelperBootstrapMaxAge) {
+        return null;
+      }
+      return bootstrap;
+    } on Object {
+      return null;
+    } finally {
+      try {
+        await bootstrapFile.delete();
+      } on Object {
+        // Best-effort cleanup; a stale bootstrap file should never block startup.
+      }
+    }
   }
 
   Future<void> _writeConnectionInfo(
     Directory runtimeDir,
     PrivilegedHelperConnectionInfo info,
   ) async {
-    final stateFile = File(
-      p.join(runtimeDir.path, gorionPrivilegedHelperStateFileName),
-    );
+    final stateFile = privilegedHelperStateFileForRuntimeDir(runtimeDir);
     await stateFile.writeAsString(jsonEncode(info.toJson()), flush: true);
+  }
+
+  Future<void> _writeFailureState(
+    Directory runtimeDir,
+    PrivilegedHelperConnectionInfo info,
+  ) {
+    return _writeConnectionInfo(runtimeDir, info);
   }
 }

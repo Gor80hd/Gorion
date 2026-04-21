@@ -22,9 +22,14 @@ abstract class ElevationRelaunchPromptService {
 
 class DialogElevationRelaunchPromptService
     implements ElevationRelaunchPromptService {
-  DialogElevationRelaunchPromptService({required this.navigatorKey});
+  DialogElevationRelaunchPromptService({
+    required this.navigatorKey,
+    Future<void> Function()? ensureWindowVisible,
+  }) : _ensureWindowVisible =
+           ensureWindowVisible ?? _defaultEnsureWindowVisible;
 
   final GlobalKey<NavigatorState> navigatorKey;
+  final Future<void> Function() _ensureWindowVisible;
 
   @override
   Future<bool> confirmRelaunch({
@@ -34,7 +39,7 @@ class DialogElevationRelaunchPromptService
 
     final context = navigatorKey.currentContext;
     if (context == null || !context.mounted) {
-      return true;
+      return false;
     }
 
     final result = await showDialog<bool>(
@@ -88,7 +93,7 @@ class DialogElevationRelaunchPromptService
     };
   }
 
-  Future<void> _ensureWindowVisible() async {
+  static Future<void> _defaultEnsureWindowVisible() async {
     if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
       return;
     }

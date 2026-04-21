@@ -24,12 +24,21 @@ class WindowsWinHttpProxySettings {
 
   bool matches(WindowsWinHttpProxySettings other) {
     return _normalize(proxyServer) == _normalize(other.proxyServer) &&
-        _normalize(bypassList) == _normalize(other.bypassList);
+        windowsProxyBypassListsMatch(
+          currentBypassList: bypassList,
+          managedBypassList: other.bypassList,
+        );
   }
 
   bool isManagedBy(WindowsWinHttpProxySettings managed) {
     if (matches(managed)) {
       return true;
+    }
+    if (!windowsProxyBypassListsMatch(
+      currentBypassList: bypassList,
+      managedBypassList: managed.bypassList,
+    )) {
+      return false;
     }
     return windowsProxyServerPointsToManagedEndpoint(
       currentProxyServer: proxyServer,
@@ -75,10 +84,25 @@ WindowsWinHttpProxySettings parseWinHttpShowProxyOutput(String output) {
     caseSensitive: false,
     multiLine: true,
   ).firstMatch(normalized);
+  String? proxyServer = proxyMatch?.group(1)?.trim();
+  String? bypassList = bypassMatch?.group(1)?.trim();
+  if (proxyServer == null && bypassList == null) {
+    final genericMatches = RegExp(
+      r'^\s+\S.*?:\s*(.*?)\s*$',
+      caseSensitive: false,
+      multiLine: true,
+    ).allMatches(normalized).toList(growable: false);
+    if (genericMatches.isNotEmpty) {
+      proxyServer = genericMatches.first.group(1)?.trim();
+    }
+    if (genericMatches.length > 1) {
+      bypassList = genericMatches[1].group(1)?.trim();
+    }
+  }
 
   return WindowsWinHttpProxySettings(
-    proxyServer: proxyMatch?.group(1)?.trim(),
-    bypassList: bypassMatch?.group(1)?.trim(),
+    proxyServer: proxyServer,
+    bypassList: bypassList,
   );
 }
 

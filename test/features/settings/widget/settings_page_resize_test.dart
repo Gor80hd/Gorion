@@ -217,6 +217,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Gorion с Windows'), findsOneWidget);
+    expect(find.text('Запускать первым'), findsOneWidget);
     expect(find.text('Автостарт Gorion Boost'), findsOneWidget);
     expect(find.text('Стоп при TUN'), findsNothing);
   });

@@ -15,6 +15,7 @@ import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
 import 'package:gorion_clean/features/settings/data/app_settings_reset_service.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
 import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
 import 'package:gorion_clean/features/settings/widget/split_tunnel_section.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
@@ -764,19 +765,42 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     return _SettingsSection(
       title: 'Запуск и трей',
       description:
-          'Настройки применяются сразу. Автостарт Gorion регистрирует elevated-задачу в Планировщике Windows, а запуск Gorion Boost, скрытый запуск и автоподключение начнут работать на следующем запуске приложения.',
+          'Настройки применяются сразу. Обычный автостарт Gorion использует стандартную запись Windows Run, а режим повышенного приоритета переключает его на задачу AtLogOn в Планировщике Windows без задержки. Запуск Gorion Boost, скрытый запуск и автоподключение начнут работать на следующем запуске приложения.',
       child: Column(
         children: [
           _ToggleTile(
             title: 'Gorion с Windows',
             subtitle:
-                'Создаёт elevated-задачу для текущего пользователя Windows, чтобы Gorion запускался сразу после входа в систему уже с правами администратора.',
+                'Включает автозагрузку Gorion после входа в Windows. Точный механизм зависит от выбранного приоритета ниже.',
             value: desktopSettingsState.launchAtStartupEnabled,
             onChanged: desktopBusy
                 ? null
                 : (value) {
                     unawaited(
                       desktopController.setLaunchAtStartupEnabled(value),
+                    );
+                  },
+          ),
+          const SizedBox(height: 14),
+          _ToggleTile(
+            title: 'Запускать первым',
+            subtitle:
+                settings.launchAtStartupPriority ==
+                    LaunchAtStartupPriority.first
+                ? 'Gorion запускается через задачу AtLogOn без задержки, чтобы стартовать раньше стандартной группы автозагрузки Windows.'
+                : 'Обычный режим использует стандартную запись Run. Windows не гарантирует порядок такого запуска среди других приложений.',
+            value:
+                settings.launchAtStartupPriority ==
+                LaunchAtStartupPriority.first,
+            onChanged: desktopBusy
+                ? null
+                : (value) {
+                    unawaited(
+                      desktopController.setLaunchAtStartupPriority(
+                        value
+                            ? LaunchAtStartupPriority.first
+                            : LaunchAtStartupPriority.standard,
+                      ),
                     );
                   },
           ),
@@ -931,6 +955,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         final desktopSettings = desktopSettingsState.settings;
         final activeFlags = <String>[
           if (desktopSettingsState.launchAtStartupEnabled) 'Gorion',
+          if (desktopSettingsState.launchAtStartupEnabled &&
+              desktopSettings.launchAtStartupPriority ==
+                  LaunchAtStartupPriority.first)
+            'Первым',
           if (zapretState.settings.startOnAppLaunch) 'Gorion Boost',
           if (desktopSettingsState.effectiveLaunchMinimized) 'Трей',
           if (desktopSettings.autoConnectOnLaunch) 'Автоподключение',
