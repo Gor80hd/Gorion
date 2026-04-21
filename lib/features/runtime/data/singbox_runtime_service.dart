@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:gorion_clean/core/process/current_process.dart';
 import 'package:gorion_clean/core/process/running_process_lookup.dart';
 import 'package:gorion_clean/core/windows/privileged_helper_client.dart';
 import 'package:gorion_clean/core/constants/singbox_assets.dart';
@@ -86,6 +87,8 @@ class SingboxRuntimeService {
   _runningProcessLookupReader;
   SystemProxyLease? _systemProxyLease;
   _WinHttpProxyLease? _winHttpProxyLease;
+  Future<void> _lifecycleOperation = Future<void>.value();
+  Process? _stoppingProcess;
 
   RuntimeSession? get session => _session;
   List<String> get logs => List.unmodifiable(_logs);
@@ -100,9 +103,32 @@ class SingboxRuntimeService {
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
+  }) {
+    return _serializeLifecycle(
+      () => _startImpl(
+        profileId: profileId,
+        templateConfig: templateConfig,
+        originalTemplateConfig: originalTemplateConfig,
+        connectionTuningSettings: connectionTuningSettings,
+        urlTestUrl: urlTestUrl,
+        mode: mode,
+        selectedServerTag: selectedServerTag,
+      ),
+    );
+  }
+
+  Future<RuntimeSession> _startImpl({
+    required String profileId,
+    required String templateConfig,
+    String? originalTemplateConfig,
+    ConnectionTuningSettings connectionTuningSettings =
+        const ConnectionTuningSettings(),
+    required String urlTestUrl,
+    required RuntimeMode mode,
+    String? selectedServerTag,
   }) async {
     final runtimeDir = await _runtimeDirectory();
-    await stop();
+    await _stopImpl();
     await _cleanupOrphanedProcess(runtimeDir);
     await _throwIfOrphanedProcessMarkerStillPresent(runtimeDir);
     await _systemProxyService.cleanupOrphanedState(
@@ -183,7 +209,7 @@ class SingboxRuntimeService {
         );
         await _windowsRuntimeCleanupWatchdog.arm(
           runtimeDir: runtimeDir,
-          parentPid: pid,
+          parentPid: currentProcessPid,
           childPid: process.pid,
           onLog: _pushLog,
         );
@@ -201,6 +227,10 @@ class SingboxRuntimeService {
         process.exitCode.then((code) {
           startupExitCode = code;
           unawaited(_deleteProcessMarker(runtimeDir, expectedPid: process.pid));
+          _pushLog('sing-box exited with code $code.');
+          if (identical(_stoppingProcess, process)) {
+            return;
+          }
           if (identical(_process, process)) {
             final lease = _systemProxyLease;
             final winHttpLease = _winHttpProxyLease;
@@ -223,7 +253,6 @@ class SingboxRuntimeService {
                 ),
               );
             }
-            _pushLog('sing-box exited with code $code.');
             _process = null;
             _session = null;
           }
@@ -257,7 +286,7 @@ class SingboxRuntimeService {
         } on Object catch (error, stackTrace) {
           _pushLog('The Clash API did not start: $error', isError: true);
           _pushLog('Stopping sing-box after startup failure.');
-          await stop();
+          await _stopImpl();
           Error.throwWithStackTrace(error, stackTrace);
         }
 
@@ -270,11 +299,11 @@ class SingboxRuntimeService {
               onLog: _pushLog,
             );
           } on Object catch (error, stackTrace) {
-            _pushLog(
-              'Failed to enable the system proxy: $error',
-              isError: true,
-            );
-            await stop();
+          _pushLog(
+            'Failed to enable the system proxy: $error',
+            isError: true,
+          );
+            await _stopImpl();
             Error.throwWithStackTrace(error, stackTrace);
           }
           await _enableWinHttpProxy(
@@ -304,7 +333,7 @@ class SingboxRuntimeService {
           'Retrying sing-box startup with a fresh local port reservation (attempt ${attempt + 1}/$_maxStartupAttempts).',
           isError: true,
         );
-        await stop();
+        await _stopImpl();
       }
     }
 
@@ -314,7 +343,11 @@ class SingboxRuntimeService {
     throw StateError('Failed to start sing-box for an unknown reason.');
   }
 
-  Future<void> stop() async {
+  Future<void> stop() {
+    return _serializeLifecycle(_stopImpl);
+  }
+
+  Future<void> _stopImpl() async {
     await _stdoutSubscription?.cancel();
     await _stderrSubscription?.cancel();
     _stdoutSubscription = null;
@@ -325,10 +358,6 @@ class SingboxRuntimeService {
     final process = _process;
     final systemProxyLease = _systemProxyLease;
     final winHttpProxyLease = _winHttpProxyLease;
-    _process = null;
-    _session = null;
-    _systemProxyLease = null;
-    _winHttpProxyLease = null;
 
     Object? restoreError;
     StackTrace? restoreStackTrace;
@@ -364,22 +393,40 @@ class SingboxRuntimeService {
     }
 
     _pushLog('Stopping sing-box PID ${process.pid}.');
-    process.kill();
+    _stoppingProcess = process;
     try {
-      await process.exitCode.timeout(const Duration(seconds: 4));
-    } on TimeoutException {
-      _pushLog(
-        'sing-box did not exit gracefully, forcing termination.',
-        isError: true,
-      );
-      process.kill(ProcessSignal.sigkill);
-      await process.exitCode.timeout(
-        const Duration(seconds: 2),
-        onTimeout: () => -1,
-      );
+      process.kill();
+      try {
+        await process.exitCode.timeout(const Duration(seconds: 4));
+      } on TimeoutException {
+        _pushLog(
+          'sing-box did not exit gracefully, forcing termination.',
+          isError: true,
+        );
+        process.kill(ProcessSignal.sigkill);
+        await process.exitCode.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => -1,
+        );
+      }
+
+      await _deleteProcessMarker(runtimeDir, expectedPid: process.pid);
+    } finally {
+      if (identical(_stoppingProcess, process)) {
+        _stoppingProcess = null;
+      }
     }
 
-    await _deleteProcessMarker(runtimeDir, expectedPid: process.pid);
+    if (identical(_process, process)) {
+      _process = null;
+      _session = null;
+    }
+    if (identical(_systemProxyLease, systemProxyLease)) {
+      _systemProxyLease = null;
+    }
+    if (identical(_winHttpProxyLease, winHttpProxyLease)) {
+      _winHttpProxyLease = null;
+    }
 
     if (restoreError != null && restoreStackTrace != null) {
       Error.throwWithStackTrace(restoreError, restoreStackTrace);
@@ -392,6 +439,20 @@ class SingboxRuntimeService {
 
   void dispose() {
     unawaited(stopForAppExit());
+  }
+
+  Future<T> _serializeLifecycle<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    _lifecycleOperation = _lifecycleOperation
+        .catchError((_) {})
+        .then((_) async {
+          try {
+            completer.complete(await action());
+          } on Object catch (error, stackTrace) {
+            completer.completeError(error, stackTrace);
+          }
+        });
+    return completer.future;
   }
 
   Future<File> _prepareBinary(Directory runtimeDir) async {

@@ -46,3 +46,6 @@ app.*.map.json
 
 # Generated installer artifacts
 /dist/windows-installer/*.exe
+
+# Local debug dumps
+overflow_debug.txt

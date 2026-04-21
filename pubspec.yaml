@@ -1,5 +1,5 @@
 name: gorion_clean
-description: "A new Flutter project."
+description: "Desktop VPN and proxy client built around sing-box and Gorion Boost."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -38,6 +38,7 @@ dependencies:
   flutter_riverpod: ^2.6.1
   hooks_riverpod: ^2.6.1
   flutter_hooks: ^0.21.2
+  go_router: ^16.0.0
   flutter_animate: ^4.5.0
   flutter_svg: ^2.0.10+1
   gap: ^3.0.1

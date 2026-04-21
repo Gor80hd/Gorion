@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gorion_clean/core/process/process_exception_utils.dart';
+import 'package:gorion_clean/core/state/update_value.dart';
 import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/zapret/data/zapret_config_test_service.dart';
@@ -102,23 +104,37 @@ class ZapretState {
     List<ZapretConfigOption>? availableConfigs,
     ZapretStage? stage,
     ZapretRuntimeSession? runtimeSession,
+    UpdateValue<ZapretRuntimeSession?> runtimeSessionUpdate =
+        const UpdateValue<ZapretRuntimeSession?>.absent(),
     bool clearRuntimeSession = false,
     bool? tunConflictActive,
     String? generatedConfigPreview,
+    UpdateValue<String?> generatedConfigPreviewUpdate =
+        const UpdateValue<String?>.absent(),
     bool clearGeneratedConfigPreview = false,
     String? generatedConfigSummary,
+    UpdateValue<String?> generatedConfigSummaryUpdate =
+        const UpdateValue<String?>.absent(),
     bool clearGeneratedConfigSummary = false,
     String? statusMessage,
+    UpdateValue<String?> statusMessageUpdate =
+        const UpdateValue<String?>.absent(),
     bool clearStatusMessage = false,
     String? errorMessage,
+    UpdateValue<String?> errorMessageUpdate =
+        const UpdateValue<String?>.absent(),
     bool clearErrorMessage = false,
     List<String>? logs,
     bool? configTestInProgress,
     int? configTestCompleted,
     int? configTestTotal,
     String? configTestCurrentConfigLabel,
+    UpdateValue<String?> configTestCurrentConfigLabelUpdate =
+        const UpdateValue<String?>.absent(),
     bool clearConfigTestCurrentConfigLabel = false,
     ZapretConfigTestSuite? configTestSuite,
+    UpdateValue<ZapretConfigTestSuite?> configTestSuiteUpdate =
+        const UpdateValue<ZapretConfigTestSuite?>.absent(),
     bool clearConfigTestSuite = false,
   }) {
     return ZapretState(
@@ -129,19 +145,29 @@ class ZapretState {
       stage: stage ?? this.stage,
       runtimeSession: clearRuntimeSession
           ? null
+          : runtimeSessionUpdate.isPresent
+          ? runtimeSessionUpdate.value
           : runtimeSession ?? this.runtimeSession,
       tunConflictActive: tunConflictActive ?? this.tunConflictActive,
       generatedConfigPreview: clearGeneratedConfigPreview
           ? null
+          : generatedConfigPreviewUpdate.isPresent
+          ? generatedConfigPreviewUpdate.value
           : generatedConfigPreview ?? this.generatedConfigPreview,
       generatedConfigSummary: clearGeneratedConfigSummary
           ? null
+          : generatedConfigSummaryUpdate.isPresent
+          ? generatedConfigSummaryUpdate.value
           : generatedConfigSummary ?? this.generatedConfigSummary,
       statusMessage: clearStatusMessage
           ? null
+          : statusMessageUpdate.isPresent
+          ? statusMessageUpdate.value
           : statusMessage ?? this.statusMessage,
       errorMessage: clearErrorMessage
           ? null
+          : errorMessageUpdate.isPresent
+          ? errorMessageUpdate.value
           : errorMessage ?? this.errorMessage,
       logs: logs ?? this.logs,
       configTestInProgress: configTestInProgress ?? this.configTestInProgress,
@@ -149,9 +175,13 @@ class ZapretState {
       configTestTotal: configTestTotal ?? this.configTestTotal,
       configTestCurrentConfigLabel: clearConfigTestCurrentConfigLabel
           ? null
+          : configTestCurrentConfigLabelUpdate.isPresent
+          ? configTestCurrentConfigLabelUpdate.value
           : configTestCurrentConfigLabel ?? this.configTestCurrentConfigLabel,
       configTestSuite: clearConfigTestSuite
           ? null
+          : configTestSuiteUpdate.isPresent
+          ? configTestSuiteUpdate.value
           : configTestSuite ?? this.configTestSuite,
     );
   }
@@ -824,7 +854,7 @@ class ZapretController extends StateNotifier<ZapretState> {
   }
 
   String _describeError(Object error) {
-    if (error is ProcessException && _isElevationRequired(error)) {
+    if (error is ProcessException && isProcessElevationRequired(error)) {
       return 'Запуск winws требует прав администратора. Перезапустите Gorion от имени администратора и попробуйте снова.';
     }
     return error.toString();
@@ -840,18 +870,6 @@ class ZapretController extends StateNotifier<ZapretState> {
     } on Object {
       return null;
     }
-  }
-
-  bool _isElevationRequired(ProcessException error) {
-    if (error.errorCode == 740) {
-      return true;
-    }
-
-    final details = '${error.message} ${error.toString()}'.toLowerCase();
-    return details.contains('requested operation requires elevation') ||
-        details.contains('requires elevation') ||
-        details.contains('require elevation') ||
-        details.contains('требует повышения');
   }
 
   Future<bool> _maybeRelaunchForElevation({

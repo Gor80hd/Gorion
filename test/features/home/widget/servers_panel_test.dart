@@ -130,7 +130,8 @@ void main() {
     repository.loadedProfileIds.clear();
 
     await tester.tap(find.byTooltip('Параллельный тест серверов'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
 
     expect(repository.loadedProfileIds, ['profile-2']);
   });

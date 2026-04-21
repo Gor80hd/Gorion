@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gorion_clean/app/app_router.dart';
 import 'package:gorion_clean/app/theme_preferences.dart';
 import 'package:gorion_clean/app/theme_settings.dart';
-import 'package:gorion_clean/app/shell.dart';
 import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
-import 'package:gorion_clean/features/home/widget/home_page.dart';
 
 class GorionApp extends ConsumerWidget {
   const GorionApp({super.key});
@@ -13,10 +11,10 @@ class GorionApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeSettings = ref.watch(appThemeSettingsProvider);
-    final navigatorKey = ref.watch(rootNavigatorKeyProvider);
+    final router = ref.watch(appRouterProvider);
 
-    return MaterialApp(
-      navigatorKey: navigatorKey,
+    return MaterialApp.router(
+      routerConfig: router,
       title: 'gorion',
       debugShowCheckedModeBanner: false,
       theme: buildGorionTheme(
@@ -28,7 +26,6 @@ class GorionApp extends ConsumerWidget {
         palette: themeSettings.palette,
       ),
       themeMode: themeSettings.mode.materialThemeMode,
-      home: const AppShell(child: HomePage(animateOnMount: false)),
     );
   }
 }

@@ -24,8 +24,11 @@ final autoServerSelectionStatusProvider = Provider<String?>((ref) {
 String describeAutoSelectActivityLabel(String? label) {
   return switch (label?.trim()) {
     'Pre-connect auto-select' => 'Подбор перед подключением',
+    'Автовыбор перед подключением' => 'Подбор перед подключением',
     'Manual auto-select' => 'Подбор лучшего сервера',
+    'Ручной автовыбор' => 'Подбор лучшего сервера',
     'Automatic maintenance' => 'Проверка текущего подключения',
+    'Фоновая проверка' => 'Проверка текущего подключения',
     final String value when value.isNotEmpty => value,
     _ => 'Автоподбор сервера',
   };
@@ -46,7 +49,7 @@ String? describeAutoSelectActivityStatus(
       return summary.replaceFirst('Подключаем ', 'Подключено ');
     }
 
-    if (activity.active && label != 'Pre-connect auto-select') {
+    if (activity.active && !_isPreConnectAutoSelectLabel(label)) {
       if (summary != null && summary.isNotEmpty) {
         return summary;
       }
@@ -54,7 +57,7 @@ String? describeAutoSelectActivityStatus(
 
     final connectedServer = _serverName(activeServerTag ?? '');
     if (connectedServer.isNotEmpty) {
-      if (label == 'Pre-connect auto-select') {
+      if (_isPreConnectAutoSelectLabel(label)) {
         return 'Подключено $connectedServer';
       }
 
@@ -308,9 +311,21 @@ String? describeAutoSelectMessage({String? label, String? message}) {
         'Automatic maintenance failed: ',
         'Ошибка автоматической проверки: ',
       )
+      .replaceAll(
+        'Фоновая проверка завершилась с ошибкой: ',
+        'Ошибка автоматической проверки: ',
+      )
       .replaceAll('Manual auto-select failed: ', 'Ошибка подбора сервера: ')
       .replaceAll(
+        'Ручной автовыбор завершился с ошибкой: ',
+        'Ошибка подбора сервера: ',
+      )
+      .replaceAll(
         'Pre-connect auto-select failed: ',
+        'Ошибка подбора перед подключением: ',
+      )
+      .replaceAll(
+        'Автовыбор перед подключением завершился с ошибкой: ',
         'Ошибка подбора перед подключением: ',
       );
 }
@@ -366,3 +381,10 @@ class RecentAutoSelectedServer {
 
 final recentAutoSelectedServerProvider =
     StateProvider<RecentAutoSelectedServer?>((ref) => null);
+
+bool _isPreConnectAutoSelectLabel(String? label) {
+  return switch (label?.trim()) {
+    'Pre-connect auto-select' || 'Автовыбор перед подключением' => true,
+    _ => false,
+  };
+}

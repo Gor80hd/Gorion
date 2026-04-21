@@ -6,52 +6,20 @@ import 'package:gorion_clean/features/home/application/dashboard_controller.dart
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 
-class _BottomSheetsNotifier extends Notifier<void> {
-  @override
-  void build() {}
-
-  /// Opens the add subscription dialog.
-  void showAddProfile() {
-    final context = _buildContext;
-    if (context == null || !context.mounted) return;
-    showDialog<void>(
-      context: context,
-      builder: (_) => const _AddSubscriptionDialog(),
-    );
-  }
-
-  /// Opens the profiles overview dialog.
-  void showProfilesOverview() {
-    final context = _buildContext;
-    if (context == null || !context.mounted) return;
-    showDialog<void>(
-      context: context,
-      builder: (_) => const _ProfilesOverviewDialog(),
-    );
-  }
-
-  BuildContext? _buildContext;
-
-  void attachContext(BuildContext ctx) => _buildContext = ctx;
-}
-
-final bottomSheetsNotifierProvider =
-    NotifierProvider<_BottomSheetsNotifier, void>(_BottomSheetsNotifier.new);
-
 enum _ManagedSubscriptionAction { activate, refresh, remove }
 
 // ─── Inline dialogs ───────────────────────────────────────────────────────────
 
-class _AddSubscriptionDialog extends ConsumerStatefulWidget {
-  const _AddSubscriptionDialog();
+class AddSubscriptionDialog extends ConsumerStatefulWidget {
+  const AddSubscriptionDialog({super.key});
 
   @override
-  ConsumerState<_AddSubscriptionDialog> createState() =>
+  ConsumerState<AddSubscriptionDialog> createState() =>
       _AddSubscriptionDialogState();
 }
 
 class _AddSubscriptionDialogState
-    extends ConsumerState<_AddSubscriptionDialog> {
+    extends ConsumerState<AddSubscriptionDialog> {
   final _ctrl = TextEditingController();
   bool _attemptedSubmit = false;
 
@@ -156,16 +124,16 @@ class _AddSubscriptionDialogState
   }
 }
 
-class _ProfilesOverviewDialog extends ConsumerStatefulWidget {
-  const _ProfilesOverviewDialog();
+class ProfilesOverviewDialog extends ConsumerStatefulWidget {
+  const ProfilesOverviewDialog({super.key});
 
   @override
-  ConsumerState<_ProfilesOverviewDialog> createState() =>
+  ConsumerState<ProfilesOverviewDialog> createState() =>
       _ProfilesOverviewDialogState();
 }
 
 class _ProfilesOverviewDialogState
-    extends ConsumerState<_ProfilesOverviewDialog> {
+    extends ConsumerState<ProfilesOverviewDialog> {
   String? _pendingProfileId;
   _ManagedSubscriptionAction? _pendingAction;
   bool _surfaceControllerMessages = false;

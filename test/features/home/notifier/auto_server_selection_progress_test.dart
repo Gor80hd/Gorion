@@ -7,14 +7,14 @@ void main() {
   group('auto-select status formatting', () {
     test('maps automatic maintenance label to friendly text', () {
       expect(
-        describeAutoSelectActivityLabel('Automatic maintenance'),
+        describeAutoSelectActivityLabel('Фоновая проверка'),
         'Проверка текущего подключения',
       );
     });
 
     test('describes keeping the current server', () {
       const activity = AutoSelectActivityState(
-        label: 'Automatic maintenance',
+        label: 'Фоновая проверка',
         message:
             'Current server [DE] Frankfurt stayed selected after the latest URLTest and proxy probe check.',
       );
@@ -27,7 +27,7 @@ void main() {
 
     test('describes switching to a better server', () {
       const activity = AutoSelectActivityState(
-        label: 'Automatic maintenance',
+        label: 'Фоновая проверка',
         message:
             'Auto-selector switched from [DE] Frankfurt to [NL] Amsterdam after confirming better end-to-end health and latency.',
       );
@@ -40,7 +40,7 @@ void main() {
 
     test('describes pre-connect probing', () {
       const activity = AutoSelectActivityState(
-        label: 'Pre-connect auto-select',
+        label: 'Автовыбор перед подключением',
         message: 'Probing [NL] Amsterdam (2/5) in a detached sing-box runtime.',
       );
 
@@ -52,7 +52,7 @@ void main() {
 
     test('hides the chosen server before pre-connect runtime finishes', () {
       const activity = AutoSelectActivityState(
-        label: 'Pre-connect auto-select',
+        label: 'Автовыбор перед подключением',
         message:
             'Auto-selector chose [NL] Amsterdam before connect after confirming end-to-end proxy traffic.',
       );
@@ -65,7 +65,7 @@ void main() {
 
     test('describes cached fast reconnect before runtime starts', () {
       const activity = AutoSelectActivityState(
-        label: 'Pre-connect auto-select',
+        label: 'Автовыбор перед подключением',
         message:
             'Auto-selector reused the recent successful server [NL] Amsterdam before starting sing-box.',
       );
@@ -78,7 +78,7 @@ void main() {
 
     test('promotes connecting summary to connected after runtime connects', () {
       const activity = AutoSelectActivityState(
-        label: 'Pre-connect auto-select',
+        label: 'Автовыбор перед подключением',
         message:
             'Auto-selector chose [NL] Amsterdam before connect after confirming end-to-end proxy traffic.',
       );
@@ -96,7 +96,7 @@ void main() {
     test('formats trace lines with friendly phase and summary', () {
       expect(
         describeAutoSelectTraceLine(
-          '12:34:56 [Automatic maintenance] Auto-selector recovered from [DE] Frankfurt to [NL] Amsterdam after the current server failed the end-to-end proxy probe.',
+          '12:34:56 [Фоновая проверка] Auto-selector recovered from [DE] Frankfurt to [NL] Amsterdam after the current server failed the end-to-end proxy probe.',
         ),
         '12:34:56 [Проверка текущего подключения] Текущий сервер не прошёл проверку, переключаемся на 🇳🇱 Amsterdam',
       );

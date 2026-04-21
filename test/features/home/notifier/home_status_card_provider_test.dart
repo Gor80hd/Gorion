@@ -145,7 +145,7 @@ void main() {
           selectedServerTag: autoSelectServerTag,
           activeServerTag: 'server-a',
           autoSelectActivity: const AutoSelectActivityState(
-            label: 'Pre-connect auto-select',
+            label: 'Автовыбор перед подключением',
             message:
                 'Auto-selector chose server-a before connect after confirming end-to-end proxy traffic.',
           ),
@@ -223,7 +223,7 @@ void main() {
           selectedServerTag: autoSelectServerTag,
           activeServerTag: 'server-a',
           autoSelectActivity: const AutoSelectActivityState(
-            label: 'Pre-connect auto-select',
+            label: 'Автовыбор перед подключением',
             message:
                 'Auto-selector reused the recent successful server server-a before starting sing-box.',
           ),

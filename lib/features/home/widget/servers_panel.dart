@@ -1,6 +1,4 @@
-import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -9,18 +7,16 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gap/gap.dart';
 import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/core/http_client/http_client_provider.dart';
 import 'package:gorion_clean/core/preferences/general_preferences.dart';
-import 'package:gorion_clean/core/router/bottom_sheets/bottom_sheets_notifier.dart';
-import 'package:gorion_clean/core/router/dialog/dialog_notifier.dart';
+import 'package:gorion_clean/core/router/app_modal_router.dart';
 import 'package:gorion_clean/core/widget/emoji_flag_text.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/home/application/server_benchmark_controller.dart';
+import 'package:gorion_clean/features/home/data/server_benchmark_runtime_service.dart';
 import 'package:gorion_clean/features/home/model/server_sort_mode.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
-import 'package:gorion_clean/features/home/utils/auto_select_probe_utils.dart'
-    as probe_utils;
 import 'package:gorion_clean/features/auto_select/utils/auto_select_server_exclusion.dart';
 import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
 import 'package:gorion_clean/features/profiles/data/profile_data_providers.dart';
@@ -34,12 +30,10 @@ import 'package:gorion_clean/features/profiles/notifier/profiles_update_notifier
 import 'package:gorion_clean/features/profiles/utils/profile_display_order.dart';
 import 'package:gorion_clean/features/proxy/data/proxy_data_providers.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
 import 'package:gorion_clean/features/runtime/notifier/core_restart_signal.dart';
 import 'package:gorion_clean/utils/link_parsers.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:path/path.dart' as p;
 
 // Convert ISO 3166-1 alpha-2 country code to flag emoji
 
@@ -50,102 +44,6 @@ bool _isLeafServer(OutboundInfo item) {
 
 List<OutboundInfo> _visibleServers(OutboundGroup group) =>
     group.items.where(_isLeafServer).toList();
-
-// ---------------------------------------------------------------------------
-// Benchmark helpers for detached multi-port batch runtimes.
-// ---------------------------------------------------------------------------
-
-/// Extracts a single outbound definition by [tag] from a generated sing-box
-/// JSON config string. Returns null when the tag is not found.
-Map<String, dynamic>? _extractOutbound(String generatedConfig, String tag) {
-  try {
-    final config = jsonDecode(generatedConfig) as Map<String, dynamic>;
-    final outbounds = config['outbounds'];
-    if (outbounds is! List) return null;
-    for (final ob in outbounds) {
-      if (ob is Map<String, dynamic> && ob['tag'] == tag) {
-        return ob;
-      }
-    }
-  } catch (_) {}
-  return null;
-}
-
-String _buildBatchSpeedtestSingboxConfig(
-  List<_BenchmarkRuntimePort> runtimePorts,
-) {
-  return jsonEncode({
-    'log': {'level': 'info'},
-    'inbounds': [
-      for (final runtimePort in runtimePorts)
-        {
-          'type': 'mixed',
-          'listen': '127.0.0.1',
-          'listen_port': runtimePort.port,
-          'tag': runtimePort.inboundTag,
-        },
-    ],
-    'outbounds': [
-      for (final runtimePort in runtimePorts) runtimePort.outbound,
-      {'type': 'direct', 'tag': 'direct'},
-    ],
-    'route': {
-      'rules': [
-        for (final runtimePort in runtimePorts)
-          {
-            'inbound': [runtimePort.inboundTag],
-            'outbound': runtimePort.outboundTag,
-          },
-      ],
-      'final': 'direct',
-    },
-  });
-}
-
-String _formatDevConsoleTimestamp([DateTime? now]) {
-  final ts = now ?? DateTime.now();
-  final micros = ts.millisecond * 1000 + (ts.microsecond % 1000);
-  String two(int value) => value.toString().padLeft(2, '0');
-  return '${ts.year}/${two(ts.month)}/${two(ts.day)} '
-      '${two(ts.hour)}:${two(ts.minute)}:${two(ts.second)}.'
-      '${micros.toString().padLeft(6, '0')}';
-}
-
-void _devConsoleLog(
-  String message, {
-  String level = 'Info',
-  String source = 'batch-speed',
-}) {
-  debugPrint('${_formatDevConsoleTimestamp()} [$level] $source: $message');
-}
-
-Future<bool> _waitForLocalPortReady(int port) =>
-    probe_utils.waitForLocalPortReady(port);
-
-// Simple counting semaphore for concurrency control.
-class _Semaphore {
-  _Semaphore(int count) : _count = count;
-  int _count;
-  final _waiters = <Completer<void>>[];
-
-  Future<void> acquire() async {
-    if (_count > 0) {
-      _count--;
-      return;
-    }
-    final c = Completer<void>();
-    _waiters.add(c);
-    await c.future;
-  }
-
-  void release() {
-    if (_waiters.isEmpty) {
-      _count++;
-    } else {
-      _waiters.removeAt(0).complete();
-    }
-  }
-}
 
 String _flagEmoji(String code) {
   if (code.length != 2) return '';
@@ -308,13 +206,6 @@ String _formatBestServerCheckIntervalBadge(int minutes) {
   return '$hoursч $remainingMinutesм';
 }
 
-const _throughputBenchmarkUrl =
-    'https://speed.cloudflare.com/__down?bytes=2097152';
-const _throughputBenchmarkBytes = 2 * 1024 * 1024;
-const _pingBenchmarkUrl = 'https://www.gstatic.com/generate_204';
-const _batchSpeedMaxConcurrentServers = 5;
-const _batchSpeedTimeout = Duration(seconds: 20);
-
 const _groupTypes = {'selector', 'urltest', 'url-test'};
 const _proxySchemes = {
   'http',
@@ -351,36 +242,8 @@ class _ParsedOfflineGroup {
   final List<OutboundInfo> items;
 }
 
-class _BenchmarkTarget {
-  const _BenchmarkTarget({
-    required this.profile,
-    required this.server,
-    required this.generatedConfig,
-  });
-
-  final ProfileEntity profile;
-  final OutboundInfo server;
-  final String generatedConfig;
-}
-
-class _BenchmarkRuntimePort {
-  const _BenchmarkRuntimePort({
-    required this.target,
-    required this.outbound,
-    required this.port,
-    required this.inboundTag,
-  });
-
-  final _BenchmarkTarget target;
-  final Map<String, dynamic> outbound;
-  final int port;
-  final String inboundTag;
-
-  String get outboundTag => outbound['tag']?.toString() ?? target.server.tag;
-}
-
 String _benchmarkKey(String profileId, String serverTag) =>
-    '$profileId::$serverTag';
+    buildServerBenchmarkKey(profileId, serverTag);
 
 class ServersPanelWidget extends HookConsumerWidget {
   const ServersPanelWidget({super.key});
@@ -397,19 +260,10 @@ class ServersPanelWidget extends HookConsumerWidget {
     final searchCtrl = useTextEditingController();
     final searchQuery = useState('');
     final sortMode = ref.watch(Preferences.serverSortMode);
-    final isTesting = useState(false);
-    final pingResults = useState<Map<String, int>>({});
-    final speedResults = useState<Map<String, int>>({});
-    final pingCompleted = useState(0);
-    final pingTotal = useState(0);
-    final pingStatus = useState<String?>(null);
-    final benchmarkStartedAt = useState<DateTime?>(null);
-    final benchmarkElapsed = useState(Duration.zero);
-    final benchmarkingTags = useState<Set<String>>({});
     final expandedSubscriptionIds = useState<Set<String>>({});
-    final stopRequested = useState(false);
     final selectedPreview = ref.watch(selectedServerPreviewProvider);
     final pendingSelection = ref.watch(pendingServerSelectionProvider);
+    final benchmarkState = ref.watch(serverBenchmarkControllerProvider);
     final activeProfile = ref.watch(activeProfileProvider).asData?.value;
     final profileRepo = ref.watch(profileRepoFacadeProvider).valueOrNull;
     final profileDataSource = ref.watch(profileDataSourceProvider);
@@ -439,52 +293,18 @@ class ServersPanelWidget extends HookConsumerWidget {
     );
 
     useEffect(() {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!context.mounted) return;
-        ref.read(bottomSheetsNotifierProvider.notifier).attachContext(context);
-        ref.read(dialogNotifierProvider.notifier).attachContext(context);
-      });
-      return null;
-    }, const []);
-
-    useEffect(() {
       void listener() => searchQuery.value = searchCtrl.text;
       searchCtrl.addListener(listener);
       return () => searchCtrl.removeListener(listener);
     }, [searchCtrl]);
-
-    useEffect(() {
-      final startedAt = benchmarkStartedAt.value;
-      final shouldTick =
-          startedAt != null && (isTesting.value || pingStatus.value != null);
-      if (!shouldTick) {
-        if (startedAt == null) {
-          benchmarkElapsed.value = Duration.zero;
+    ref.listen<bool>(
+      serverBenchmarkControllerProvider.select((state) => state.active),
+      (previous, next) {
+        if (previous == true && !next) {
+          ref.read(selectedServerPreviewProvider.notifier).state = null;
         }
-        return null;
-      }
-
-      void updateElapsed() {
-        benchmarkElapsed.value = DateTime.now().difference(startedAt);
-      }
-
-      updateElapsed();
-      final timer = Timer.periodic(
-        const Duration(seconds: 1),
-        (_) => updateElapsed(),
-      );
-      return timer.cancel;
-    }, [benchmarkStartedAt.value, isTesting.value, pingStatus.value]);
-
-    useEffect(() {
-      if (!isTesting.value &&
-          pingStatus.value == null &&
-          benchmarkStartedAt.value != null) {
-        benchmarkStartedAt.value = null;
-        benchmarkElapsed.value = Duration.zero;
-      }
-      return null;
-    }, [isTesting.value, pingStatus.value, benchmarkStartedAt.value]);
+      },
+    );
 
     final proxyRepo = ref.watch(proxyRepositoryProvider);
     final coreRestartSignal = ref.watch(coreRestartSignalProvider);
@@ -507,9 +327,11 @@ class ServersPanelWidget extends HookConsumerWidget {
         (state) => state.autoSelectSettings.bestServerCheckIntervalMinutes,
       ),
     );
-    final autoServerSelectionExcluded = ref
-        .watch(Preferences.autoSelectServerExcluded)
-        .toSet();
+    final autoServerSelectionExcluded = ref.watch(
+      dashboardControllerProvider.select(
+        (state) => state.autoSelectSettings.excludedServerKeys.toSet(),
+      ),
+    );
     final autoServerSelectionStatus = ref.watch(
       autoServerSelectionStatusProvider,
     );
@@ -640,11 +462,11 @@ class ServersPanelWidget extends HookConsumerWidget {
     }
 
     int effectivePing(String profileId, OutboundInfo server) =>
-        pingResults.value[_benchmarkKey(profileId, server.tag)] ??
+        benchmarkState.pingResults[_benchmarkKey(profileId, server.tag)] ??
         server.urlTestDelay;
 
     int effectiveSpeed(String profileId, OutboundInfo server) =>
-        speedResults.value[_benchmarkKey(profileId, server.tag)] ?? 0;
+        benchmarkState.speedResults[_benchmarkKey(profileId, server.tag)] ?? 0;
 
     String autoSelectExclusionKey(String profileId, OutboundInfo server) {
       return buildAutoSelectServerExclusionKey(
@@ -663,15 +485,13 @@ class ServersPanelWidget extends HookConsumerWidget {
       ProfileEntity profile,
       OutboundInfo server,
     ) async {
-      final next = {...autoServerSelectionExcluded};
-      final key = autoSelectExclusionKey(profile.id, server);
-      if (!next.add(key)) {
-        next.remove(key);
-      }
-
       await ref
-          .read(Preferences.autoSelectServerExcluded.notifier)
-          .update(next.toList()..sort());
+          .read(dashboardControllerProvider.notifier)
+          .setAutoSelectServerExcluded(
+            server.tag,
+            !isAutoSelectExcluded(profile.id, server),
+            profileId: profile.id,
+          );
     }
 
     List<OutboundInfo> visibleSubscriptionServers(ProfileEntity profile) {
@@ -760,15 +580,13 @@ class ServersPanelWidget extends HookConsumerWidget {
             .getOrElse((_) => '')
             .run();
         if (generatedConfig.isNotEmpty) {
-          outbound = _extractOutbound(generatedConfig, server.tag);
+          outbound = extractOutboundDefinition(generatedConfig, server.tag);
         }
       }
 
-      if (!context.mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (_) =>
-            _ServerSettingsDialog(server: server, outbound: outbound),
+      await ref.read(appModalRouterProvider).showServerSettings(
+        server: server,
+        outbound: outbound,
       );
     }
 
@@ -776,299 +594,27 @@ class ServersPanelWidget extends HookConsumerWidget {
       final repo = await ref.read(profileRepoFacadeProvider.future);
       final result = await repo.setAsActive(profile.id).run();
       result.match(
-        (err) => ref
-            .read(dialogNotifierProvider.notifier)
-            .showCustomAlert(
-              title: 'Не удалось сделать подписку текущей',
-              message: err.toString(),
-            ),
+        (err) => ref.read(appModalRouterProvider).showCustomAlert(
+          title: 'Не удалось сделать подписку текущей',
+          message: err.toString(),
+        ),
         (_) => null,
       );
     }
 
-    void stopBenchmark() {
-      stopRequested.value = true;
-    }
-
-    Future<List<_BenchmarkTarget>> loadBenchmarkTargets({
-      bool activeOnly = false,
-    }) async {
-      if (profileRepo == null) return const <_BenchmarkTarget>[];
-
-      final currentActiveProfile = activeProfile;
-      final profiles = activeOnly
-          ? currentActiveProfile == null
-                ? const <ProfileEntity>[]
-                : <ProfileEntity>[currentActiveProfile]
-          : visibleProfiles;
-
-      final targets = <_BenchmarkTarget>[];
-      for (final profile in profiles) {
-        final generatedConfig = await profileRepo
-            .generateConfig(profile.id)
-            .getOrElse((_) => '')
-            .run();
-        if (generatedConfig.isEmpty) continue;
-
-        final parsed = _parseOfflineGroup(
-          generatedConfig,
-          fallbackGroupName: profile.name,
-        );
-        final sectionGroup = parsed == null ? null : _toOutboundGroup(parsed);
-        if (sectionGroup == null) continue;
-
-        for (final server in _visibleServers(sectionGroup)) {
-          targets.add(
-            _BenchmarkTarget(
-              profile: profile,
-              server: server,
-              generatedConfig: generatedConfig,
-            ),
-          );
-        }
-      }
-
-      return targets;
-    }
-
-    Future<({Directory runtimeDir, Process process})>
-    startDetachedBenchmarkRuntime(
-      String configJson, {
-      required String scope,
-    }) async {
-      final runtimeDir = await ensureGorionRuntimeDirectory(
-        subdirectory: p.join(
-          'benchmark',
-          scope,
-          DateTime.now().microsecondsSinceEpoch.toString(),
-        ),
-      );
-      try {
-        final binaryFile = await prepareSingboxBinary(runtimeDir);
-        final configFile = File(p.join(runtimeDir.path, 'config.json'));
-        await configFile.writeAsString(configJson);
-
-        final process = await Process.start(
-          binaryFile.path,
-          ['run', '-c', configFile.path],
-          workingDirectory: runtimeDir.path,
-          mode: ProcessStartMode.normal,
-        );
-        unawaited(process.stdout.drain<void>());
-        unawaited(process.stderr.drain<void>());
-
-        return (runtimeDir: runtimeDir, process: process);
-      } catch (_) {
-        try {
-          await runtimeDir.delete(recursive: true);
-        } catch (_) {}
-        rethrow;
-      }
-    }
-
-    Future<({int ping, int speed})> runProxyBenchmark(
-      int proxyPort, {
-      void Function(int value)? onProgress,
-    }) async {
-      final httpClient = ref.read(httpClientProvider);
-      final testClient = DioHttpClient(
-        timeout: const Duration(seconds: 15),
-        userAgent: httpClient.userAgent,
-        debug: false,
-      );
-      testClient.setProxyPort(proxyPort);
-
-      final pingSamples = <int>[];
-      for (var attempt = 0; attempt < 2; attempt++) {
-        if (stopRequested.value) break;
-        final ping = await testClient.pingTest(
-          _pingBenchmarkUrl,
-          requestMode: NetworkRequestMode.proxy,
-          timeout: const Duration(seconds: 10),
-        );
-        if (ping > 0) {
-          pingSamples.add(ping);
-        }
-        if (attempt == 0) {
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
-      }
-
-      final ping = pingSamples.isEmpty ? -1 : (pingSamples..sort()).first;
-      if (ping <= 0 || stopRequested.value) {
-        return (ping: ping, speed: 0);
-      }
-
-      final speed = await testClient
-          .benchmarkDownload(
-            _throughputBenchmarkUrl,
-            requestMode: NetworkRequestMode.proxy,
-            maxBytes: _throughputBenchmarkBytes,
-            maxDuration: const Duration(seconds: 10),
-            onProgress: onProgress,
-          )
-          .timeout(_batchSpeedTimeout, onTimeout: () => 0);
-
-      return (ping: ping, speed: speed);
-    }
-
     Future<void> runBatchBenchmark() async {
-      final currentActiveProfile = activeProfile;
-      if (isTesting.value ||
-          currentActiveProfile == null ||
-          profileRepo == null) {
+      if (benchmarkState.active || activeProfile == null) {
         return;
       }
-
-      final reservedPorts = <({ServerSocket socket, int port})>[];
-      Directory? runtimeDir;
-      Process? process;
-
       try {
-        isTesting.value = true;
-        stopRequested.value = false;
-        ref.read(benchmarkActiveProvider.notifier).state = true;
-        pingResults.value = {};
-        speedResults.value = {};
-        pingCompleted.value = 0;
-        pingTotal.value = 0;
-        pingStatus.value = 'Подготовка…';
-        benchmarkStartedAt.value = DateTime.now();
-        benchmarkElapsed.value = Duration.zero;
-        benchmarkingTags.value = {};
-
-        final targets = await loadBenchmarkTargets(activeOnly: true);
-        pingTotal.value = targets.length;
-        if (targets.isEmpty) {
-          pingStatus.value = 'Нет серверов для теста';
-          return;
-        }
-
-        final runtimePorts = <_BenchmarkRuntimePort>[];
-        var completedCount = 0;
-
-        for (var index = 0; index < targets.length; index += 1) {
-          final target = targets[index];
-          final key = _benchmarkKey(target.profile.id, target.server.tag);
-          final outbound = _extractOutbound(
-            target.generatedConfig,
-            target.server.tag,
-          );
-          if (outbound == null) {
-            pingResults.value = {...pingResults.value, key: -1};
-            speedResults.value = {...speedResults.value, key: 0};
-            completedCount += 1;
-            continue;
-          }
-
-          final reservedPort = await probe_utils.allocateFreePort();
-          reservedPorts.add(reservedPort);
-          runtimePorts.add(
-            _BenchmarkRuntimePort(
-              target: target,
-              outbound: Map<String, dynamic>.from(outbound),
-              port: reservedPort.port,
-              inboundTag: 'bench-${index + 1}',
-            ),
-          );
-        }
-
-        pingCompleted.value = completedCount;
-        if (runtimePorts.isEmpty) {
-          pingStatus.value = stopRequested.value ? 'Остановлено' : 'Готово';
-          return;
-        }
-
-        _devConsoleLog(
-          'start active-profile batch ${currentActiveProfile.name} on ${runtimePorts.length} ports',
-        );
-        for (final reservedPort in reservedPorts) {
-          await reservedPort.socket.close();
-        }
-
-        final runtime = await startDetachedBenchmarkRuntime(
-          _buildBatchSpeedtestSingboxConfig(runtimePorts),
-          scope: 'batch',
-        );
-        runtimeDir = runtime.runtimeDir;
-        process = runtime.process;
-
-        final readiness = await Future.wait(
-          runtimePorts.map(
-            (runtimePort) => _waitForLocalPortReady(runtimePort.port),
-          ),
-        );
-        if (stopRequested.value || readiness.any((isReady) => !isReady)) {
-          pingStatus.value = stopRequested.value
-              ? 'Остановлено'
-              : 'Не удалось запустить тест';
-          return;
-        }
-
-        final semaphore = _Semaphore(_batchSpeedMaxConcurrentServers);
-
-        final tasks = runtimePorts.map((runtimePort) async {
-          if (stopRequested.value) return;
-          await semaphore.acquire();
-          final target = runtimePort.target;
-          final key = _benchmarkKey(target.profile.id, target.server.tag);
-          try {
-            if (stopRequested.value) return;
-            benchmarkingTags.value = {...benchmarkingTags.value, key};
-
-            final result = await runProxyBenchmark(
-              runtimePort.port,
-              onProgress: (value) {
-                speedResults.value = {...speedResults.value, key: value};
-              },
-            );
-            pingResults.value = {...pingResults.value, key: result.ping};
-            speedResults.value = {...speedResults.value, key: result.speed};
-          } finally {
-            final nextBenchmarking = {...benchmarkingTags.value};
-            nextBenchmarking.remove(key);
-            benchmarkingTags.value = nextBenchmarking;
-            completedCount += 1;
-            pingCompleted.value = completedCount;
-            pingStatus.value =
-                'Параллельный тест $completedCount/${targets.length}';
-            semaphore.release();
-          }
-        }).toList();
-
-        await Future.wait(tasks);
-        pingStatus.value = stopRequested.value ? 'Остановлено' : 'Готово';
+        await ref
+            .read(serverBenchmarkControllerProvider.notifier)
+            .runActiveProfileBatch(activeProfile: activeProfile);
       } catch (error) {
-        _devConsoleLog('batch benchmark failed: $error', level: 'Warning');
-        if (context.mounted) {
-          ref
-              .read(dialogNotifierProvider.notifier)
-              .showCustomAlert(
-                title: 'Не удалось запустить пакетный тест',
-                message: error.toString(),
-              );
-        }
-      } finally {
-        for (final reservedPort in reservedPorts) {
-          try {
-            await reservedPort.socket.close();
-          } catch (_) {}
-        }
-        try {
-          process?.kill();
-        } catch (_) {}
-        if (runtimeDir != null) {
-          try {
-            await runtimeDir.delete(recursive: true);
-          } catch (_) {}
-        }
-        benchmarkingTags.value = {};
-        ref.read(selectedServerPreviewProvider.notifier).state = null;
-        if (context.mounted) {
-          isTesting.value = false;
-          ref.read(benchmarkActiveProvider.notifier).state = false;
-          if (pingStatus.value != 'Остановлено') pingStatus.value = null;
-        }
+        await ref.read(appModalRouterProvider).showCustomAlert(
+          title: 'Не удалось запустить пакетный тест',
+          message: error.toString(),
+        );
       }
     }
 
@@ -1117,18 +663,22 @@ class ServersPanelWidget extends HookConsumerWidget {
                         ),
                       ),
                       const Gap(6),
-                      if (isTesting.value)
+                      if (benchmarkState.active)
                         _SmallGlassButton(
                           icon: Icons.stop_circle_rounded,
                           tooltip: 'Остановить тест',
                           isStop: true,
-                          onTap: stopBenchmark,
+                          onTap: () {
+                            ref
+                                .read(serverBenchmarkControllerProvider.notifier)
+                                .stop();
+                          },
                         )
                       else
                         _SmallGlassButton(
                           icon: Icons.network_check_rounded,
                           tooltip: 'Параллельный тест серверов',
-                          onTap: activeProfile != null && profileRepo != null
+                          onTap: activeProfile != null
                               ? runBatchBenchmark
                               : null,
                         ),
@@ -1153,13 +703,13 @@ class ServersPanelWidget extends HookConsumerWidget {
                       ],
                     ],
                   ),
-                  if (isTesting.value || pingStatus.value != null) ...[
+                  if (benchmarkState.active || benchmarkState.status != null) ...[
                     const Gap(10),
                     _PingTestProgress(
-                      completed: pingCompleted.value,
-                      total: pingTotal.value,
-                      status: pingStatus.value,
-                      elapsed: benchmarkElapsed.value,
+                      completed: benchmarkState.completed,
+                      total: benchmarkState.total,
+                      status: benchmarkState.status,
+                      elapsed: benchmarkState.elapsed,
                     ),
                   ],
                 ],
@@ -1170,12 +720,9 @@ class ServersPanelWidget extends HookConsumerWidget {
               title: 'Подписки',
               subtitle: subscriptionsSubtitle,
               updateState: updateState,
-              onAdd: () => ref
-                  .read(bottomSheetsNotifierProvider.notifier)
-                  .showAddProfile(),
-              onManage: () => ref
-                  .read(bottomSheetsNotifierProvider.notifier)
-                  .showProfilesOverview(),
+              onAdd: () => ref.read(appModalRouterProvider).showAddProfile(),
+              onManage: () =>
+                  ref.read(appModalRouterProvider).showProfilesOverview(),
             ),
             Expanded(
               child: () {
@@ -1197,7 +744,7 @@ class ServersPanelWidget extends HookConsumerWidget {
                     children: [
                       _SubscriptionsHiddenHint(
                         onManage: () => ref
-                            .read(bottomSheetsNotifierProvider.notifier)
+                            .read(appModalRouterProvider)
                             .showProfilesOverview(),
                       ),
                     ],
@@ -1415,25 +962,27 @@ class ServersPanelWidget extends HookConsumerWidget {
                                             groupName: '',
                                             groupTag: sectionGroup.tag,
                                             pingOverride:
-                                                pingResults.value[_benchmarkKey(
+                                                benchmarkState
+                                                    .pingResults[_benchmarkKey(
                                                   profile.id,
                                                   server.tag,
                                                 )],
                                             speedOverride:
-                                                speedResults
-                                                    .value[_benchmarkKey(
+                                                benchmarkState
+                                                    .speedResults[_benchmarkKey(
                                                   profile.id,
                                                   server.tag,
                                                 )],
-                                            hasSpeedResult: speedResults.value
+                                            hasSpeedResult: benchmarkState
+                                                .speedResults
                                                 .containsKey(
                                                   _benchmarkKey(
                                                     profile.id,
                                                     server.tag,
                                                   ),
                                                 ),
-                                            isBenchmarking: benchmarkingTags
-                                                .value
+                                            isBenchmarking: benchmarkState
+                                                .benchmarkingKeys
                                                 .contains(
                                                   _benchmarkKey(
                                                     profile.id,
@@ -1451,7 +1000,7 @@ class ServersPanelWidget extends HookConsumerWidget {
                                                   profile,
                                                   server,
                                                 ),
-                                            onSelect: isTesting.value
+                                            onSelect: benchmarkState.active
                                                 ? null
                                                 : () async {
                                                     await ref
@@ -3075,8 +2624,12 @@ class _ServerCard extends HookConsumerWidget {
   }
 }
 
-class _ServerSettingsDialog extends StatelessWidget {
-  const _ServerSettingsDialog({required this.server, required this.outbound});
+class ServerSettingsDialog extends StatelessWidget {
+  const ServerSettingsDialog({
+    super.key,
+    required this.server,
+    required this.outbound,
+  });
 
   final OutboundInfo server;
   final Map<String, dynamic>? outbound;

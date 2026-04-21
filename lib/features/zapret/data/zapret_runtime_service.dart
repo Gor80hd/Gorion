@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:gorion_clean/core/process/current_process.dart';
 import 'package:gorion_clean/core/process/running_process_lookup.dart';
 import 'package:gorion_clean/core/windows/privileged_helper_client.dart';
 import 'package:gorion_clean/core/windows/privileged_helper_protocol.dart';
@@ -48,6 +49,8 @@ class ZapretRuntimeService {
   final List<String> _logs = <String>[];
   StreamSubscription<String>? _stdoutSubscription;
   StreamSubscription<String>? _stderrSubscription;
+  Future<void> _lifecycleOperation = Future<void>.value();
+  Process? _stoppingProcess;
 
   ZapretRuntimeSession? get session => _session;
 
@@ -100,6 +103,20 @@ class ZapretRuntimeService {
     required ZapretSettings settings,
     required void Function(int exitCode) onExit,
     bool preserveLogs = false,
+  }) {
+    return _serializeLifecycle(
+      () => _startImpl(
+        settings: settings,
+        onExit: onExit,
+        preserveLogs: preserveLogs,
+      ),
+    );
+  }
+
+  Future<ZapretRuntimeSession> _startImpl({
+    required ZapretSettings settings,
+    required void Function(int exitCode) onExit,
+    bool preserveLogs = false,
   }) async {
     if (!Platform.isWindows) {
       throw UnsupportedError(
@@ -108,7 +125,7 @@ class ZapretRuntimeService {
     }
 
     final runtimeDir = await _runtimeDirectory();
-    await stop();
+    await _stopImpl();
     await _cleanupOrphanedProcess(runtimeDir);
     await _throwIfOrphanedProcessMarkerStillPresent(runtimeDir);
     if (!preserveLogs) {
@@ -170,7 +187,7 @@ class ZapretRuntimeService {
     );
     await _windowsRuntimeCleanupWatchdog.arm(
       runtimeDir: runtimeDir,
-      parentPid: pid,
+      parentPid: currentProcessPid,
       childPid: process.pid,
       onLog: _appendLog,
     );
@@ -188,6 +205,9 @@ class ZapretRuntimeService {
     process.exitCode.then((code) {
       unawaited(_deleteProcessMarker(runtimeDir, expectedPid: process.pid));
       _appendLog('zapret завершился с кодом $code.', isError: code != 0);
+      if (identical(_stoppingProcess, process)) {
+        return;
+      }
       if (identical(_process, process)) {
         _process = null;
         _session = null;
@@ -198,7 +218,11 @@ class ZapretRuntimeService {
     return _session!;
   }
 
-  Future<void> stop() async {
+  Future<void> stop() {
+    return _serializeLifecycle(_stopImpl);
+  }
+
+  Future<void> _stopImpl() async {
     await _stdoutSubscription?.cancel();
     await _stderrSubscription?.cancel();
     _stdoutSubscription = null;
@@ -206,30 +230,40 @@ class ZapretRuntimeService {
 
     final runtimeDir = await _runtimeDirectory();
     final process = _process;
-    _process = null;
-    _session = null;
 
     if (process == null) {
       return;
     }
 
     _appendLog('Остановка zapret PID ${process.pid}.');
-    process.kill();
+    _stoppingProcess = process;
     try {
-      await process.exitCode.timeout(const Duration(seconds: 4));
-    } on TimeoutException {
-      _appendLog(
-        'zapret не завершился корректно, выполняется принудительная остановка.',
-        isError: true,
-      );
-      process.kill(ProcessSignal.sigkill);
-      await process.exitCode.timeout(
-        const Duration(seconds: 2),
-        onTimeout: () => -1,
-      );
+      process.kill();
+      try {
+        await process.exitCode.timeout(const Duration(seconds: 4));
+      } on TimeoutException {
+        _appendLog(
+          'zapret не завершился корректно, выполняется принудительная остановка.',
+          isError: true,
+        );
+        process.kill(ProcessSignal.sigkill);
+        await process.exitCode.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => -1,
+        );
+      }
+
+      await _deleteProcessMarker(runtimeDir, expectedPid: process.pid);
+    } finally {
+      if (identical(_stoppingProcess, process)) {
+        _stoppingProcess = null;
+      }
     }
 
-    await _deleteProcessMarker(runtimeDir, expectedPid: process.pid);
+    if (identical(_process, process)) {
+      _process = null;
+      _session = null;
+    }
   }
 
   Future<void> stopForAppExit() async {
@@ -238,6 +272,20 @@ class ZapretRuntimeService {
 
   void dispose() {
     unawaited(stopForAppExit());
+  }
+
+  Future<T> _serializeLifecycle<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    _lifecycleOperation = _lifecycleOperation
+        .catchError((_) {})
+        .then((_) async {
+          try {
+            completer.complete(await action());
+          } on Object catch (error, stackTrace) {
+            completer.completeError(error, stackTrace);
+          }
+        });
+    return completer.future;
   }
 
   Future<Directory> _runtimeDirectory() async {

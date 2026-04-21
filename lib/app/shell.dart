@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:go_router/go_router.dart';
+import 'package:gorion_clean/app/app_router.dart';
 import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/app/windows_tray_controller.dart';
@@ -30,18 +32,27 @@ const _dockWidth = 67.0;
 const _dockGap = 12.0;
 const _titleBarHeight = 48.0;
 const _dockTopGap = 10.0;
+const _backgroundOrbs = <({double? left, double? right, double? top, double? bottom, double size})>[
+  (left: -180, right: null, top: -140, bottom: null, size: 380),
+  (left: null, right: -90, top: 80, bottom: null, size: 240),
+  (left: null, right: 120, top: null, bottom: -180, size: 420),
+];
 
 class AppShell extends ConsumerStatefulWidget {
-  const AppShell({super.key, required this.child});
+  const AppShell({
+    super.key,
+    required this.child,
+    this.location = AppRoutePaths.home,
+  });
 
   final Widget child;
+  final String location;
 
   @override
   ConsumerState<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends ConsumerState<AppShell> with WindowListener {
-  _DockPage _currentPage = _DockPage.home;
   AppLifecycleListener? _appLifecycleListener;
   ProviderSubscription<DashboardState>? _dashboardSubscription;
   ProviderSubscription<ZapretState>? _zapretSubscription;
@@ -51,6 +62,7 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   bool _startupZapretHandled = false;
   bool _windowDestroyInProgress = false;
   String _appVersionLabel = '...';
+  late _DockPage _manualCurrentPage;
 
   bool get _isDesktop =>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
@@ -60,7 +72,7 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   @override
   void initState() {
     super.initState();
-    ref.read(zapretControllerProvider.notifier);
+    _manualCurrentPage = _dockPageForLocation(widget.location);
     _appLifecycleListener = AppLifecycleListener(
       onExitRequested: _handleAppExitRequest,
     );
@@ -102,6 +114,14 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     }
     _appLifecycleListener?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.location != oldWidget.location) {
+      _manualCurrentPage = _dockPageForLocation(widget.location);
+    }
   }
 
   @override
@@ -483,6 +503,11 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final tokens = theme.gorionTokens;
+    final routedLocation = _maybeRouterLocation(context);
+    final hasRouter = routedLocation != null;
+    final currentPage = hasRouter
+        ? _dockPageForLocation(widget.location)
+        : _manualCurrentPage;
     final viewPadding = MediaQuery.viewPaddingOf(context);
     final topInset = math.max(
       _dockVerticalMargin,
@@ -504,9 +529,17 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       _dockLeftMargin,
       viewPadding.left + _dockLeftMargin,
     );
-    final contentTopInset = _currentPage == _DockPage.home
+    final contentTopInset = currentPage == _DockPage.home
         ? topInset + 8
         : topInset + _titleBarHeight + _dockTopGap;
+    final isZapretPage = currentPage == _DockPage.zapret;
+    final pageChild = switch (currentPage) {
+      _DockPage.home => widget.child,
+      _DockPage.settings => hasRouter
+          ? widget.child
+          : const SettingsPage(animateOnMount: false),
+      _DockPage.zapret => const SizedBox.shrink(),
+    };
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -518,7 +551,7 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
           fit: StackFit.expand,
           children: [
             _BackgroundAtmosphere(),
-            if (_currentPage == _DockPage.zapret)
+            if (isZapretPage)
               KeyedSubtree(
                 key: const ValueKey(_DockPage.zapret),
                 child: ZapretPage(
@@ -540,14 +573,8 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
                   bottomInset,
                 ),
                 child: KeyedSubtree(
-                  key: ValueKey(_currentPage),
-                  child: switch (_currentPage) {
-                    _DockPage.home => widget.child,
-                    _DockPage.zapret => const SizedBox.shrink(),
-                    _DockPage.settings => const SettingsPage(
-                      animateOnMount: false,
-                    ),
-                  },
+                  key: ValueKey(currentPage),
+                  child: pageChild,
                 ),
               ),
             Positioned(
@@ -566,19 +593,45 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
               top: topInset + _titleBarHeight + _dockTopGap,
               bottom: dockBottomInset,
               child: _Dock(
-                current: _currentPage,
-                onSelect: (page) {
-                  if (_currentPage == page) {
-                    return;
-                  }
-                  setState(() => _currentPage = page);
-                },
+                current: currentPage,
+                onSelect: (page) => _handleDockNavigation(context, page),
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  void _handleDockNavigation(BuildContext context, _DockPage page) {
+    final target = switch (page) {
+      _DockPage.home => AppRoutePaths.home,
+      _DockPage.zapret => AppRoutePaths.zapret,
+      _DockPage.settings => AppRoutePaths.settings,
+    };
+    final currentLocation = _maybeRouterLocation(context);
+    if (currentLocation != null) {
+      if (currentLocation == target) {
+        return;
+      }
+      context.go(target);
+      return;
+    }
+
+    if (_manualCurrentPage == page) {
+      return;
+    }
+    setState(() {
+      _manualCurrentPage = page;
+    });
+  }
+
+  String? _maybeRouterLocation(BuildContext context) {
+    try {
+      return GoRouterState.of(context).uri.path;
+    } on Object {
+      return null;
+    }
   }
 }
 
@@ -597,21 +650,21 @@ class _BackgroundAtmosphere extends StatelessWidget {
     return IgnorePointer(
       child: Stack(
         children: [
-          Positioned(
-            left: -180,
-            top: -140,
-            child: _GlowOrb(size: 380, color: tokens.atmospherePrimary),
-          ),
-          Positioned(
-            right: -90,
-            top: 80,
-            child: _GlowOrb(size: 240, color: tokens.atmosphereSecondary),
-          ),
-          Positioned(
-            right: 120,
-            bottom: -180,
-            child: _GlowOrb(size: 420, color: tokens.atmosphereTertiary),
-          ),
+          for (var index = 0; index < _backgroundOrbs.length; index += 1)
+            Positioned(
+              left: _backgroundOrbs[index].left,
+              right: _backgroundOrbs[index].right,
+              top: _backgroundOrbs[index].top,
+              bottom: _backgroundOrbs[index].bottom,
+              child: _GlowOrb(
+                size: _backgroundOrbs[index].size,
+                color: switch (index) {
+                  0 => tokens.atmospherePrimary,
+                  1 => tokens.atmosphereSecondary,
+                  _ => tokens.atmosphereTertiary,
+                },
+              ),
+            ),
         ],
       ),
     );
@@ -626,8 +679,6 @@ class _GlowOrb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Container(
       width: size,
       height: size,
@@ -636,8 +687,7 @@ class _GlowOrb extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: color,
-            blurRadius: size * (isDark ? 0.42 : 0.20),
-            spreadRadius: size * (isDark ? 0.06 : 0.0),
+            blurRadius: size * 0.20,
           ),
         ],
       ),
@@ -806,10 +856,7 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final controlIconColor = theme.brightness == Brightness.dark
-        ? Colors.white
-        : Colors.black;
-    final closeIconColor = theme.brightness == Brightness.dark
+    final iconColor = theme.brightness == Brightness.dark
         ? Colors.white
         : Colors.black;
 
@@ -834,7 +881,7 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
         children: [
           _WinBtn(
             onTap: () => windowManager.minimize(),
-            child: Container(width: 10, height: 1.5, color: controlIconColor),
+            child: Container(width: 10, height: 1.5, color: iconColor),
           ),
           _WinBtn(
             onTap: () async {
@@ -845,19 +892,19 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
               }
             },
             child: _isMaximized
-                ? _RestoreIcon(color: controlIconColor)
+                ? _RestoreIcon(color: iconColor)
                 : Container(
                     width: 10,
                     height: 10,
                     decoration: BoxDecoration(
-                      border: Border.all(color: controlIconColor, width: 1.2),
+                      border: Border.all(color: iconColor, width: 1.2),
                     ),
                   ),
           ),
           _WinBtn(
             isClose: true,
             onTap: () => windowManager.close(),
-            child: Icon(Icons.close_rounded, size: 14, color: closeIconColor),
+            child: Icon(Icons.close_rounded, size: 14, color: iconColor),
           ),
         ],
       ),
@@ -954,7 +1001,10 @@ class _RestorePainter extends CustomPainter {
 enum _DockPage { home, zapret, settings }
 
 class _Dock extends StatelessWidget {
-  const _Dock({required this.current, required this.onSelect});
+  const _Dock({
+    required this.current,
+    required this.onSelect,
+  });
 
   final _DockPage current;
   final ValueChanged<_DockPage> onSelect;
@@ -1014,6 +1064,16 @@ class _Dock extends StatelessWidget {
       ),
     );
   }
+}
+
+_DockPage _dockPageForLocation(String location) {
+  if (location.startsWith(AppRoutePaths.zapret)) {
+    return _DockPage.zapret;
+  }
+  if (location.startsWith(AppRoutePaths.settings)) {
+    return _DockPage.settings;
+  }
+  return _DockPage.home;
 }
 
 class _DockDivider extends StatelessWidget {

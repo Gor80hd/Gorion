@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gorion_clean/core/process/process_exception_utils.dart';
+import 'package:gorion_clean/core/state/update_value.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
 import 'package:gorion_clean/core/logging/gorion_console_log.dart';
@@ -23,6 +25,9 @@ import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 
 const systemProxyStartupSettleDelay = Duration(milliseconds: 1500);
+const _preConnectAutoSelectLabel = 'Автовыбор перед подключением';
+const _manualAutoSelectLabel = 'Ручной автовыбор';
+const _automaticMaintenanceLabel = 'Фоновая проверка';
 
 final profileRepositoryProvider = Provider<ProfileRepository>(
   (ref) => ProfileRepository(),
@@ -71,27 +76,35 @@ RuntimeMode _normalizeRuntimeMode(RuntimeMode mode) {
   return mode;
 }
 
-RuntimeMode _effectiveRuntimeMode(RuntimeMode mode) {
-  return _normalizeRuntimeMode(mode);
+String _pluralizeRu(int value, String one, String few, String many) {
+  final mod10 = value % 10;
+  final mod100 = value % 100;
+  if (mod10 == 1 && mod100 != 11) {
+    return one;
+  }
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return few;
+  }
+  return many;
 }
 
 String _describeAutoSelectBestServerCheckInterval(int minutes) {
   final hours = minutes ~/ 60;
   final remainingMinutes = minutes % 60;
   if (hours > 0 && remainingMinutes > 0) {
-    return '$hours ${hours == 1 ? 'hour' : 'hours'} '
+    return '$hours ${_pluralizeRu(hours, 'час', 'часа', 'часов')} '
         '$remainingMinutes '
-        '${remainingMinutes == 1 ? 'minute' : 'minutes'}';
+        '${_pluralizeRu(remainingMinutes, 'минута', 'минуты', 'минут')}';
   }
   if (hours > 0) {
-    return '$hours ${hours == 1 ? 'hour' : 'hours'}';
+    return '$hours ${_pluralizeRu(hours, 'час', 'часа', 'часов')}';
   }
-  return '$minutes ${minutes == 1 ? 'minute' : 'minutes'}';
+  return '$minutes ${_pluralizeRu(minutes, 'минута', 'минуты', 'минут')}';
 }
 
 class _CancelledConnectOperation implements Exception {
   const _CancelledConnectOperation([
-    this.message = 'Connection attempt was cancelled.',
+    this.message = 'Попытка подключения отменена.',
   ]);
 
   final String message;
@@ -195,24 +208,42 @@ class DashboardState {
     StoredProfilesState? storage,
     ConnectionStage? connectionStage,
     RuntimeSession? runtimeSession,
+    UpdateValue<RuntimeSession?> runtimeSessionUpdate =
+        const UpdateValue<RuntimeSession?>.absent(),
     bool clearRuntimeSession = false,
     DateTime? connectedAt,
+    UpdateValue<DateTime?> connectedAtUpdate =
+        const UpdateValue<DateTime?>.absent(),
     bool clearConnectedAt = false,
     Map<String, int>? delayByTag,
     String? selectedServerTag,
+    UpdateValue<String?> selectedServerTagUpdate =
+        const UpdateValue<String?>.absent(),
     bool clearSelectedServerTag = false,
     String? activeServerTag,
+    UpdateValue<String?> activeServerTagUpdate =
+        const UpdateValue<String?>.absent(),
     bool clearActiveServerTag = false,
     RecentSuccessfulAutoConnect? recentSuccessfulAutoConnect,
+    UpdateValue<RecentSuccessfulAutoConnect?> recentSuccessfulAutoConnectUpdate =
+        const UpdateValue<RecentSuccessfulAutoConnect?>.absent(),
     bool clearRecentSuccessfulAutoConnect = false,
     List<AutoSelectProbeResult>? autoSelectResults,
     AutoSelectActivityState? autoSelectActivity,
+    UpdateValue<AutoSelectActivityState> autoSelectActivityUpdate =
+        const UpdateValue<AutoSelectActivityState>.absent(),
     bool clearAutoSelectActivity = false,
     DateTime? lastBestServerCheckAt,
+    UpdateValue<DateTime?> lastBestServerCheckAtUpdate =
+        const UpdateValue<DateTime?>.absent(),
     bool clearLastBestServerCheckAt = false,
     String? statusMessage,
+    UpdateValue<String?> statusMessageUpdate =
+        const UpdateValue<String?>.absent(),
     bool clearStatusMessage = false,
     String? errorMessage,
+    UpdateValue<String?> errorMessageUpdate =
+        const UpdateValue<String?>.absent(),
     bool clearErrorMessage = false,
     List<String>? logs,
   }) {
@@ -228,31 +259,60 @@ class DashboardState {
       connectionStage: connectionStage ?? this.connectionStage,
       runtimeSession: clearRuntimeSession
           ? null
-          : runtimeSession ?? this.runtimeSession,
-      connectedAt: clearConnectedAt ? null : connectedAt ?? this.connectedAt,
+          : runtimeSessionUpdate.isPresent
+          ? runtimeSessionUpdate.value
+          : runtimeSession
+          ?? this.runtimeSession,
+      connectedAt: clearConnectedAt
+          ? null
+          : connectedAtUpdate.isPresent
+          ? connectedAtUpdate.value
+          : connectedAt
+          ?? this.connectedAt,
       delayByTag: delayByTag ?? this.delayByTag,
       selectedServerTag: clearSelectedServerTag
           ? null
-          : selectedServerTag ?? this.selectedServerTag,
+          : selectedServerTagUpdate.isPresent
+          ? selectedServerTagUpdate.value
+          : selectedServerTag
+          ?? this.selectedServerTag,
       activeServerTag: clearActiveServerTag
           ? null
-          : activeServerTag ?? this.activeServerTag,
+          : activeServerTagUpdate.isPresent
+          ? activeServerTagUpdate.value
+          : activeServerTag
+          ?? this.activeServerTag,
       recentSuccessfulAutoConnect: clearRecentSuccessfulAutoConnect
           ? null
-          : recentSuccessfulAutoConnect ?? this.recentSuccessfulAutoConnect,
+          : recentSuccessfulAutoConnectUpdate.isPresent
+          ? recentSuccessfulAutoConnectUpdate.value
+          : recentSuccessfulAutoConnect
+          ?? this.recentSuccessfulAutoConnect,
       autoSelectResults: autoSelectResults ?? this.autoSelectResults,
       autoSelectActivity: clearAutoSelectActivity
           ? const AutoSelectActivityState()
-          : autoSelectActivity ?? this.autoSelectActivity,
+          : autoSelectActivityUpdate.isPresent
+          ? autoSelectActivityUpdate.value!
+          : autoSelectActivity
+          ?? this.autoSelectActivity,
       lastBestServerCheckAt: clearLastBestServerCheckAt
           ? null
-          : lastBestServerCheckAt ?? this.lastBestServerCheckAt,
+          : lastBestServerCheckAtUpdate.isPresent
+          ? lastBestServerCheckAtUpdate.value
+          : lastBestServerCheckAt
+          ?? this.lastBestServerCheckAt,
       statusMessage: clearStatusMessage
           ? null
-          : statusMessage ?? this.statusMessage,
+          : statusMessageUpdate.isPresent
+          ? statusMessageUpdate.value
+          : statusMessage
+          ?? this.statusMessage,
       errorMessage: clearErrorMessage
           ? null
-          : errorMessage ?? this.errorMessage,
+          : errorMessageUpdate.isPresent
+          ? errorMessageUpdate.value
+          : errorMessage
+          ?? this.errorMessage,
       logs: logs ?? this.logs,
     );
   }
@@ -261,9 +321,9 @@ class DashboardState {
 class DashboardController extends StateNotifier<DashboardState> {
   static const _maxAutoSelectTraceLines = 20;
   static const _bestServerCheckLabels = <String>{
-    'Pre-connect auto-select',
-    'Manual auto-select',
-    'Automatic maintenance',
+    _preConnectAutoSelectLabel,
+    _manualAutoSelectLabel,
+    _automaticMaintenanceLabel,
   };
 
   DashboardController({
@@ -333,9 +393,31 @@ class DashboardController extends StateNotifier<DashboardState> {
   Timer? _autoSelectionTimer;
   bool _autoSelectionInFlight = false;
   int _connectOperationId = 0;
+  final Map<String, String> _effectiveTemplateConfigCache = <String, String>{};
+  final Map<String, Map<String, String>> _autoSelectFingerprintCache =
+      <String, Map<String, String>>{};
 
   Duration get _currentAutoSelectionInterval =>
       state.autoSelectSettings.bestServerCheckInterval;
+
+  String _effectiveTemplateConfigCacheKey(String profileId) {
+    return '$profileId::${state.connectionTuningSettings.hashCode}';
+  }
+
+  void _invalidateAutoSelectCaches([String? profileId]) {
+    if (profileId == null) {
+      _effectiveTemplateConfigCache.clear();
+      _autoSelectFingerprintCache.clear();
+      return;
+    }
+
+    _effectiveTemplateConfigCache.removeWhere(
+      (key, _) => key.startsWith('$profileId::'),
+    );
+    _autoSelectFingerprintCache.removeWhere(
+      (key, _) => key.startsWith('$profileId::'),
+    );
+  }
 
   @override
   void dispose() {
@@ -468,6 +550,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   Future<void> load() async {
+    _invalidateAutoSelectCaches();
     state = state.copyWith(
       bootstrapping: true,
       clearErrorMessage: true,
@@ -485,6 +568,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       final storage = await storageFuture;
       final autoSelectState = await autoSelectStateFuture;
       final connectionTuningSettings = await connectionTuningSettingsFuture;
+      _invalidateAutoSelectCaches();
       state = state.copyWith(
         bootstrapping: false,
         autoSelectSettings: autoSelectState.settings,
@@ -525,6 +609,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
     try {
       final storage = await _repository.addRemoteSubscription(trimmed);
+      _invalidateAutoSelectCaches();
       state = state.copyWith(
         busy: false,
         storage: storage,
@@ -555,6 +640,7 @@ class DashboardController extends StateNotifier<DashboardState> {
 
     try {
       final stored = await _connectionTuningSettingsRepository.save(normalized);
+      _invalidateAutoSelectCaches();
       state = state.copyWith(
         busy: false,
         connectionTuningSettings: stored,
@@ -608,6 +694,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       final stored = await _connectionTuningSettingsRepository.save(
         currentSettings.copyWith(splitTunnel: nextSplitTunnel),
       );
+      _invalidateAutoSelectCaches();
       state = state.copyWith(
         busy: false,
         connectionTuningSettings: stored,
@@ -652,6 +739,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
     try {
       final storage = await _repository.setActiveProfile(profileId);
+      _invalidateAutoSelectCaches();
       state = state.copyWith(
         busy: false,
         storage: storage,
@@ -803,23 +891,32 @@ class DashboardController extends StateNotifier<DashboardState> {
 
   Future<void> setAutoSelectServerExcluded(
     String serverTag,
-    bool excluded,
-  ) async {
-    final profile = state.activeProfile;
+    bool excluded, {
+    String? profileId,
+  }) async {
+    final resolvedProfileId = profileId ?? state.activeProfile?.id;
+    final profile = resolvedProfileId == null
+        ? null
+        : _profileById(resolvedProfileId);
     if (profile == null || state.busy || isAutoSelectServerTag(serverTag)) {
       return;
     }
 
     final currentSettings = state.autoSelectSettings;
-    final alreadyExcluded = currentSettings.isExcluded(profile.id, serverTag);
+    final alreadyExcluded = currentSettings.isExcluded(
+      resolvedProfileId!,
+      serverTag,
+    );
     if (alreadyExcluded == excluded) {
       return;
     }
+    _invalidateAutoSelectCaches(profile.id);
 
     final shouldKickMonitor =
         currentSettings.enabled &&
         state.connectionStage == ConnectionStage.connected &&
         state.runtimeSession != null &&
+        profile.id == state.activeProfile?.id &&
         profile.prefersAutoSelection;
 
     state = state.copyWith(
@@ -829,7 +926,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
     try {
       final stored = await _autoSelectSettingsRepository.updateExcludedServer(
-        profileId: profile.id,
+        profileId: resolvedProfileId,
         serverTag: serverTag,
         excluded: excluded,
       );
@@ -844,8 +941,8 @@ class DashboardController extends StateNotifier<DashboardState> {
         autoSelectSettings: updatedSettings,
         recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
         statusMessage: excluded
-            ? 'Server $serverTag was excluded from automatic selection.'
-            : 'Server $serverTag was returned to automatic selection.',
+            ? 'Сервер $serverTag исключён из автоматического выбора.'
+            : 'Сервер $serverTag снова участвует в автоматическом выборе.',
       );
 
       if (shouldKickMonitor) {
@@ -853,7 +950,7 @@ class DashboardController extends StateNotifier<DashboardState> {
           _stopAutoSelectionMonitoring();
           state = state.copyWith(
             statusMessage:
-                'All servers for the active profile are excluded from automatic selection.',
+                'Для активного профиля не осталось серверов для автоматического выбора.',
           );
           return;
         }
@@ -918,13 +1015,13 @@ class DashboardController extends StateNotifier<DashboardState> {
         if (preparedAutoSelection?.reusedRecentSuccessfulSelection ?? false) {
           state = state.copyWith(
             autoSelectActivity: AutoSelectActivityState(
-              label: 'Pre-connect auto-select',
+              label: _preConnectAutoSelectLabel,
               message: preparedAutoSelection!.summary,
             ),
           );
         } else {
           _startAutoSelectActivity(
-            'Pre-connect auto-select',
+            _preConnectAutoSelectLabel,
             message:
                 'Loading saved auto-select state and preparing candidate probes.',
           );
@@ -933,11 +1030,11 @@ class DashboardController extends StateNotifier<DashboardState> {
             templateConfig: templateConfig,
             abortReason: () => _connectOperationAbortReason(connectOperationId),
             onProgress: (event) {
-              _reportAutoSelectProgress('Pre-connect auto-select', event);
+              _reportAutoSelectProgress(_preConnectAutoSelectLabel, event);
             },
           );
           _throwIfConnectOperationCancelled(connectOperationId);
-          _finishAutoSelectActivity('Pre-connect auto-select');
+          _finishAutoSelectActivity(_preConnectAutoSelectLabel);
         }
         startupServerTag =
             preparedAutoSelection?.selectedServerTag ?? startupServerTag;
@@ -1087,10 +1184,10 @@ class DashboardController extends StateNotifier<DashboardState> {
         return;
       }
       if (state.autoSelectActivity.active &&
-          state.autoSelectActivity.label == 'Pre-connect auto-select') {
+          state.autoSelectActivity.label == _preConnectAutoSelectLabel) {
         _finishAutoSelectActivity(
-          'Pre-connect auto-select',
-          message: 'Pre-connect auto-select failed: $error',
+          _preConnectAutoSelectLabel,
+          message: 'Автовыбор перед подключением завершился с ошибкой: $error',
           isError: true,
         );
       }
@@ -1351,8 +1448,8 @@ class DashboardController extends StateNotifier<DashboardState> {
       }
 
       _startAutoSelectActivity(
-        'Manual auto-select',
-        message: 'Refreshing URLTest delays and probing servers.',
+        _manualAutoSelectLabel,
+        message: 'Обновляем URLTest и проверяем доступные серверы.',
       );
 
       final outcome = await _autoSelectorService.selectBestServer(
@@ -1362,7 +1459,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         ipProbeUrl: state.autoSelectSettings.ipProbeUrl,
         checkIp: state.autoSelectSettings.checkIp,
         onProgress: (event) {
-          _reportAutoSelectProgress('Manual auto-select', event);
+          _reportAutoSelectProgress(_manualAutoSelectLabel, event);
         },
       );
       final updatedStorage = await _repository.updateAutoSelectedServer(
@@ -1383,7 +1480,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         statusMessage: outcome.summary,
         logs: _runtimeService.logs,
       );
-      _finishAutoSelectActivity('Manual auto-select');
+      _finishAutoSelectActivity(_manualAutoSelectLabel);
       if (outcome.hasReachableCandidate) {
         state = state.copyWith(
           recentSuccessfulAutoConnect:
@@ -1396,10 +1493,10 @@ class DashboardController extends StateNotifier<DashboardState> {
       }
     } on Object catch (error) {
       if (state.autoSelectActivity.active &&
-          state.autoSelectActivity.label == 'Manual auto-select') {
+          state.autoSelectActivity.label == _manualAutoSelectLabel) {
         _finishAutoSelectActivity(
-          'Manual auto-select',
-          message: 'Manual auto-select failed: $error',
+          _manualAutoSelectLabel,
+          message: 'Ручной автовыбор завершился с ошибкой: $error',
           isError: true,
         );
       }
@@ -1592,6 +1689,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
     try {
       final storage = await _repository.removeProfile(profile.id);
+      _invalidateAutoSelectCaches();
       final activeProfile = storage.activeProfile;
       state = state.copyWith(
         busy: false,
@@ -1804,7 +1902,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       return;
     }
 
-    _startAutoSelectActivity('Automatic maintenance');
+    _startAutoSelectActivity(_automaticMaintenanceLabel);
     _autoSelectionInFlight = true;
     try {
       final outcome = await _autoSelectorService.maintainBestServer(
@@ -1816,7 +1914,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         allowSwitchDuringCooldown: allowSwitchDuringCooldown,
         onProgress: (event) {
           _reportAutoSelectProgress(
-            'Automatic maintenance',
+            _automaticMaintenanceLabel,
             event,
             session: session,
             profileId: profile.id,
@@ -1864,7 +1962,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         state = baseState;
       }
       _finishAutoSelectActivity(
-        'Automatic maintenance',
+        _automaticMaintenanceLabel,
         session: session,
         profileId: profile.id,
       );
@@ -1885,8 +1983,8 @@ class DashboardController extends StateNotifier<DashboardState> {
       final isCurrentSession = _isCurrentConnectedSession(session, profile.id);
       if (isCurrentSession) {
         _finishAutoSelectActivity(
-          'Automatic maintenance',
-          message: 'Automatic maintenance failed: $error',
+          _automaticMaintenanceLabel,
+          message: 'Фоновая проверка завершилась с ошибкой: $error',
           session: session,
           profileId: profile.id,
           isError: true,
@@ -2019,7 +2117,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         eligibleServers.isNotEmpty;
 
     if (shouldUseAutoVerification) {
-      _startAutoSelectActivity('Automatic maintenance');
+      _startAutoSelectActivity(_automaticMaintenanceLabel);
       try {
         final outcome = await _autoSelectorService.maintainBestServer(
           session: session,
@@ -2029,7 +2127,7 @@ class DashboardController extends StateNotifier<DashboardState> {
           checkIp: state.autoSelectSettings.checkIp,
           allowSwitchDuringCooldown: true,
           onProgress: (event) {
-            _reportAutoSelectProgress('Automatic maintenance', event);
+            _reportAutoSelectProgress(_automaticMaintenanceLabel, event);
           },
         );
         final selectedProbe = _probeByServerTag(
@@ -2047,7 +2145,7 @@ class DashboardController extends StateNotifier<DashboardState> {
                   ),
                 );
           _finishAutoSelectActivity(
-            'Automatic maintenance',
+            _automaticMaintenanceLabel,
             message: failureMessage,
             isError: true,
           );
@@ -2069,7 +2167,7 @@ class DashboardController extends StateNotifier<DashboardState> {
             outcome.selectedServerTag,
           );
         }
-        _finishAutoSelectActivity('Automatic maintenance');
+        _finishAutoSelectActivity(_automaticMaintenanceLabel);
         return (
           storage: nextStorage,
           activeServerTag: outcome.selectedServerTag,
@@ -2083,7 +2181,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       } on Object {
         final failureMessage = _internetAccessVerificationErrorMessage();
         _finishAutoSelectActivity(
-          'Automatic maintenance',
+          _automaticMaintenanceLabel,
           message: failureMessage,
           isError: true,
         );
@@ -2180,17 +2278,13 @@ class DashboardController extends StateNotifier<DashboardState> {
     try {
       final resolvedTemplateConfig =
           templateConfig ?? await _loadEffectiveTemplateConfig(profile);
-      final candidates = extractAutoSelectConfigCandidates(
+      final fingerprintByTag = _resolveAutoSelectFingerprintByTag(
+        profile,
         resolvedTemplateConfig,
       );
-      if (candidates.isEmpty) {
+      if (fingerprintByTag.isEmpty) {
         return eligibleServers;
       }
-
-      final fingerprintByTag = {
-        for (final candidate in candidates)
-          candidate.tag: candidate.configFingerprint,
-      };
       return _deduplicateExactServers([
         for (final server in eligibleServers)
           if ((server.configFingerprint ?? '').isNotEmpty)
@@ -2211,8 +2305,36 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   Future<String> _loadEffectiveTemplateConfig(ProxyProfile profile) async {
+    final cacheKey = _effectiveTemplateConfigCacheKey(profile.id);
+    final cached = _effectiveTemplateConfigCache[cacheKey];
+    if (cached != null) {
+      return cached;
+    }
+
     final templateConfig = await _repository.loadTemplateConfig(profile);
-    return _applyConnectionTuningSettings(templateConfig);
+    final resolved = _applyConnectionTuningSettings(templateConfig);
+    _effectiveTemplateConfigCache[cacheKey] = resolved;
+    return resolved;
+  }
+
+  Map<String, String> _resolveAutoSelectFingerprintByTag(
+    ProxyProfile profile,
+    String resolvedTemplateConfig,
+  ) {
+    final cacheKey = _effectiveTemplateConfigCacheKey(profile.id);
+    final cached = _autoSelectFingerprintCache[cacheKey];
+    if (cached != null) {
+      return cached;
+    }
+
+    final fingerprintByTag = <String, String>{
+      for (final candidate in extractAutoSelectConfigCandidates(
+        resolvedTemplateConfig,
+      ))
+        candidate.tag: candidate.configFingerprint,
+    };
+    _autoSelectFingerprintCache[cacheKey] = fingerprintByTag;
+    return fingerprintByTag;
   }
 
   String _applyConnectionTuningSettings(String templateConfig) {
@@ -2289,50 +2411,49 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   String _connectedStatus(RuntimeSession session) {
-    return switch (_effectiveRuntimeMode(session.mode)) {
+    return switch (_normalizeRuntimeMode(session.mode)) {
       RuntimeMode.mixed =>
-        'Connected in local proxy mode on ${session.mixedProxyAddress}. Apps must use the proxy explicitly or switch to System proxy/TUN.',
+        'Подключение через локальный прокси активно на ${session.mixedProxyAddress}. Используйте этот адрес в приложениях вручную или переключитесь на системный прокси/TUN.',
       RuntimeMode.systemProxy =>
-        'Connected in system proxy mode. Windows traffic that honors the system proxy now uses ${session.mixedProxyAddress}.',
+        'Подключение через системный прокси активно. Трафик Windows-приложений, которые используют системный прокси, теперь идёт через ${session.mixedProxyAddress}.',
       RuntimeMode.tun =>
-        'Connected in TUN mode. System traffic is routed through sing-box, and the mixed inbound remains available on ${session.mixedProxyAddress}.',
+        'Подключение через TUN активно. Системный трафик маршрутизируется через sing-box, а mixed-inbound остаётся доступен на ${session.mixedProxyAddress}.',
     };
   }
 
   String _disconnectedStatus(RuntimeSession? previousSession) {
     return switch (previousSession == null
         ? null
-        : _effectiveRuntimeMode(previousSession.mode)) {
+        : _normalizeRuntimeMode(previousSession.mode)) {
       RuntimeMode.systemProxy =>
-        'Local sing-box runtime stopped and the previous Windows system proxy settings were restored.',
-      RuntimeMode.tun ||
-      RuntimeMode.mixed ||
-      null => 'Local sing-box runtime stopped.',
+        'Локальный runtime sing-box остановлен, прежние системные настройки прокси Windows восстановлены.',
+      RuntimeMode.tun || RuntimeMode.mixed || null =>
+        'Локальный runtime sing-box остановлен.',
     };
   }
 
   String _modeSelectionStatus(RuntimeMode mode) {
-    return switch (_effectiveRuntimeMode(mode)) {
+    return switch (_normalizeRuntimeMode(mode)) {
       RuntimeMode.mixed =>
-        'Local proxy mode selected. Connect and point apps at the mixed inbound manually.',
+        'Выбран режим локального прокси. После подключения укажите mixed-inbound в приложениях вручную.',
       RuntimeMode.systemProxy =>
-        'System proxy mode selected. Connect to route browsers that honor the Windows system proxy.',
+        'Выбран режим системного прокси. Подключитесь, чтобы направить через него браузеры и приложения, которые уважают системный прокси Windows.',
       RuntimeMode.tun =>
-        'TUN mode selected. Connect to capture system traffic through sing-box.',
+        'Выбран режим TUN. Подключитесь, чтобы направить системный трафик через sing-box.',
     };
   }
 
   String _connectionError(Object error, RuntimeMode mode) {
-    if (error is ProcessException && _isElevationRequired(error)) {
+    if (error is ProcessException && isProcessElevationRequired(error)) {
       return 'Запуск TUN требует прав администратора. Подтвердите UAC-запрос или перезапустите Gorion от имени администратора.';
     }
 
     final message = error.toString();
-    return switch (_effectiveRuntimeMode(mode)) {
+    return switch (_normalizeRuntimeMode(mode)) {
       RuntimeMode.tun =>
-        '$message TUN mode may require elevated privileges on this platform.',
+        '$message Режим TUN может требовать повышенных прав на этой платформе.',
       RuntimeMode.systemProxy when !Platform.isWindows =>
-        '$message System proxy mode is currently implemented only on Windows.',
+        '$message Режим системного прокси сейчас реализован только для Windows.',
       _ => message,
     };
   }
@@ -2392,15 +2513,4 @@ class DashboardController extends StateNotifier<DashboardState> {
     return true;
   }
 
-  bool _isElevationRequired(ProcessException error) {
-    if (error.errorCode == 740) {
-      return true;
-    }
-
-    final details = '${error.message} ${error.toString()}'.toLowerCase();
-    return details.contains('requested operation requires elevation') ||
-        details.contains('requires elevation') ||
-        details.contains('require elevation') ||
-        details.contains('требует повышения');
-  }
 }

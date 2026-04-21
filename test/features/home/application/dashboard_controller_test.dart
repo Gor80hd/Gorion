@@ -1325,7 +1325,7 @@ void main() {
         expect(controller.state.lastBestServerCheckAt, isNull);
         expect(
           controller.state.autoSelectActivity.label,
-          'Pre-connect auto-select',
+          'Автовыбор перед подключением',
         );
         expect(
           controller.state.autoSelectActivity.message,
@@ -1333,7 +1333,7 @@ void main() {
         );
         expect(
           controller.state.autoSelectActivity.logLines.where(
-            (line) => line.contains('[Pre-connect auto-select]'),
+            (line) => line.contains('[Автовыбор перед подключением]'),
           ),
           isEmpty,
         );

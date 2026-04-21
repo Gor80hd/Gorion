@@ -1,41 +1,33 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class _DialogNotifier extends Notifier<void> {
+class AppAlertDialog extends StatelessWidget {
+  const AppAlertDialog({
+    super.key,
+    required this.title,
+    required this.message,
+  });
+
+  final String title;
+  final String message;
+
   @override
-  void build() {}
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted =
+        theme.textTheme.bodyMedium?.color ??
+        scheme.onSurface.withValues(alpha: 0.72);
 
-  void showCustomAlert({required String title, required String message}) {
-    final context = _buildContext;
-    if (context == null || !context.mounted) return;
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        final theme = Theme.of(dialogContext);
-        final scheme = theme.colorScheme;
-        final muted =
-            theme.textTheme.bodyMedium?.color ??
-            scheme.onSurface.withValues(alpha: 0.72);
-
-        return AlertDialog(
-          backgroundColor: scheme.surface,
-          title: Text(title, style: TextStyle(color: scheme.onSurface)),
-          content: Text(message, style: TextStyle(color: muted)),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        );
-      },
+    return AlertDialog(
+      backgroundColor: scheme.surface,
+      title: Text(title, style: TextStyle(color: scheme.onSurface)),
+      content: Text(message, style: TextStyle(color: muted)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('OK'),
+        ),
+      ],
     );
   }
-
-  BuildContext? _buildContext;
-  void attachContext(BuildContext ctx) => _buildContext = ctx;
 }
-
-final dialogNotifierProvider = NotifierProvider<_DialogNotifier, void>(
-  _DialogNotifier.new,
-);
