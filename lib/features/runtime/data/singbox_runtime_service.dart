@@ -40,23 +40,30 @@ SingboxRuntimeBackend selectSingboxRuntimeBackend({
 SingboxRuntimeService buildSingboxRuntimeService({
   bool? privilegedHelperProvisioned,
   WindowsPrivilegedHelperClient? helperClient,
+  SingboxRuntimeService? localService,
+  SingboxRuntimeService? helperService,
 }) {
+  final resolvedLocalService =
+      localService ??
+      SingboxRuntimeService(
+        privilegedHelperClient: helperClient ?? WindowsPrivilegedHelperClient(),
+      );
   final helperAvailable =
       Platform.isWindows &&
       (privilegedHelperProvisioned ??
           WindowsPrivilegedHelperClient.isProvisionedSync());
   if (helperAvailable) {
     return _AdaptiveSingboxRuntimeService(
-      localService: SingboxRuntimeService(
-        privilegedHelperClient: helperClient ?? WindowsPrivilegedHelperClient(),
-      ),
-      helperService: _PrivilegedHelperSingboxRuntimeService(
-        helperClient: helperClient ?? WindowsPrivilegedHelperClient(),
-      ),
+      localService: resolvedLocalService,
+      helperService:
+          helperService ??
+          _PrivilegedHelperSingboxRuntimeService(
+            helperClient: helperClient ?? WindowsPrivilegedHelperClient(),
+          ),
     );
   }
 
-  return SingboxRuntimeService();
+  return resolvedLocalService;
 }
 
 class SingboxRuntimeService {
@@ -93,6 +100,12 @@ class SingboxRuntimeService {
   RuntimeSession? get session => _session;
   List<String> get logs => List.unmodifiable(_logs);
   bool get launchesWithEmbeddedPrivilegeBroker => false;
+
+  Future<bool> canLaunchWithEmbeddedPrivilegeBroker({
+    required RuntimeMode mode,
+  }) async {
+    return false;
+  }
 
   Future<RuntimeSession> start({
     required String profileId,
@@ -299,10 +312,10 @@ class SingboxRuntimeService {
               onLog: _pushLog,
             );
           } on Object catch (error, stackTrace) {
-          _pushLog(
-            'Failed to enable the system proxy: $error',
-            isError: true,
-          );
+            _pushLog(
+              'Failed to enable the system proxy: $error',
+              isError: true,
+            );
             await _stopImpl();
             Error.throwWithStackTrace(error, stackTrace);
           }
@@ -443,15 +456,15 @@ class SingboxRuntimeService {
 
   Future<T> _serializeLifecycle<T>(Future<T> Function() action) {
     final completer = Completer<T>();
-    _lifecycleOperation = _lifecycleOperation
-        .catchError((_) {})
-        .then((_) async {
-          try {
-            completer.complete(await action());
-          } on Object catch (error, stackTrace) {
-            completer.completeError(error, stackTrace);
-          }
-        });
+    _lifecycleOperation = _lifecycleOperation.catchError((_) {}).then((
+      _,
+    ) async {
+      try {
+        completer.complete(await action());
+      } on Object catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
     return completer.future;
   }
 
@@ -985,6 +998,22 @@ class _PrivilegedHelperSingboxRuntimeService extends SingboxRuntimeService {
   bool get launchesWithEmbeddedPrivilegeBroker => true;
 
   @override
+  Future<bool> canLaunchWithEmbeddedPrivilegeBroker({
+    required RuntimeMode mode,
+  }) async {
+    if (!mode.usesTun) {
+      return false;
+    }
+
+    try {
+      await _helperClient.ensureAvailable();
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+
+  @override
   Future<RuntimeSession> start({
     required String profileId,
     required String templateConfig,
@@ -1058,16 +1087,30 @@ class _AdaptiveSingboxRuntimeService extends SingboxRuntimeService {
 
   final SingboxRuntimeService _localService;
   final SingboxRuntimeService _helperService;
+  final List<String> _lastLogs = <String>[];
   SingboxRuntimeService? _activeService;
 
   @override
   RuntimeSession? get session => _activeService?.session;
 
   @override
-  List<String> get logs => _activeService?.logs ?? const <String>[];
+  List<String> get logs {
+    final activeService = _activeService;
+    if (activeService != null) {
+      return activeService.logs;
+    }
+    return List.unmodifiable(_lastLogs);
+  }
 
   @override
   bool get launchesWithEmbeddedPrivilegeBroker => true;
+
+  @override
+  Future<bool> canLaunchWithEmbeddedPrivilegeBroker({
+    required RuntimeMode mode,
+  }) async {
+    return identical(await _resolveServiceForStart(mode), _helperService);
+  }
 
   @override
   Future<RuntimeSession> start({
@@ -1079,57 +1122,119 @@ class _AdaptiveSingboxRuntimeService extends SingboxRuntimeService {
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
+  }) {
+    return _serializeLifecycle(
+      () => _startAdaptive(
+        profileId: profileId,
+        templateConfig: templateConfig,
+        originalTemplateConfig: originalTemplateConfig,
+        connectionTuningSettings: connectionTuningSettings,
+        urlTestUrl: urlTestUrl,
+        mode: mode,
+        selectedServerTag: selectedServerTag,
+      ),
+    );
+  }
+
+  Future<RuntimeSession> _startAdaptive({
+    required String profileId,
+    required String templateConfig,
+    String? originalTemplateConfig,
+    required ConnectionTuningSettings connectionTuningSettings,
+    required String urlTestUrl,
+    required RuntimeMode mode,
+    String? selectedServerTag,
   }) async {
-    final nextService = _serviceForMode(mode);
+    final nextService = await _resolveServiceForStart(mode);
     final previousService = _activeService;
     if (previousService != null && !identical(previousService, nextService)) {
       await previousService.stop();
+      _rememberLogs(previousService);
+      _activeService = null;
     }
 
-    final session = await nextService.start(
-      profileId: profileId,
-      templateConfig: templateConfig,
-      originalTemplateConfig: originalTemplateConfig,
-      connectionTuningSettings: connectionTuningSettings,
-      urlTestUrl: urlTestUrl,
-      mode: mode,
-      selectedServerTag: selectedServerTag,
-    );
-    _activeService = nextService;
-    return session;
-  }
-
-  @override
-  Future<void> stop() async {
-    final activeService = _activeService;
-    _activeService = null;
-    if (activeService != null) {
-      await activeService.stop();
-      return;
-    }
-
-    if (_localService.session != null) {
-      await _localService.stop();
-    }
-    if (_helperService.session != null) {
-      await _helperService.stop();
+    try {
+      final session = await nextService.start(
+        profileId: profileId,
+        templateConfig: templateConfig,
+        originalTemplateConfig: originalTemplateConfig,
+        connectionTuningSettings: connectionTuningSettings,
+        urlTestUrl: urlTestUrl,
+        mode: mode,
+        selectedServerTag: selectedServerTag,
+      );
+      _activeService = nextService;
+      _rememberLogs(nextService);
+      return session;
+    } on Object {
+      _rememberLogs(nextService);
+      rethrow;
     }
   }
 
   @override
-  Future<void> stopForAppExit() async {
+  Future<void> stop() {
+    return _serializeLifecycle(_stopAdaptive);
+  }
+
+  Future<void> _stopAdaptive() async {
     final activeService = _activeService;
-    _activeService = null;
     if (activeService != null) {
-      await activeService.stopForAppExit();
+      try {
+        await activeService.stop();
+        _activeService = null;
+      } finally {
+        _rememberLogs(activeService);
+      }
       return;
     }
 
     if (_localService.session != null) {
-      await _localService.stopForAppExit();
+      try {
+        await _localService.stop();
+      } finally {
+        _rememberLogs(_localService);
+      }
     }
     if (_helperService.session != null) {
-      await _helperService.stopForAppExit();
+      try {
+        await _helperService.stop();
+      } finally {
+        _rememberLogs(_helperService);
+      }
+    }
+  }
+
+  @override
+  Future<void> stopForAppExit() {
+    return _serializeLifecycle(_stopForAppExitAdaptive);
+  }
+
+  Future<void> _stopForAppExitAdaptive() async {
+    final activeService = _activeService;
+    if (activeService != null) {
+      try {
+        await activeService.stopForAppExit();
+        _activeService = null;
+      } finally {
+        _rememberLogs(activeService);
+      }
+      return;
+    }
+
+    if (_localService.session != null) {
+      try {
+        await _localService.stopForAppExit();
+      } finally {
+        _rememberLogs(_localService);
+      }
+    }
+    if (_helperService.session != null) {
+      try {
+        await _helperService.stopForAppExit();
+      } finally {
+        _rememberLogs(_helperService);
+      }
     }
   }
 
@@ -1146,5 +1251,24 @@ class _AdaptiveSingboxRuntimeService extends SingboxRuntimeService {
       SingboxRuntimeBackend.local => _localService,
       SingboxRuntimeBackend.privilegedHelper => _helperService,
     };
+  }
+
+  Future<SingboxRuntimeService> _resolveServiceForStart(
+    RuntimeMode mode,
+  ) async {
+    final preferredService = _serviceForMode(mode);
+    if (!identical(preferredService, _helperService)) {
+      return preferredService;
+    }
+    if (await _helperService.canLaunchWithEmbeddedPrivilegeBroker(mode: mode)) {
+      return _helperService;
+    }
+    return _localService;
+  }
+
+  void _rememberLogs(SingboxRuntimeService service) {
+    _lastLogs
+      ..clear()
+      ..addAll(service.logs);
   }
 }

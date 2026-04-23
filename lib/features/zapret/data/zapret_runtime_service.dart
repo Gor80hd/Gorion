@@ -18,14 +18,29 @@ import 'package:path/path.dart' as p;
 
 const _runtimeProcessMarkerFileName = 'runtime-process.json';
 
-ZapretRuntimeService buildZapretRuntimeService() {
-  if (Platform.isWindows && WindowsPrivilegedHelperClient.isProvisionedSync()) {
-    return _PrivilegedHelperZapretRuntimeService(
-      helperClient: WindowsPrivilegedHelperClient(),
+ZapretRuntimeService buildZapretRuntimeService({
+  bool? privilegedHelperProvisioned,
+  WindowsPrivilegedHelperClient? helperClient,
+  ZapretRuntimeService? localService,
+  ZapretRuntimeService? helperService,
+}) {
+  final resolvedLocalService = localService ?? ZapretRuntimeService();
+  final helperAvailable =
+      Platform.isWindows &&
+      (privilegedHelperProvisioned ??
+          WindowsPrivilegedHelperClient.isProvisionedSync());
+  if (helperAvailable) {
+    return _AdaptiveZapretRuntimeService(
+      localService: resolvedLocalService,
+      helperService:
+          helperService ??
+          _PrivilegedHelperZapretRuntimeService(
+            helperClient: helperClient ?? WindowsPrivilegedHelperClient(),
+          ),
     );
   }
 
-  return ZapretRuntimeService();
+  return resolvedLocalService;
 }
 
 class ZapretRuntimeService {
@@ -56,6 +71,10 @@ class ZapretRuntimeService {
 
   List<String> get logs => List.unmodifiable(_logs);
   bool get launchesWithEmbeddedPrivilegeBroker => false;
+
+  Future<bool> canLaunchWithEmbeddedPrivilegeBroker() async {
+    return false;
+  }
 
   void recordDiagnostic(String line, {bool isError = false}) {
     _appendLog(line, isError: isError);
@@ -276,15 +295,15 @@ class ZapretRuntimeService {
 
   Future<T> _serializeLifecycle<T>(Future<T> Function() action) {
     final completer = Completer<T>();
-    _lifecycleOperation = _lifecycleOperation
-        .catchError((_) {})
-        .then((_) async {
-          try {
-            completer.complete(await action());
-          } on Object catch (error, stackTrace) {
-            completer.completeError(error, stackTrace);
-          }
-        });
+    _lifecycleOperation = _lifecycleOperation.catchError((_) {}).then((
+      _,
+    ) async {
+      try {
+        completer.complete(await action());
+      } on Object catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
     return completer.future;
   }
 
@@ -690,6 +709,16 @@ class _PrivilegedHelperZapretRuntimeService extends ZapretRuntimeService {
   bool get launchesWithEmbeddedPrivilegeBroker => true;
 
   @override
+  Future<bool> canLaunchWithEmbeddedPrivilegeBroker() async {
+    try {
+      await _helperClient.ensureAvailable();
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+
+  @override
   void recordDiagnostic(String line, {bool isError = false}) {
     final prefix = isError ? '[ошибка]' : '[инфо]';
     _remoteLogs.add('$prefix $line');
@@ -795,4 +824,248 @@ class _PrivilegedHelperZapretRuntimeService extends ZapretRuntimeService {
       ..clear()
       ..addAll(snapshot.logs);
   }
+}
+
+class _AdaptiveZapretRuntimeService extends ZapretRuntimeService {
+  _AdaptiveZapretRuntimeService({
+    required ZapretRuntimeService localService,
+    required ZapretRuntimeService helperService,
+  }) : _localService = localService,
+       _helperService = helperService;
+
+  final ZapretRuntimeService _localService;
+  final ZapretRuntimeService _helperService;
+  final List<String> _lastLogs = <String>[];
+  final List<_PendingZapretDiagnostic> _pendingDiagnostics =
+      <_PendingZapretDiagnostic>[];
+  ZapretRuntimeService? _activeService;
+
+  @override
+  ZapretRuntimeSession? get session => _activeService?.session;
+
+  @override
+  List<String> get logs {
+    final activeService = _activeService;
+    if (activeService != null) {
+      return activeService.logs;
+    }
+    return List.unmodifiable(_lastLogs);
+  }
+
+  @override
+  bool get launchesWithEmbeddedPrivilegeBroker => true;
+
+  @override
+  Future<bool> canLaunchWithEmbeddedPrivilegeBroker() async {
+    return identical(await _resolveServiceForStart(), _helperService);
+  }
+
+  @override
+  Future<ZapretSettings> hydrateSettings(ZapretSettings settings) {
+    return _localService.hydrateSettings(settings);
+  }
+
+  @override
+  ZapretLaunchConfiguration buildPreview(ZapretSettings settings) {
+    return _localService.buildPreview(settings);
+  }
+
+  @override
+  List<ZapretConfigOption> listAvailableProfiles(String installDirectory) {
+    return _localService.listAvailableProfiles(installDirectory);
+  }
+
+  @override
+  String resolveSelectedConfigFileName(
+    String installDirectory,
+    String preferredFileName,
+  ) {
+    return _localService.resolveSelectedConfigFileName(
+      installDirectory,
+      preferredFileName,
+    );
+  }
+
+  @override
+  void recordDiagnostic(String line, {bool isError = false}) {
+    final activeService = _activeService;
+    if (activeService != null) {
+      activeService.recordDiagnostic(line, isError: isError);
+      _rememberLogs(activeService);
+      return;
+    }
+
+    _pendingDiagnostics.add(
+      _PendingZapretDiagnostic(line: line, isError: isError),
+    );
+    if (_pendingDiagnostics.length > 200) {
+      _pendingDiagnostics.removeRange(0, _pendingDiagnostics.length - 200);
+    }
+    _appendCachedDiagnostic(line, isError: isError);
+  }
+
+  @override
+  Future<ZapretRuntimeSession> start({
+    required ZapretSettings settings,
+    required void Function(int exitCode) onExit,
+    bool preserveLogs = false,
+  }) {
+    return _serializeLifecycle(
+      () => _startAdaptive(
+        settings: settings,
+        onExit: onExit,
+        preserveLogs: preserveLogs,
+      ),
+    );
+  }
+
+  Future<ZapretRuntimeSession> _startAdaptive({
+    required ZapretSettings settings,
+    required void Function(int exitCode) onExit,
+    required bool preserveLogs,
+  }) async {
+    final nextService = await _resolveServiceForStart();
+    final previousService = _activeService;
+    if (previousService != null && !identical(previousService, nextService)) {
+      await previousService.stop();
+      _rememberLogs(previousService);
+      _activeService = null;
+    }
+
+    if (preserveLogs) {
+      _replayPendingDiagnostics(nextService);
+    }
+
+    try {
+      final session = await nextService.start(
+        settings: settings,
+        onExit: onExit,
+        preserveLogs: preserveLogs,
+      );
+      if (!preserveLogs) {
+        _replayPendingDiagnostics(nextService);
+      }
+      _activeService = nextService;
+      _rememberLogs(nextService);
+      return session;
+    } on Object {
+      if (!preserveLogs) {
+        _replayPendingDiagnostics(nextService);
+      }
+      _rememberLogs(nextService);
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> stop() {
+    return _serializeLifecycle(_stopAdaptive);
+  }
+
+  Future<void> _stopAdaptive() async {
+    final activeService = _activeService;
+    if (activeService != null) {
+      try {
+        await activeService.stop();
+        _activeService = null;
+      } finally {
+        _rememberLogs(activeService);
+      }
+      return;
+    }
+
+    if (_localService.session != null) {
+      try {
+        await _localService.stop();
+      } finally {
+        _rememberLogs(_localService);
+      }
+    }
+    if (_helperService.session != null) {
+      try {
+        await _helperService.stop();
+      } finally {
+        _rememberLogs(_helperService);
+      }
+    }
+  }
+
+  @override
+  Future<void> stopForAppExit() {
+    return _serializeLifecycle(_stopForAppExitAdaptive);
+  }
+
+  Future<void> _stopForAppExitAdaptive() async {
+    final activeService = _activeService;
+    if (activeService != null) {
+      try {
+        await activeService.stopForAppExit();
+        _activeService = null;
+      } finally {
+        _rememberLogs(activeService);
+      }
+      return;
+    }
+
+    if (_localService.session != null) {
+      try {
+        await _localService.stopForAppExit();
+      } finally {
+        _rememberLogs(_localService);
+      }
+    }
+    if (_helperService.session != null) {
+      try {
+        await _helperService.stopForAppExit();
+      } finally {
+        _rememberLogs(_helperService);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(stopForAppExit());
+  }
+
+  Future<ZapretRuntimeService> _resolveServiceForStart() async {
+    if (await _helperService.canLaunchWithEmbeddedPrivilegeBroker()) {
+      return _helperService;
+    }
+    return _localService;
+  }
+
+  void _replayPendingDiagnostics(ZapretRuntimeService service) {
+    if (_pendingDiagnostics.isEmpty) {
+      return;
+    }
+
+    final diagnostics = List<_PendingZapretDiagnostic>.of(_pendingDiagnostics);
+    _pendingDiagnostics.clear();
+    for (final diagnostic in diagnostics) {
+      service.recordDiagnostic(diagnostic.line, isError: diagnostic.isError);
+    }
+    _rememberLogs(service);
+  }
+
+  void _rememberLogs(ZapretRuntimeService service) {
+    _lastLogs
+      ..clear()
+      ..addAll(service.logs);
+  }
+
+  void _appendCachedDiagnostic(String line, {required bool isError}) {
+    final prefix = isError ? '[ошибка]' : '[инфо]';
+    _lastLogs.add('$prefix $line');
+    if (_lastLogs.length > 200) {
+      _lastLogs.removeRange(0, _lastLogs.length - 200);
+    }
+  }
+}
+
+class _PendingZapretDiagnostic {
+  const _PendingZapretDiagnostic({required this.line, required this.isError});
+
+  final String line;
+  final bool isError;
 }

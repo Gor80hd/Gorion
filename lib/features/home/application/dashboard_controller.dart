@@ -225,7 +225,8 @@ class DashboardState {
         const UpdateValue<String?>.absent(),
     bool clearActiveServerTag = false,
     RecentSuccessfulAutoConnect? recentSuccessfulAutoConnect,
-    UpdateValue<RecentSuccessfulAutoConnect?> recentSuccessfulAutoConnectUpdate =
+    UpdateValue<RecentSuccessfulAutoConnect?>
+        recentSuccessfulAutoConnectUpdate =
         const UpdateValue<RecentSuccessfulAutoConnect?>.absent(),
     bool clearRecentSuccessfulAutoConnect = false,
     List<AutoSelectProbeResult>? autoSelectResults,
@@ -261,58 +262,49 @@ class DashboardState {
           ? null
           : runtimeSessionUpdate.isPresent
           ? runtimeSessionUpdate.value
-          : runtimeSession
-          ?? this.runtimeSession,
+          : runtimeSession ?? this.runtimeSession,
       connectedAt: clearConnectedAt
           ? null
           : connectedAtUpdate.isPresent
           ? connectedAtUpdate.value
-          : connectedAt
-          ?? this.connectedAt,
+          : connectedAt ?? this.connectedAt,
       delayByTag: delayByTag ?? this.delayByTag,
       selectedServerTag: clearSelectedServerTag
           ? null
           : selectedServerTagUpdate.isPresent
           ? selectedServerTagUpdate.value
-          : selectedServerTag
-          ?? this.selectedServerTag,
+          : selectedServerTag ?? this.selectedServerTag,
       activeServerTag: clearActiveServerTag
           ? null
           : activeServerTagUpdate.isPresent
           ? activeServerTagUpdate.value
-          : activeServerTag
-          ?? this.activeServerTag,
+          : activeServerTag ?? this.activeServerTag,
       recentSuccessfulAutoConnect: clearRecentSuccessfulAutoConnect
           ? null
           : recentSuccessfulAutoConnectUpdate.isPresent
           ? recentSuccessfulAutoConnectUpdate.value
-          : recentSuccessfulAutoConnect
-          ?? this.recentSuccessfulAutoConnect,
+          : recentSuccessfulAutoConnect ?? this.recentSuccessfulAutoConnect,
       autoSelectResults: autoSelectResults ?? this.autoSelectResults,
       autoSelectActivity: clearAutoSelectActivity
           ? const AutoSelectActivityState()
           : autoSelectActivityUpdate.isPresent
           ? autoSelectActivityUpdate.value!
-          : autoSelectActivity
-          ?? this.autoSelectActivity,
+          : autoSelectActivity ?? this.autoSelectActivity,
       lastBestServerCheckAt: clearLastBestServerCheckAt
           ? null
           : lastBestServerCheckAtUpdate.isPresent
           ? lastBestServerCheckAtUpdate.value
-          : lastBestServerCheckAt
-          ?? this.lastBestServerCheckAt,
+          : lastBestServerCheckAt ?? this.lastBestServerCheckAt,
       statusMessage: clearStatusMessage
           ? null
           : statusMessageUpdate.isPresent
           ? statusMessageUpdate.value
-          : statusMessage
-          ?? this.statusMessage,
+          : statusMessage ?? this.statusMessage,
       errorMessage: clearErrorMessage
           ? null
           : errorMessageUpdate.isPresent
           ? errorMessageUpdate.value
-          : errorMessage
-          ?? this.errorMessage,
+          : errorMessage ?? this.errorMessage,
       logs: logs ?? this.logs,
     );
   }
@@ -2427,8 +2419,9 @@ class DashboardController extends StateNotifier<DashboardState> {
         : _normalizeRuntimeMode(previousSession.mode)) {
       RuntimeMode.systemProxy =>
         'Локальный runtime sing-box остановлен, прежние системные настройки прокси Windows восстановлены.',
-      RuntimeMode.tun || RuntimeMode.mixed || null =>
-        'Локальный runtime sing-box остановлен.',
+      RuntimeMode.tun ||
+      RuntimeMode.mixed ||
+      null => 'Локальный runtime sing-box остановлен.',
     };
   }
 
@@ -2462,7 +2455,9 @@ class DashboardController extends StateNotifier<DashboardState> {
     if (!Platform.isWindows || state.runtimeMode != RuntimeMode.tun) {
       return false;
     }
-    if (_runtimeService.launchesWithEmbeddedPrivilegeBroker) {
+    if (await _runtimeService.canLaunchWithEmbeddedPrivilegeBroker(
+      mode: state.runtimeMode,
+    )) {
       return false;
     }
 
@@ -2512,5 +2507,4 @@ class DashboardController extends StateNotifier<DashboardState> {
 
     return true;
   }
-
 }

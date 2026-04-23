@@ -885,7 +885,7 @@ class ZapretController extends StateNotifier<ZapretState> {
     if (!Platform.isWindows) {
       return false;
     }
-    if (_runtimeService.launchesWithEmbeddedPrivilegeBroker) {
+    if (await _runtimeService.canLaunchWithEmbeddedPrivilegeBroker()) {
       return false;
     }
 

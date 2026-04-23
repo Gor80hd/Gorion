@@ -8,10 +8,14 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 class ProfileRepository {
-  ProfileRepository({ProfileParser? parser})
-    : _parser = parser ?? ProfileParser();
+  ProfileRepository({
+    ProfileParser? parser,
+    Future<Directory> Function()? storageRootLoader,
+  }) : _parser = parser ?? ProfileParser(),
+       _storageRootLoader = storageRootLoader ?? _defaultStorageRoot;
 
   final ProfileParser _parser;
+  final Future<Directory> Function() _storageRootLoader;
   final Uuid _uuid = const Uuid();
 
   Future<StoredProfilesState> loadState() async {
@@ -196,12 +200,16 @@ class ProfileRepository {
       profiles: profiles,
     );
 
-    final templateFile = await _templateFile(profile.templateFileName);
-    if (await templateFile.exists()) {
-      await templateFile.delete();
-    }
-
     await _writeState(next);
+    final templateFile = await _templateFile(profile.templateFileName);
+    try {
+      if (await templateFile.exists()) {
+        await templateFile.delete();
+      }
+    } on FileSystemException {
+      // The index is authoritative; an orphaned template is safer than a
+      // profile that still points to a deleted config.
+    }
     return next;
   }
 
@@ -211,6 +219,10 @@ class ProfileRepository {
   }
 
   Future<Directory> _storageRoot() async {
+    return _storageRootLoader();
+  }
+
+  static Future<Directory> _defaultStorageRoot() async {
     final appDir = await getApplicationSupportDirectory();
     final root = Directory(p.join(appDir.path, 'gorion'));
     if (!await root.exists()) {

@@ -120,8 +120,13 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
         return false;
       }
 
-      await _deleteScheduledTaskSilently();
-      return true;
+      final scheduledTaskDisabled = await _deleteScheduledTaskSilently();
+      if (scheduledTaskDisabled) {
+        return true;
+      }
+
+      await _disableStartupEntrySilently();
+      return false;
     }
 
     final startupEntryDisabled = await _startupEntryService.setEnabled(false);
@@ -210,7 +215,7 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
     return '''
 try {
   \$task = Get-ScheduledTask -TaskName ${_toPowerShellLiteral(_taskName)} -ErrorAction SilentlyContinue
-  if (\$null -eq \$task) {
+  if (\$null -eq \$task -or \$null -eq \$task.Settings -or \$task.Settings.Enabled -ne \$true) {
     exit 1
   }
   exit 0

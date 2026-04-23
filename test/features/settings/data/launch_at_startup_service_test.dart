@@ -154,7 +154,32 @@ void main() {
       },
     );
 
-    test('keeps the current mode when scheduled task cleanup fails', () async {
+    test(
+      'fails standard autostart switch when scheduled task cleanup fails',
+      () async {
+        final processRunner = _FakeProcessRunner();
+        final startupEntryService = _FakeLaunchAtStartupService(enabled: false);
+        final service = DesktopLaunchAtStartupService(
+          appName: 'Gorion',
+          appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+          processRunner: processRunner.call,
+          startupEntryService: startupEntryService,
+        );
+
+        processRunner.queue(1, stderr: 'Access is denied');
+
+        final enabled = await service.setEnabled(true);
+
+        expect(enabled, isFalse);
+        expect(startupEntryService.setEnabledCalls, [
+          (enabled: true, priority: LaunchAtStartupPriority.standard),
+          (enabled: false, priority: LaunchAtStartupPriority.standard),
+        ]);
+        expect(processRunner.invocations, hasLength(1));
+      },
+    );
+
+    test('treats a disabled scheduled task as not enabled', () async {
       final processRunner = _FakeProcessRunner();
       final startupEntryService = _FakeLaunchAtStartupService(enabled: false);
       final service = DesktopLaunchAtStartupService(
@@ -164,15 +189,16 @@ void main() {
         startupEntryService: startupEntryService,
       );
 
-      processRunner.queue(1, stderr: 'Access is denied');
+      processRunner.queue(1);
 
-      final enabled = await service.setEnabled(true);
+      final enabled = await service.isEnabled();
 
-      expect(enabled, isTrue);
-      expect(startupEntryService.setEnabledCalls, [
-        (enabled: true, priority: LaunchAtStartupPriority.standard),
-      ]);
+      expect(enabled, isFalse);
       expect(processRunner.invocations, hasLength(1));
+      expect(
+        processRunner.invocations.single.arguments.last,
+        contains(r'$task.Settings.Enabled -ne $true'),
+      );
     });
   });
 }
