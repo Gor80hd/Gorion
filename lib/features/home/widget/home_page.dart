@@ -12,7 +12,7 @@ class HomePage extends StatelessWidget {
     ServersPanelWidget.panelWidth + 32,
     32,
     32,
-    32,
+    16,
   );
 
   @override

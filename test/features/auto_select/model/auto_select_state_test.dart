@@ -71,6 +71,18 @@ void main() {
       settings.bestServerCheckInterval,
       defaultAutoSelectBestServerCheckInterval,
     );
+    expect(settings.liveServerPingEnabled, defaultLiveServerPingEnabled);
+    expect(
+      settings.liveServerPingIntervalSeconds,
+      defaultLiveServerPingIntervalSeconds,
+    );
+    expect(defaultLiveServerPingIntervalSeconds, 15 * 60);
+    expect(settings.liveServerPingInterval, defaultLiveServerPingInterval);
+    expect(defaultLiveServerPingInterval, const Duration(minutes: 15));
+    expect(
+      settings.liveServerPingOnStartupEnabled,
+      defaultLiveServerPingOnStartupEnabled,
+    );
   });
 
   test('best-server check interval clamps persisted values', () {
@@ -88,6 +100,24 @@ void main() {
     expect(
       tooHigh.bestServerCheckIntervalMinutes,
       autoSelectBestServerCheckIntervalMaxMinutes,
+    );
+  });
+
+  test('live-server ping interval clamps persisted values', () {
+    final tooLow = AutoSelectSettings.fromJson({
+      'liveServerPingIntervalSeconds': 1,
+    });
+    final tooHigh = AutoSelectSettings.fromJson({
+      'liveServerPingIntervalSeconds': 999,
+    });
+
+    expect(
+      tooLow.liveServerPingIntervalSeconds,
+      liveServerPingIntervalMinSeconds,
+    );
+    expect(
+      tooHigh.liveServerPingIntervalSeconds,
+      liveServerPingIntervalMaxSeconds,
     );
   });
 }

@@ -26,6 +26,7 @@ class AppSettingsResetService {
     'auto-select.json',
     'zapret-settings.json',
     'server-sort-mode.json',
+    'server-favorites.json',
   ];
 
   final LaunchAtStartupService _launchAtStartupService;

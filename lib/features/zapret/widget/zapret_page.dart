@@ -213,7 +213,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
       showGlow: false,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final stacked = constraints.maxWidth < 820;
           final actionGap = layout.compact ? 6.0 : 8.0;
 
           final configBlock = _ControlBlock(
@@ -347,16 +346,7 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
                 ],
               ),
               const SizedBox(height: 30),
-              if (stacked)
-                configBlock
-              else
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 640),
-                    child: configBlock,
-                  ),
-                ),
+              configBlock,
             ],
           );
         },

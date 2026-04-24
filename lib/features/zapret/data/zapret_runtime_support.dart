@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -8,7 +9,9 @@ import 'package:path_provider/path_provider.dart';
 Future<Directory> prepareZapretBundle() async {
   final descriptor = resolveZapretAsset();
   final runtimeRoot = await _ensureZapretRuntimeRoot();
-  final bundleDir = Directory(p.join(runtimeRoot.path, descriptor.bundleKey));
+  final bundleDir = Directory(
+    p.join(runtimeRoot.path, _versionedZapretBundleKey(descriptor)),
+  );
   final executableFile = File(
     p.joinAll([
       bundleDir.path,
@@ -19,15 +22,21 @@ Future<Directory> prepareZapretBundle() async {
   final expectedMarker = '$zapretVersion:${descriptor.bundleKey}';
 
   if (await executableFile.exists() && await markerFile.exists()) {
-    final marker = await markerFile.readAsString();
-    if (marker.trim() == expectedMarker) {
+    final marker = await _readMarker(markerFile);
+    if (marker?.trim() == expectedMarker) {
       await ensureBundledSupportLayout(bundleDir.path);
+      unawaited(
+        _cleanupObsoleteZapretBundles(
+          runtimeRoot,
+          activeBundleDir: bundleDir,
+        ),
+      );
       return bundleDir;
     }
   }
 
   if (await bundleDir.exists()) {
-    await bundleDir.delete(recursive: true);
+    await _deleteStaleZapretBundle(bundleDir);
   }
   await bundleDir.create(recursive: true);
 
@@ -65,7 +74,20 @@ Future<Directory> prepareZapretBundle() async {
   );
   await ensureBundledSupportLayout(bundleDir.path);
   await markerFile.writeAsString(expectedMarker, flush: true);
+  unawaited(
+    _cleanupObsoleteZapretBundles(runtimeRoot, activeBundleDir: bundleDir),
+  );
   return bundleDir;
+}
+
+Future<bool> isBundledZapretInstallDirectory(String installDirectory) async {
+  final normalizedInstallDirectory = installDirectory.trim();
+  if (normalizedInstallDirectory.isEmpty) {
+    return false;
+  }
+
+  final runtimeRoot = await _ensureZapretRuntimeRoot();
+  return _isSameOrNestedPath(runtimeRoot.path, normalizedInstallDirectory);
 }
 
 Future<void> ensureBundledProfileConfigs(String installDirectory) async {
@@ -182,6 +204,85 @@ Future<Directory> _ensureZapretRuntimeRoot() async {
     await runtimeDir.create(recursive: true);
   }
   return runtimeDir;
+}
+
+Future<String?> _readMarker(File markerFile) async {
+  try {
+    return await markerFile.readAsString();
+  } on FileSystemException {
+    return null;
+  }
+}
+
+String _versionedZapretBundleKey(ZapretAssetDescriptor descriptor) {
+  final safeVersion = zapretVersion.replaceAll(
+    RegExp(r'[^A-Za-z0-9._-]+'),
+    '_',
+  );
+  return '${descriptor.bundleKey}-$safeVersion';
+}
+
+Future<void> _deleteStaleZapretBundle(Directory bundleDir) async {
+  try {
+    await bundleDir.delete(recursive: true);
+  } on FileSystemException catch (error) {
+    throw StateError(
+      'Не удалось обновить встроенный комплект Gorion Boost в '
+      '"${bundleDir.path}". Windows не разрешила удалить старые файлы. '
+      'Остановите Gorion Boost и процессы winws.exe или перезагрузите Windows, '
+      'затем попробуйте снова. $error',
+    );
+  }
+}
+
+Future<void> _cleanupObsoleteZapretBundles(
+  Directory runtimeRoot, {
+  required Directory activeBundleDir,
+}) async {
+  final activePath = _normalizeComparablePath(activeBundleDir.path);
+
+  try {
+    await for (final entity in runtimeRoot.list(followLinks: false)) {
+      if (entity is! Directory) {
+        continue;
+      }
+      if (_normalizeComparablePath(entity.path) == activePath) {
+        continue;
+      }
+      if (!_isZapretBundleDirectoryName(p.basename(entity.path))) {
+        continue;
+      }
+
+      try {
+        await entity.delete(recursive: true);
+      } on FileSystemException {
+        // Old bundles can be locked by a still-running winws.exe. They are
+        // harmless and will be retried on the next successful preparation.
+      }
+    }
+  } on FileSystemException {
+    return;
+  }
+}
+
+bool _isZapretBundleDirectoryName(String name) {
+  const bundleKeys = {'windows-x64', 'windows-x86'};
+  for (final bundleKey in bundleKeys) {
+    if (name == bundleKey || name.startsWith('$bundleKey-')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool _isSameOrNestedPath(String parentPath, String candidatePath) {
+  final parent = _normalizeComparablePath(parentPath);
+  final candidate = _normalizeComparablePath(candidatePath);
+  return candidate == parent || candidate.startsWith('$parent/');
+}
+
+String _normalizeComparablePath(String value) {
+  return p.normalize(value).replaceAll('\\', '/').toLowerCase();
 }
 
 Future<List<String>> _listAssetPaths(String prefix) async {

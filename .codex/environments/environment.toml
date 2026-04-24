@@ -9,3 +9,8 @@ script = ""
 name = "Запустить"
 icon = "run"
 command = "flutter run -d windows"
+
+[[actions]]
+name = "Сделать билд"
+icon = "test"
+command = ".\\tool\\build_windows_installer.ps1"

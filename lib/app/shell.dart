@@ -18,6 +18,8 @@ import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
+import 'package:gorion_clean/features/update/application/app_update_controller.dart';
+import 'package:gorion_clean/features/update/model/app_update_state.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
 import 'package:gorion_clean/features/zapret/widget/zapret_page.dart';
@@ -32,11 +34,12 @@ const _dockWidth = 67.0;
 const _dockGap = 12.0;
 const _titleBarHeight = 48.0;
 const _dockTopGap = 10.0;
-const _backgroundOrbs = <({double? left, double? right, double? top, double? bottom, double size})>[
-  (left: -180, right: null, top: -140, bottom: null, size: 380),
-  (left: null, right: -90, top: 80, bottom: null, size: 240),
-  (left: null, right: 120, top: null, bottom: -180, size: 420),
-];
+const _backgroundOrbs =
+    <({double? left, double? right, double? top, double? bottom, double size})>[
+      (left: -180, right: null, top: -140, bottom: null, size: 380),
+      (left: null, right: -90, top: 80, bottom: null, size: 240),
+      (left: null, right: 120, top: null, bottom: -180, size: 420),
+    ];
 
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({
@@ -98,6 +101,18 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       unawaited(_initializeWindowsTray());
     }
     unawaited(_loadAppVersionLabel());
+    _scheduleUpdateCheckAfterFirstFrame();
+  }
+
+  void _scheduleUpdateCheckAfterFirstFrame() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      unawaited(
+        ref.read(appUpdateControllerProvider.notifier).checkForUpdates(),
+      );
+    });
   }
 
   @override
@@ -503,6 +518,8 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final tokens = theme.gorionTokens;
+    final appUpdateState = ref.watch(appUpdateControllerProvider);
+    final availableUpdate = appUpdateState.availableUpdate;
     final routedLocation = _maybeRouterLocation(context);
     final hasRouter = routedLocation != null;
     final currentPage = hasRouter
@@ -535,9 +552,8 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     final isZapretPage = currentPage == _DockPage.zapret;
     final pageChild = switch (currentPage) {
       _DockPage.home => widget.child,
-      _DockPage.settings => hasRouter
-          ? widget.child
-          : const SettingsPage(animateOnMount: false),
+      _DockPage.settings =>
+        hasRouter ? widget.child : const SettingsPage(animateOnMount: false),
       _DockPage.zapret => const SizedBox.shrink(),
     };
 
@@ -594,9 +610,22 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
               bottom: dockBottomInset,
               child: _Dock(
                 current: currentPage,
+                updateAvailable: availableUpdate != null,
                 onSelect: (page) => _handleDockNavigation(context, page),
               ),
             ),
+            if (availableUpdate != null && !appUpdateState.bannerDismissed)
+              Positioned(
+                left: leftInset + _dockWidth + _dockGap,
+                right: rightInset,
+                bottom: viewPadding.bottom + 18,
+                child: _UpdateAvailablePopup(
+                  update: availableUpdate,
+                  onDismiss: () => ref
+                      .read(appUpdateControllerProvider.notifier)
+                      .dismissBanner(),
+                ),
+              ),
           ],
         ),
       ),
@@ -632,6 +661,171 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     } on Object {
       return null;
     }
+  }
+}
+
+class _UpdateAvailablePopup extends StatelessWidget {
+  const _UpdateAvailablePopup({required this.update, required this.onDismiss});
+
+  final AppUpdateInfo update;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
+    final accent = theme.brandAccent;
+    final releaseName = update.releaseName?.trim();
+    final releaseNameLabel =
+        releaseName != null &&
+            releaseName.isNotEmpty &&
+            releaseName != update.latestVersion &&
+            releaseName != update.tagName
+        ? releaseName
+        : null;
+
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 660),
+        child: GlassPanel(
+          borderRadius: 24,
+          padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
+          opacity: 0.14,
+          backgroundColor: scheme.surface,
+          strokeColor: accent,
+          strokeOpacity: 0.26,
+          strokeWidth: 1,
+          showGlow: true,
+          glowBlur: 16,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.28),
+              blurRadius: 30,
+              offset: const Offset(0, 16),
+            ),
+          ],
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(Icons.system_update_alt_rounded, color: accent),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Доступна новая версия ${update.latestVersion}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Сейчас установлена ${update.currentVersion}. Релиз уже опубликован на GitHub.',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: muted,
+                        height: 1.35,
+                      ),
+                    ),
+                    if (releaseNameLabel != null) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        releaseNameLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: accent,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                    if (update.releaseUrl != null) ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => unawaited(_openReleasePage(context)),
+                          icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                          label: const Text('Открыть страницу релиза'),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Скрыть',
+                onPressed: onDismiss,
+                icon: Icon(Icons.close_rounded, color: muted),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openReleasePage(BuildContext context) async {
+    final releaseUrl = update.releaseUrl;
+    if (releaseUrl == null) {
+      return;
+    }
+
+    final opened = await _openExternalUrl(releaseUrl);
+    if (!context.mounted) {
+      return;
+    }
+
+    if (!opened) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Не удалось открыть страницу релиза.')),
+      );
+    }
+  }
+
+  Future<bool> _openExternalUrl(String url) async {
+    try {
+      if (Platform.isWindows) {
+        await Process.start('rundll32', ['url.dll,FileProtocolHandler', url]);
+        return true;
+      }
+      if (Platform.isMacOS) {
+        await Process.start('open', [url]);
+        return true;
+      }
+      if (Platform.isLinux) {
+        await Process.start('xdg-open', [url]);
+        return true;
+      }
+    } on Object {
+      return false;
+    }
+    return false;
   }
 }
 
@@ -684,12 +878,7 @@ class _GlowOrb extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: color,
-            blurRadius: size * 0.20,
-          ),
-        ],
+        boxShadow: [BoxShadow(color: color, blurRadius: size * 0.20)],
       ),
     );
   }
@@ -1003,10 +1192,12 @@ enum _DockPage { home, zapret, settings }
 class _Dock extends StatelessWidget {
   const _Dock({
     required this.current,
+    required this.updateAvailable,
     required this.onSelect,
   });
 
   final _DockPage current;
+  final bool updateAvailable;
   final ValueChanged<_DockPage> onSelect;
 
   @override
@@ -1045,7 +1236,7 @@ class _Dock extends StatelessWidget {
             const _DockDivider(),
             const SizedBox(height: 12),
             _DockBtn(
-              icon: Icons.shield_outlined,
+              icon: Icons.rocket_launch_outlined,
               label: 'Gorion Boost',
               selected: current == _DockPage.zapret,
               onTap: () => onSelect(_DockPage.zapret),
@@ -1056,6 +1247,7 @@ class _Dock extends StatelessWidget {
               icon: Icons.settings_outlined,
               label: 'Настройки',
               selected: current == _DockPage.settings,
+              showBadge: updateAvailable,
               onTap: () => onSelect(_DockPage.settings),
             ),
             const SizedBox(height: 2),
@@ -1096,12 +1288,14 @@ class _DockBtn extends StatefulWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.showBadge = false,
   });
 
   final IconData icon;
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool showBadge;
 
   @override
   State<_DockBtn> createState() => _DockBtnState();
@@ -1173,7 +1367,30 @@ class _DockBtnState extends State<_DockBtn> {
                   : null,
             ),
             alignment: Alignment.center,
-            child: Icon(widget.icon, size: 20, color: color),
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                Icon(widget.icon, size: 20, color: color),
+                if (widget.showBadge)
+                  Positioned(
+                    top: -5,
+                    right: -6,
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFC857),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: scheme.surface, width: 1.5),
+                        boxShadow: const [
+                          BoxShadow(color: Color(0x66FFC857), blurRadius: 10),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

@@ -64,19 +64,6 @@ String _displayName(OutboundInfo info) {
   return normalizeServerDisplayText(raw);
 }
 
-Color _typeColor(String type, Color primary) {
-  return switch (type.toLowerCase()) {
-    'auto' => primary,
-    'vless' => primary,
-    'vmess' => const Color(0xFF6366F1),
-    'trojan' => const Color(0xFFF59E0B),
-    'shadowsocks' || 'ss' => const Color(0xFF3B82F6),
-    'hysteria' || 'hysteria2' => const Color(0xFFEC4899),
-    'tuic' => const Color(0xFF8B5CF6),
-    _ => const Color(0xFF6B7280),
-  };
-}
-
 Color _pingColor(int ms) {
   if (ms <= 0) return const Color(0xFF6B7280);
   if (ms < 100) return const Color(0xFF22C55E);

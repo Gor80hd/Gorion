@@ -881,6 +881,92 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
+  Future<void> setLiveServerPingEnabled(bool enabled) async {
+    final currentSettings = state.autoSelectSettings;
+    if (state.busy || currentSettings.liveServerPingEnabled == enabled) {
+      return;
+    }
+
+    state = state.copyWith(
+      busy: true,
+      clearErrorMessage: true,
+      clearStatusMessage: true,
+    );
+    try {
+      final stored = await _autoSelectSettingsRepository.saveSettings(
+        currentSettings.copyWith(liveServerPingEnabled: enabled),
+      );
+      state = state.copyWith(
+        busy: false,
+        autoSelectSettings: stored.settings,
+        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
+        statusMessage: enabled
+            ? 'Live ping серверов включён.'
+            : 'Live ping серверов выключен.',
+      );
+    } on Object catch (error) {
+      state = state.copyWith(busy: false, errorMessage: error.toString());
+    }
+  }
+
+  Future<void> setLiveServerPingIntervalSeconds(int seconds) async {
+    final clampedSeconds = clampLiveServerPingIntervalSeconds(seconds);
+    final currentSettings = state.autoSelectSettings;
+    if (state.busy ||
+        currentSettings.liveServerPingIntervalSeconds == clampedSeconds) {
+      return;
+    }
+
+    state = state.copyWith(
+      busy: true,
+      clearErrorMessage: true,
+      clearStatusMessage: true,
+    );
+    try {
+      final stored = await _autoSelectSettingsRepository.saveSettings(
+        currentSettings.copyWith(liveServerPingIntervalSeconds: clampedSeconds),
+      );
+      state = state.copyWith(
+        busy: false,
+        autoSelectSettings: stored.settings,
+        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
+        statusMessage:
+            'Интервал Live ping серверов: ${_formatLiveServerPingInterval(clampedSeconds)}.',
+      );
+    } on Object catch (error) {
+      state = state.copyWith(busy: false, errorMessage: error.toString());
+    }
+  }
+
+  Future<void> setLiveServerPingOnStartupEnabled(bool enabled) async {
+    final currentSettings = state.autoSelectSettings;
+    if (state.busy ||
+        currentSettings.liveServerPingOnStartupEnabled == enabled) {
+      return;
+    }
+
+    state = state.copyWith(
+      busy: true,
+      clearErrorMessage: true,
+      clearStatusMessage: true,
+    );
+    try {
+      final stored = await _autoSelectSettingsRepository.saveSettings(
+        currentSettings.copyWith(liveServerPingOnStartupEnabled: enabled),
+      );
+      state = state.copyWith(
+        busy: false,
+        autoSelectSettings: stored.settings,
+        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
+        statusMessage: enabled
+            ? 'Live ping при запуске включён.'
+            : 'Live ping при запуске выключен.',
+      );
+    } on Object catch (error) {
+      state = state.copyWith(busy: false, errorMessage: error.toString());
+    }
+  }
+
   Future<void> setAutoSelectServerExcluded(
     String serverTag,
     bool excluded, {
@@ -1380,7 +1466,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
-  Future<void> refreshDelays() async {
+  Future<void> refreshDelays({bool silent = false}) async {
     final session = state.runtimeSession;
     if (session == null) {
       return;
@@ -1388,8 +1474,8 @@ class DashboardController extends StateNotifier<DashboardState> {
 
     state = state.copyWith(
       refreshingDelays: true,
-      clearErrorMessage: true,
-      clearStatusMessage: true,
+      clearErrorMessage: !silent,
+      clearStatusMessage: !silent,
     );
     try {
       final client = ClashApiClient.fromSession(session);
@@ -1401,13 +1487,15 @@ class DashboardController extends StateNotifier<DashboardState> {
         refreshingDelays: false,
         delayByTag: delays,
         activeServerTag: snapshot.selectedTag ?? state.activeServerTag,
-        statusMessage: 'Delays refreshed through sing-box URLTest.',
+        statusMessage: silent
+            ? null
+            : 'Delays refreshed through sing-box URLTest.',
         logs: _runtimeService.logs,
       );
     } on Object catch (error) {
       state = state.copyWith(
         refreshingDelays: false,
-        errorMessage: error.toString(),
+        errorMessage: silent ? null : error.toString(),
         logs: _runtimeService.logs,
       );
     }
@@ -2537,4 +2625,16 @@ class DashboardController extends StateNotifier<DashboardState> {
 
     return true;
   }
+}
+
+String _formatLiveServerPingInterval(int seconds) {
+  if (seconds < 60) {
+    return '$seconds сек';
+  }
+  final minutes = seconds ~/ 60;
+  final remainingSeconds = seconds % 60;
+  if (remainingSeconds == 0) {
+    return '$minutes мин';
+  }
+  return '$minutes мин $remainingSeconds сек';
 }

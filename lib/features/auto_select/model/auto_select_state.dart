@@ -24,6 +24,14 @@ const defaultAutoSelectThroughputProbeUrls = <String>[
 const autoSelectBestServerCheckIntervalMinMinutes = 15;
 const autoSelectBestServerCheckIntervalMaxMinutes = 180;
 const defaultAutoSelectBestServerCheckIntervalMinutes = 40;
+const defaultLiveServerPingEnabled = true;
+const liveServerPingIntervalMinSeconds = 15;
+const liveServerPingIntervalMaxSeconds = 15 * 60;
+const defaultLiveServerPingIntervalSeconds = 15 * 60;
+const defaultLiveServerPingOnStartupEnabled = true;
+const defaultLiveServerPingInterval = Duration(
+  seconds: defaultLiveServerPingIntervalSeconds,
+);
 const defaultAutoSelectBestServerCheckInterval = Duration(
   minutes: defaultAutoSelectBestServerCheckIntervalMinutes,
 );
@@ -38,6 +46,16 @@ int clampAutoSelectBestServerCheckIntervalMinutes(int minutes) {
     return autoSelectBestServerCheckIntervalMaxMinutes;
   }
   return minutes;
+}
+
+int clampLiveServerPingIntervalSeconds(int seconds) {
+  if (seconds < liveServerPingIntervalMinSeconds) {
+    return liveServerPingIntervalMinSeconds;
+  }
+  if (seconds > liveServerPingIntervalMaxSeconds) {
+    return liveServerPingIntervalMaxSeconds;
+  }
+  return seconds;
 }
 
 List<String> resolveAutoSelectDomainProbeUrls(
@@ -223,6 +241,9 @@ class AutoSelectSettings {
     this.checkIp = true,
     this.bestServerCheckIntervalMinutes =
         defaultAutoSelectBestServerCheckIntervalMinutes,
+    this.liveServerPingEnabled = defaultLiveServerPingEnabled,
+    this.liveServerPingIntervalSeconds = defaultLiveServerPingIntervalSeconds,
+    this.liveServerPingOnStartupEnabled = defaultLiveServerPingOnStartupEnabled,
     this.domainProbeUrl = defaultAutoSelectDomainProbeUrl,
     this.ipProbeUrl = defaultAutoSelectIpProbeUrl,
     this.excludedServerKeys = const [],
@@ -232,11 +253,19 @@ class AutoSelectSettings {
              bestServerCheckIntervalMinutes <=
                  autoSelectBestServerCheckIntervalMaxMinutes,
          'bestServerCheckIntervalMinutes must stay within the supported range.',
+       ),
+       assert(
+         liveServerPingIntervalSeconds >= liveServerPingIntervalMinSeconds &&
+             liveServerPingIntervalSeconds <= liveServerPingIntervalMaxSeconds,
+         'liveServerPingIntervalSeconds must stay within the supported range.',
        );
 
   final bool enabled;
   final bool checkIp;
   final int bestServerCheckIntervalMinutes;
+  final bool liveServerPingEnabled;
+  final int liveServerPingIntervalSeconds;
+  final bool liveServerPingOnStartupEnabled;
   final String domainProbeUrl;
   final String ipProbeUrl;
   final List<String> excludedServerKeys;
@@ -244,10 +273,16 @@ class AutoSelectSettings {
   Duration get bestServerCheckInterval =>
       Duration(minutes: bestServerCheckIntervalMinutes);
 
+  Duration get liveServerPingInterval =>
+      Duration(seconds: liveServerPingIntervalSeconds);
+
   AutoSelectSettings copyWith({
     bool? enabled,
     bool? checkIp,
     int? bestServerCheckIntervalMinutes,
+    bool? liveServerPingEnabled,
+    int? liveServerPingIntervalSeconds,
+    bool? liveServerPingOnStartupEnabled,
     String? domainProbeUrl,
     String? ipProbeUrl,
     List<String>? excludedServerKeys,
@@ -260,6 +295,13 @@ class AutoSelectSettings {
           : clampAutoSelectBestServerCheckIntervalMinutes(
               bestServerCheckIntervalMinutes,
             ),
+      liveServerPingEnabled:
+          liveServerPingEnabled ?? this.liveServerPingEnabled,
+      liveServerPingIntervalSeconds: liveServerPingIntervalSeconds == null
+          ? this.liveServerPingIntervalSeconds
+          : clampLiveServerPingIntervalSeconds(liveServerPingIntervalSeconds),
+      liveServerPingOnStartupEnabled:
+          liveServerPingOnStartupEnabled ?? this.liveServerPingOnStartupEnabled,
       domainProbeUrl: domainProbeUrl ?? this.domainProbeUrl,
       ipProbeUrl: ipProbeUrl ?? this.ipProbeUrl,
       excludedServerKeys: excludedServerKeys ?? this.excludedServerKeys,
@@ -279,6 +321,9 @@ class AutoSelectSettings {
       'enabled': enabled,
       'checkIp': checkIp,
       'bestServerCheckIntervalMinutes': bestServerCheckIntervalMinutes,
+      'liveServerPingEnabled': liveServerPingEnabled,
+      'liveServerPingIntervalSeconds': liveServerPingIntervalSeconds,
+      'liveServerPingOnStartupEnabled': liveServerPingOnStartupEnabled,
       'domainProbeUrl': domainProbeUrl,
       'ipProbeUrl': ipProbeUrl,
       'excludedServerKeys': excludedServerKeys,
@@ -299,6 +344,15 @@ class AutoSelectSettings {
                 ) ??
                 defaultAutoSelectBestServerCheckIntervalMinutes,
         };
+    final liveServerPingIntervalValue =
+        switch (json['liveServerPingIntervalSeconds']) {
+          final num value => value.toInt(),
+          _ =>
+            int.tryParse(
+                  json['liveServerPingIntervalSeconds']?.toString() ?? '',
+                ) ??
+                defaultLiveServerPingIntervalSeconds,
+        };
 
     return AutoSelectSettings(
       enabled: json['enabled'] as bool? ?? true,
@@ -307,6 +361,15 @@ class AutoSelectSettings {
           clampAutoSelectBestServerCheckIntervalMinutes(
             bestServerCheckIntervalValue,
           ),
+      liveServerPingEnabled:
+          json['liveServerPingEnabled'] as bool? ??
+          defaultLiveServerPingEnabled,
+      liveServerPingIntervalSeconds: clampLiveServerPingIntervalSeconds(
+        liveServerPingIntervalValue,
+      ),
+      liveServerPingOnStartupEnabled:
+          json['liveServerPingOnStartupEnabled'] as bool? ??
+          defaultLiveServerPingOnStartupEnabled,
       domainProbeUrl:
           json['domainProbeUrl']?.toString().trim().isNotEmpty == true
           ? json['domainProbeUrl'].toString().trim()

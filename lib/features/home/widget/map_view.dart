@@ -175,27 +175,24 @@ class MapView extends HookConsumerWidget {
                   padding: contentPadding,
                   child: Align(
                     alignment: Alignment.bottomCenter,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: PageReveal(
-                        delay: const Duration(milliseconds: 110),
-                        duration: const Duration(milliseconds: 240),
-                        offset: const Offset(0, 0.05),
-                        child: _ServerInfoPopup(
-                          model: statusCard,
-                          isConnected: isConnected,
-                          isConnecting: isConnecting,
-                          isSwitching: isSwitching,
-                          downlink: downlink,
-                          uplink: uplink,
-                          onToggle: () => ref
-                              .read(connectionNotifierProvider.notifier)
-                              .toggleConnection(),
-                          serviceMode: serviceMode,
-                          onModeChanged: (mode) => ref
-                              .read(ConfigOptions.serviceMode.notifier)
-                              .update(mode),
-                        ),
+                    child: PageReveal(
+                      delay: const Duration(milliseconds: 110),
+                      duration: const Duration(milliseconds: 240),
+                      offset: const Offset(0, 0.05),
+                      child: _ServerInfoPopup(
+                        model: statusCard,
+                        isConnected: isConnected,
+                        isConnecting: isConnecting,
+                        isSwitching: isSwitching,
+                        downlink: downlink,
+                        uplink: uplink,
+                        onToggle: () => ref
+                            .read(connectionNotifierProvider.notifier)
+                            .toggleConnection(),
+                        serviceMode: serviceMode,
+                        onModeChanged: (mode) => ref
+                            .read(ConfigOptions.serviceMode.notifier)
+                            .update(mode),
                       ),
                     ),
                   ),
@@ -210,11 +207,12 @@ class MapView extends HookConsumerWidget {
 }
 
 String _formatSpeed(int bytesPerSec) {
-  if (bytesPerSec <= 0) return '0 KB/S';
+  if (bytesPerSec <= 0) return '0 KB/s';
   if (bytesPerSec >= 1024 * 1024) {
-    return '${(bytesPerSec / (1024 * 1024)).toStringAsFixed(0)} MB/S';
+    final value = bytesPerSec / (1024 * 1024);
+    return '${value.toStringAsFixed(value >= 10 ? 1 : 2)} MB/s';
   }
-  return '${(bytesPerSec / 1024).toStringAsFixed(0)} KB/S';
+  return '${(bytesPerSec / 1024).toStringAsFixed(0)} KB/s';
 }
 
 List<ServiceMode> _visibleServiceModes() {
@@ -227,7 +225,7 @@ List<ServiceMode> _visibleServiceModes() {
 String _serviceModeLabel(ServiceMode mode) {
   return switch (mode) {
     ServiceMode.mixed => 'Proxy',
-    ServiceMode.systemProxy => 'Системный прокси',
+    ServiceMode.systemProxy => 'Proxy',
     ServiceMode.tun => 'TUN',
   };
 }
@@ -285,6 +283,13 @@ class _ServerInfoPopup extends HookConsumerWidget {
     final timerNow = useState(DateTime.now());
     final ping = model.showTargetSummary ? proxyInfo?.urlTestDelay ?? 0 : 0;
     final currentIpInfo = isConnected ? model.currentIp : null;
+    final displayedIpInfo = isConnected ? currentIpInfo : model.sourceIp;
+    final protocolLabel = type.isEmpty ? '—' : type;
+    final protocolDetail = proxyInfo == null
+        ? 'Сервер не выбран'
+        : model.isAutoMode
+        ? 'Автовыбор сервера'
+        : 'Активный сервер';
     final shouldAnimateProgressStroke =
         isBenchmarking || isSwitching || autoSelectionProgress != null;
     final progressStrokeColor = isSwitching
@@ -297,9 +302,18 @@ class _ServerInfoPopup extends HookConsumerWidget {
       if (routeName != null && routeName.isNotEmpty) routeName,
       if (ping > 0) '$ping мс',
     ].join(' · ');
-    final throughputSummary = isConnected
-        ? '↓ ${_formatSpeed(downlink)} · ↑ ${_formatSpeed(uplink)}'
-        : null;
+    final statusAccent = isSwitching
+        ? const Color(0xFFFFB457)
+        : isConnected
+        ? scheme.primary
+        : muted.withValues(alpha: 0.82);
+    final connectionLabel = isSwitching
+        ? 'Переключаем маршрут'
+        : isConnecting
+        ? 'Подключаемся'
+        : isConnected
+        ? 'Подключение защищено'
+        : 'Подключение отключено';
 
     useEffect(
       () {
@@ -371,58 +385,61 @@ class _ServerInfoPopup extends HookConsumerWidget {
 
     return _ProgressStrokeFrame(
       active: shouldAnimateProgressStroke,
-      borderRadius: 24,
+      borderRadius: 28,
       color: progressStrokeColor,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 620),
+        constraints: const BoxConstraints(maxWidth: 760),
         child: GlassPanel(
           padding: EdgeInsets.zero,
-          borderRadius: 24,
+          borderRadius: 28,
           backgroundColor: Colors.white,
-          opacity: 0.05,
+          opacity: 0.055,
           strokeColor: Colors.white,
-          strokeOpacity: 0.08,
+          strokeOpacity: 0.10,
           strokeWidth: 1,
           showGlow: false,
           glowBlur: 8,
           boxShadow: [
             BoxShadow(
-              color: theme.shadowColor.withValues(alpha: 0.22),
-              blurRadius: 20,
-              offset: const Offset(0, 14),
+              color: theme.shadowColor.withValues(alpha: 0.26),
+              blurRadius: 30,
+              offset: const Offset(0, 18),
             ),
           ],
           child: _ConnectionCardSurface(
             isConnected: isConnected,
             isSwitching: isSwitching,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 18),
+              padding: const EdgeInsets.fromLTRB(26, 22, 26, 22),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final isCompact = constraints.maxWidth < 520;
+                  final isCompact = constraints.maxWidth < 620;
+                  final isTiny = constraints.maxWidth < 420;
                   final needsScrollableCard =
-                      constraints.maxWidth < 280 || constraints.maxHeight < 360;
-                  final sourceBlock = _InfoBlock(
-                    label: 'Исходный IP',
-                    value: model.sourceIp?.ip ?? '—',
+                      isTiny || constraints.maxHeight < 420;
+                  final ipBlock = _InfoBlock(
+                    label: 'Ваш IP',
+                    value: displayedIpInfo?.ip ?? '—',
                     detail: describeIpInfo(
-                      model.sourceIp,
-                      fallback: 'Определяем внешний адрес…',
-                    ),
-                    accent: const Color(0xFF60A5FA),
-                  );
-                  final currentBlock = _InfoBlock(
-                    label: 'Текущий IP',
-                    value: currentIpInfo?.ip ?? '—',
-                    detail: describeIpInfo(
-                      currentIpInfo,
+                      displayedIpInfo,
                       fallback: isConnected
-                          ? 'Получаем маршрут…'
-                          : 'Появится после подключения',
+                          ? 'Получаем IP сервера…'
+                          : 'Определяем внешний адрес…',
                     ),
                     accent: isConnected
                         ? scheme.primary
-                        : muted.withValues(alpha: 0.7),
+                        : const Color(0xFF60A5FA),
+                  );
+                  final protocolBlock = _InfoBlock(
+                    label: 'Протокол',
+                    value: protocolLabel,
+                    detail: protocolDetail,
+                    accent: const Color(0xFF60A5FA),
+                  );
+                  final modeBlock = _ModeControlBlock(
+                    serviceMode: serviceMode,
+                    modes: visibleServiceModes,
+                    onModeChanged: onModeChanged,
                   );
 
                   Widget infoContent() {
@@ -430,14 +447,21 @@ class _ServerInfoPopup extends HookConsumerWidget {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          sourceBlock,
+                          ipBlock,
                           const Gap(12),
                           Container(
                             height: 1,
                             color: scheme.onSurface.withValues(alpha: 0.06),
                           ),
                           const Gap(12),
-                          currentBlock,
+                          protocolBlock,
+                          const Gap(12),
+                          Container(
+                            height: 1,
+                            color: scheme.onSurface.withValues(alpha: 0.06),
+                          ),
+                          const Gap(12),
+                          modeBlock,
                         ],
                       );
                     }
@@ -445,119 +469,143 @@ class _ServerInfoPopup extends HookConsumerWidget {
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(child: sourceBlock),
+                        Expanded(child: ipBlock),
                         const _InfoDivider(),
                         const Gap(16),
-                        Expanded(child: currentBlock),
+                        Expanded(child: protocolBlock),
+                        const _InfoDivider(),
+                        const Gap(16),
+                        Expanded(child: modeBlock),
                       ],
                     );
                   }
+
+                  final titleContent = Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _ConnectionStateLabel(
+                        label: connectionLabel,
+                        color: statusAccent,
+                        icon: isConnected
+                            ? Icons.lock_outline_rounded
+                            : isSwitching || isConnecting
+                            ? Icons.sync_rounded
+                            : Icons.lock_open_rounded,
+                      ),
+                      const Gap(12),
+                      EmojiFlagText(
+                        model.title,
+                        style: TextStyle(
+                          color: scheme.onSurface,
+                          fontSize: isTiny ? 22 : 28,
+                          fontWeight: FontWeight.w800,
+                          height: 1.04,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (showMetaTags) ...[
+                        const Gap(10),
+                        Wrap(
+                          spacing: 7,
+                          runSpacing: 7,
+                          children: [
+                            if (type.isNotEmpty)
+                              _GlassBadge(
+                                label: type,
+                                color: const Color(0xFF60A5FA),
+                              ),
+                            if (model.isAutoMode)
+                              _GlassBadge(label: 'AUTO', color: scheme.primary),
+                            if (showSessionTimerTag)
+                              _ConnectionTimerPill(
+                                title: 'Сессия',
+                                value: _formatElapsed(
+                                  _elapsedSince(connectedAt, timerNow.value),
+                                ),
+                                color: scheme.primary,
+                              ),
+                            if (showBestServerCheck)
+                              _ConnectionTimerPill(
+                                title: 'Best server',
+                                value: lastBestServerCheckAt != null
+                                    ? _formatElapsed(
+                                        _elapsedSince(
+                                          lastBestServerCheckAt,
+                                          timerNow.value,
+                                        ),
+                                      )
+                                    : 'идёт',
+                                color: bestServerCheckRunning
+                                    ? const Color(0xFFFFB457)
+                                    : const Color(0xFF60A5FA),
+                              ),
+                          ],
+                        ),
+                      ],
+                      if (headerSummary.isNotEmpty) ...[
+                        const Gap(7),
+                        EmojiFlagText(
+                          headerSummary,
+                          style: TextStyle(
+                            color: scheme.onSurface.withValues(alpha: 0.76),
+                            fontSize: 13.2,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                      if (model.statusText case final statusText?) ...[
+                        const Gap(4),
+                        EmojiFlagText(
+                          statusText,
+                          style: TextStyle(
+                            color: muted.withValues(alpha: 0.95),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+
+                  final headerContent = isTiny
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            titleContent,
+                            const Gap(16),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: _PowerButton(
+                                isConnected: isConnected,
+                                isConnecting: isConnecting,
+                                isSwitching: isSwitching,
+                                onTap: onToggle,
+                              ),
+                            ),
+                          ],
+                        )
+                      : Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Expanded(child: titleContent),
+                            const Gap(22),
+                            _PowerButton(
+                              isConnected: isConnected,
+                              isConnecting: isConnecting,
+                              isSwitching: isSwitching,
+                              onTap: onToggle,
+                            ),
+                          ],
+                        );
 
                   final cardContent = Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                EmojiFlagText(
-                                  model.title,
-                                  style: TextStyle(
-                                    color: scheme.onSurface,
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                if (showMetaTags) ...[
-                                  const Gap(8),
-                                  Wrap(
-                                    spacing: 6,
-                                    runSpacing: 6,
-                                    children: [
-                                      if (type.isNotEmpty)
-                                        _GlassBadge(
-                                          label: type,
-                                          color: const Color(0xFF60A5FA),
-                                        ),
-                                      if (model.isAutoMode)
-                                        _GlassBadge(
-                                          label: 'AUTO',
-                                          color: scheme.primary,
-                                        ),
-                                      if (showSessionTimerTag)
-                                        _ConnectionTimerPill(
-                                          title: 'Сессия',
-                                          value: _formatElapsed(
-                                            _elapsedSince(
-                                              connectedAt,
-                                              timerNow.value,
-                                            ),
-                                          ),
-                                          color: scheme.primary,
-                                        ),
-                                      if (showBestServerCheck)
-                                        _ConnectionTimerPill(
-                                          title: 'Best server',
-                                          value: lastBestServerCheckAt != null
-                                              ? _formatElapsed(
-                                                  _elapsedSince(
-                                                    lastBestServerCheckAt,
-                                                    timerNow.value,
-                                                  ),
-                                                )
-                                              : 'идёт',
-                                          color: bestServerCheckRunning
-                                              ? const Color(0xFFFFB457)
-                                              : const Color(0xFF60A5FA),
-                                        ),
-                                    ],
-                                  ),
-                                ],
-                                if (headerSummary.isNotEmpty) ...[
-                                  const Gap(6),
-                                  EmojiFlagText(
-                                    headerSummary,
-                                    style: TextStyle(
-                                      color: scheme.onSurface.withValues(
-                                        alpha: 0.76,
-                                      ),
-                                      fontSize: 13.2,
-                                      fontWeight: FontWeight.w600,
-                                      height: 1.35,
-                                    ),
-                                  ),
-                                ],
-                                if (model.statusText
-                                    case final statusText?) ...[
-                                  const Gap(4),
-                                  EmojiFlagText(
-                                    statusText,
-                                    style: TextStyle(
-                                      color: muted.withValues(alpha: 0.95),
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w500,
-                                      height: 1.35,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          const Gap(18),
-                          _PowerButton(
-                            isConnected: isConnected,
-                            isConnecting: isConnecting,
-                            isSwitching: isSwitching,
-                            onTap: onToggle,
-                          ),
-                        ],
-                      ),
+                      headerContent,
                       if (model.alertText case final alertText?) ...[
                         const Gap(14),
                         Container(
@@ -582,44 +630,31 @@ class _ServerInfoPopup extends HookConsumerWidget {
                           ),
                         ),
                       ],
-                      const Gap(14),
-                      Align(
-                        alignment: Alignment.center,
-                        child: Wrap(
-                          alignment: WrapAlignment.center,
-                          spacing: 18,
-                          runSpacing: 8,
-                          children: visibleServiceModes.map((mode) {
-                            final selected = mode == serviceMode;
-                            return _ModeTextButton(
-                              label: _serviceModeLabel(mode),
-                              selected: selected,
-                              onTap: selected
-                                  ? null
-                                  : () => onModeChanged(mode),
-                            );
-                          }).toList(),
-                        ),
-                      ),
                       const Gap(16),
                       Container(
-                        height: 1,
-                        color: scheme.onSurface.withValues(alpha: 0.08),
-                      ),
-                      const Gap(14),
-                      infoContent(),
-                      if (throughputSummary case final summary?) ...[
-                        const Gap(14),
-                        Text(
-                          summary,
-                          style: TextStyle(
-                            color: muted.withValues(alpha: 0.95),
-                            fontSize: 12.4,
-                            fontWeight: FontWeight.w600,
-                            height: 1.3,
+                        width: double.infinity,
+                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+                        decoration: BoxDecoration(
+                          color: scheme.onSurface.withValues(
+                            alpha: theme.brightness == Brightness.dark
+                                ? 0.035
+                                : 0.045,
+                          ),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: scheme.onSurface.withValues(alpha: 0.07),
+                            width: 0.8,
                           ),
                         ),
-                      ],
+                        child: infoContent(),
+                      ),
+                      const Gap(16),
+                      _TrafficPanel(
+                        downlink: downlink,
+                        uplink: uplink,
+                        active: isConnected || isSwitching || isConnecting,
+                        accent: scheme.primary,
+                      ),
                     ],
                   );
 
@@ -663,6 +698,41 @@ class _ConnectionCardSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return child;
+  }
+}
+
+class _ConnectionStateLabel extends StatelessWidget {
+  const _ConnectionStateLabel({
+    required this.label,
+    required this.color,
+    required this.icon,
+  });
+
+  final String label;
+  final Color color;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const Gap(8),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: color,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -855,14 +925,483 @@ class _InfoDivider extends StatelessWidget {
   }
 }
 
-class _ModeTextButton extends StatelessWidget {
-  const _ModeTextButton({
+class _ModeControlBlock extends StatelessWidget {
+  const _ModeControlBlock({
+    required this.serviceMode,
+    required this.modes,
+    required this.onModeChanged,
+  });
+
+  final ServiceMode serviceMode;
+  final List<ServiceMode> modes;
+  final ValueChanged<ServiceMode> onModeChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.gorionTokens.onSurfaceMuted;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Режим',
+          style: TextStyle(
+            color: muted.withValues(alpha: 0.78),
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const Gap(8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final mode in modes)
+              _ModeChipButton(
+                label: _serviceModeLabel(mode),
+                icon: mode.usesTun
+                    ? Icons.hub_outlined
+                    : Icons.swap_horiz_rounded,
+                selected: mode == serviceMode,
+                onTap: mode == serviceMode ? null : () => onModeChanged(mode),
+              ),
+          ],
+        ),
+        const Gap(7),
+        Text(
+          'Маршрутизация трафика',
+          style: TextStyle(
+            color: muted.withValues(alpha: 0.95),
+            fontSize: 11.8,
+            height: 1.38,
+          ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+}
+
+class _TrafficPanel extends StatelessWidget {
+  const _TrafficPanel({
+    required this.downlink,
+    required this.uplink,
+    required this.active,
+    required this.accent,
+  });
+
+  final int downlink;
+  final int uplink;
+  final bool active;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final uploadAccent = theme.brightness == Brightness.dark
+        ? const Color(0xFFFF7AA8)
+        : const Color(0xFFC43C70);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 15, 18, 15),
+      decoration: BoxDecoration(
+        color: scheme.onSurface.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.035 : 0.045,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: scheme.onSurface.withValues(alpha: 0.07),
+          width: 0.8,
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 460;
+          final graph = SizedBox(
+            height: 52,
+            child: _TrafficSparkline(
+              active: active,
+              downlink: downlink,
+              uplink: uplink,
+              accent: accent,
+              uploadAccent: uploadAccent,
+            ),
+          );
+
+          if (isCompact) {
+            return Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: _TrafficValue(
+                        icon: Icons.arrow_downward_rounded,
+                        label: 'Загрузка',
+                        value: _formatSpeed(downlink),
+                        color: accent,
+                      ),
+                    ),
+                    const Gap(12),
+                    Expanded(
+                      child: _TrafficValue(
+                        icon: Icons.arrow_upward_rounded,
+                        label: 'Отдача',
+                        value: _formatSpeed(uplink),
+                        color: uploadAccent,
+                        alignEnd: true,
+                      ),
+                    ),
+                  ],
+                ),
+                const Gap(10),
+                graph,
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              SizedBox(
+                width: 138,
+                child: _TrafficValue(
+                  icon: Icons.arrow_downward_rounded,
+                  label: 'Загрузка',
+                  value: _formatSpeed(downlink),
+                  color: accent,
+                ),
+              ),
+              const Gap(18),
+              Expanded(child: graph),
+              const Gap(18),
+              SizedBox(
+                width: 138,
+                child: _TrafficValue(
+                  icon: Icons.arrow_upward_rounded,
+                  label: 'Отдача',
+                  value: _formatSpeed(uplink),
+                  color: uploadAccent,
+                  alignEnd: true,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _TrafficValue extends StatelessWidget {
+  const _TrafficValue({
+    required this.icon,
     required this.label,
+    required this.value,
+    required this.color,
+    this.alignEnd = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).gorionTokens.onSurfaceMuted;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final showIcon = constraints.maxWidth >= 48;
+        final valueFontSize = constraints.maxWidth < 92 ? 16.0 : 22.0;
+
+        return Column(
+          crossAxisAlignment: alignEnd
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: alignEnd
+                  ? MainAxisAlignment.end
+                  : MainAxisAlignment.start,
+              children: [
+                if (showIcon) ...[
+                  Icon(icon, size: 20, color: color),
+                  const Gap(8),
+                ],
+                Flexible(
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontSize: valueFontSize,
+                      fontWeight: FontWeight.w800,
+                      height: 1,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const Gap(8),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: muted.withValues(alpha: 0.88),
+                fontSize: constraints.maxWidth < 92 ? 10.5 : 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+const _trafficHistoryLength = 32;
+
+class _TrafficSample {
+  const _TrafficSample({required this.downlink, required this.uplink});
+
+  final int downlink;
+  final int uplink;
+}
+
+List<_TrafficSample> _emptyTrafficHistory() => List<_TrafficSample>.filled(
+  _trafficHistoryLength,
+  const _TrafficSample(downlink: 0, uplink: 0),
+);
+
+class _TrafficSparkline extends HookWidget {
+  const _TrafficSparkline({
+    required this.active,
+    required this.downlink,
+    required this.uplink,
+    required this.accent,
+    required this.uploadAccent,
+  });
+
+  final bool active;
+  final int downlink;
+  final int uplink;
+  final Color accent;
+  final Color uploadAccent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final latestActive = useRef(active);
+    final latestDownlink = useRef(downlink);
+    final latestUplink = useRef(uplink);
+    final samples = useState<List<_TrafficSample>>(_emptyTrafficHistory());
+
+    void appendSample() {
+      final sample = latestActive.value
+          ? _TrafficSample(
+              downlink: latestDownlink.value,
+              uplink: latestUplink.value,
+            )
+          : const _TrafficSample(downlink: 0, uplink: 0);
+      final next = [...samples.value, sample];
+      if (next.length > _trafficHistoryLength) {
+        next.removeRange(0, next.length - _trafficHistoryLength);
+      }
+      samples.value = List.unmodifiable(next);
+    }
+
+    useEffect(() {
+      latestActive.value = active;
+      latestDownlink.value = downlink;
+      latestUplink.value = uplink;
+      appendSample();
+      return null;
+    }, [active, downlink, uplink]);
+
+    useEffect(() {
+      final timer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => appendSample(),
+      );
+      return timer.cancel;
+    }, const []);
+
+    return CustomPaint(
+      painter: _TrafficSparklinePainter(
+        samples: samples.value,
+        accent: active
+            ? accent
+            : theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.72),
+        uploadAccent: active
+            ? uploadAccent
+            : theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.58),
+        muted: theme.gorionTokens.onSurfaceMuted,
+      ),
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
+class _TrafficSparklinePainter extends CustomPainter {
+  const _TrafficSparklinePainter({
+    required this.samples,
+    required this.accent,
+    required this.uploadAccent,
+    required this.muted,
+  });
+
+  final List<_TrafficSample> samples;
+  final Color accent;
+  final Color uploadAccent;
+  final Color muted;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final baselineY = size.height - 7;
+    final maxValue = samples.fold<int>(
+      1,
+      (current, sample) =>
+          math.max(current, math.max(sample.downlink, sample.uplink)),
+    );
+    final downlinkPoints = _pointsForSeries(
+      samples.map((sample) => sample.downlink).toList(growable: false),
+      size,
+      maxValue,
+    );
+    final uplinkPoints = _pointsForSeries(
+      samples.map((sample) => sample.uplink).toList(growable: false),
+      size,
+      maxValue,
+    );
+    final downlinkPath = _smoothPath(downlinkPoints);
+    final uplinkPath = _smoothPath(uplinkPoints);
+
+    final fillPath = Path.from(downlinkPath)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(
+      fillPath,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(0, 0),
+          Offset(0, size.height),
+          [
+            accent.withValues(alpha: 0.14),
+            accent.withValues(alpha: 0.02),
+            Colors.transparent,
+          ],
+          const [0.0, 0.72, 1.0],
+        ),
+    );
+
+    canvas.drawLine(
+      Offset(0, baselineY),
+      Offset(size.width, baselineY),
+      Paint()
+        ..color = muted.withValues(alpha: 0.08)
+        ..strokeWidth = 1,
+    );
+
+    canvas.drawPath(
+      downlinkPath,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5.6
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = accent.withValues(alpha: 0.11)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+    );
+    canvas.drawPath(
+      downlinkPath,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = accent.withValues(alpha: 0.78),
+    );
+    canvas.drawPath(
+      uplinkPath,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = uploadAccent.withValues(alpha: 0.70),
+    );
+  }
+
+  List<Offset> _pointsForSeries(List<int> values, Size size, int maxValue) {
+    if (values.isEmpty) {
+      return [Offset(0, size.height - 7), Offset(size.width, size.height - 7)];
+    }
+
+    final top = 5.0;
+    final bottom = size.height - 7.0;
+    final height = math.max(1.0, bottom - top);
+    final denominator = math.max(1, maxValue).toDouble();
+    return [
+      for (var index = 0; index < values.length; index += 1)
+        Offset(
+          values.length == 1
+              ? size.width
+              : (index / (values.length - 1)) * size.width,
+          bottom -
+              ((values[index].clamp(0, maxValue) / denominator) * height).clamp(
+                0.0,
+                height,
+              ),
+        ),
+    ];
+  }
+
+  Path _smoothPath(List<Offset> points) {
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (var index = 1; index < points.length; index += 1) {
+      final previous = points[index - 1];
+      final current = points[index];
+      final control = Offset((previous.dx + current.dx) / 2, previous.dy);
+      final endControl = Offset((previous.dx + current.dx) / 2, current.dy);
+      path.cubicTo(
+        control.dx,
+        control.dy,
+        endControl.dx,
+        endControl.dy,
+        current.dx,
+        current.dy,
+      );
+    }
+    return path;
+  }
+
+  @override
+  bool shouldRepaint(_TrafficSparklinePainter oldDelegate) =>
+      oldDelegate.samples != samples ||
+      oldDelegate.accent != accent ||
+      oldDelegate.uploadAccent != uploadAccent ||
+      oldDelegate.muted != muted;
+}
+
+class _ModeChipButton extends StatelessWidget {
+  const _ModeChipButton({
+    required this.label,
+    required this.icon,
     required this.selected,
     required this.onTap,
   });
 
   final String label;
+  final IconData icon;
   final bool selected;
   final VoidCallback? onTap;
 
@@ -870,28 +1409,61 @@ class _ModeTextButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final accent = selected ? scheme.primary : scheme.onSurface;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.only(bottom: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
         decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: selected ? scheme.primary : Colors.transparent,
-              width: 1.6,
-            ),
+          color: selected
+              ? scheme.primary.withValues(alpha: 0.14)
+              : scheme.onSurface.withValues(alpha: 0.055),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected
+                ? scheme.primary.withValues(alpha: 0.34)
+                : scheme.onSurface.withValues(alpha: 0.10),
+            width: 0.8,
           ),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected
-                ? scheme.primary
-                : theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.9),
-            fontSize: 11.5,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      icon,
+                      size: 13,
+                      color: selected
+                          ? scheme.primary
+                          : theme.gorionTokens.onSurfaceMuted.withValues(
+                              alpha: 0.92,
+                            ),
+                    ),
+                    const Gap(5),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: selected
+                            ? scheme.primary
+                            : accent.withValues(alpha: 0.78),
+                        fontSize: 11.5,
+                        fontWeight: selected
+                            ? FontWeight.w800
+                            : FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -964,46 +1536,76 @@ class _PowerButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
     final color = switch ((isConnected, isSwitching)) {
       (_, true) => const Color(0xFFFFB457),
       (true, false) => primary,
       (false, false) => const Color(0xFFFF5F5F),
     };
+    final disabled = isSwitching && !isConnecting;
 
-    return GestureDetector(
-      onTap: (isSwitching && !isConnecting) ? null : onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        width: 52,
-        height: 52,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: color.withValues(alpha: isConnected ? 0.14 : 0.09),
-          border: Border.all(color: color.withValues(alpha: 0.65)),
-        ),
-        child: isConnecting
-            ? Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: color.withValues(alpha: 0.92),
-                    ),
-                  ),
-                  Icon(Icons.close_rounded, size: 16, color: color),
-                ],
-              )
-            : SvgPicture.asset(
-                'assets/images/power.svg',
-                width: 22,
-                height: 22,
-                colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+    return Tooltip(
+      message: isConnected ? 'Отключиться' : 'Подключиться',
+      child: GestureDetector(
+        onTap: disabled ? null : onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 240),
+          width: 96,
+          height: 96,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: [
+                color.withValues(alpha: isConnected ? 0.22 : 0.13),
+                color.withValues(alpha: isConnected ? 0.11 : 0.06),
+                Colors.transparent,
+              ],
+              stops: const [0.0, 0.62, 1.0],
+            ),
+            border: Border.all(
+              color: color.withValues(alpha: disabled ? 0.34 : 0.82),
+              width: 2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: isConnected ? 0.42 : 0.22),
+                blurRadius: isConnected ? 34 : 22,
+                spreadRadius: isConnected ? 2 : -3,
               ),
+              BoxShadow(
+                color: theme.shadowColor.withValues(alpha: 0.24),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: isConnecting
+              ? Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    SizedBox(
+                      width: 42,
+                      height: 42,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: color.withValues(alpha: 0.92),
+                      ),
+                    ),
+                    Icon(Icons.close_rounded, size: 22, color: color),
+                  ],
+                )
+              : SvgPicture.asset(
+                  'assets/images/power.svg',
+                  width: 34,
+                  height: 34,
+                  colorFilter: ColorFilter.mode(
+                    color.withValues(alpha: disabled ? 0.62 : 1),
+                    BlendMode.srcIn,
+                  ),
+                ),
+        ),
       ),
     );
   }

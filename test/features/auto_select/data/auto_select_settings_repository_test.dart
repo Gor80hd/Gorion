@@ -29,6 +29,9 @@ void main() {
           enabled: false,
           checkIp: false,
           bestServerCheckIntervalMinutes: 120,
+          liveServerPingEnabled: false,
+          liveServerPingIntervalSeconds: 90,
+          liveServerPingOnStartupEnabled: false,
           domainProbeUrl: 'https://probe.example.com/204',
           ipProbeUrl: 'http://9.9.9.9',
         ),
@@ -52,6 +55,9 @@ void main() {
       expect(loaded.settings.enabled, isFalse);
       expect(loaded.settings.checkIp, isFalse);
       expect(loaded.settings.bestServerCheckIntervalMinutes, 120);
+      expect(loaded.settings.liveServerPingEnabled, isFalse);
+      expect(loaded.settings.liveServerPingIntervalSeconds, 90);
+      expect(loaded.settings.liveServerPingOnStartupEnabled, isFalse);
       expect(loaded.settings.domainProbeUrl, 'https://probe.example.com/204');
       expect(loaded.settings.ipProbeUrl, 'http://9.9.9.9');
       expect(loaded.settings.isExcluded('profile-1', 'server-a'), isTrue);
@@ -71,6 +77,9 @@ void main() {
 
       expect(restartedState.settings.enabled, isFalse);
       expect(restartedState.settings.bestServerCheckIntervalMinutes, 120);
+      expect(restartedState.settings.liveServerPingEnabled, isFalse);
+      expect(restartedState.settings.liveServerPingIntervalSeconds, 90);
+      expect(restartedState.settings.liveServerPingOnStartupEnabled, isFalse);
       expect(
         restartedState.recentAutoSelectedServer?.matchesProfile('profile-1'),
         isTrue,

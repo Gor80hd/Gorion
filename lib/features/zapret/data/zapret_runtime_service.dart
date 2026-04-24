@@ -106,7 +106,14 @@ class ZapretRuntimeService {
       return settings;
     }
 
-    if (settings.hasInstallDirectory && !_forceBundledInstallDirectory) {
+    final usesCustomInstallDirectory =
+        settings.hasInstallDirectory &&
+        !_forceBundledInstallDirectory &&
+        !await isBundledZapretInstallDirectory(
+          settings.normalizedInstallDirectory,
+        );
+
+    if (usesCustomInstallDirectory) {
       await ensureBundledSupportLayout(settings.normalizedInstallDirectory);
       await ensureBundledProfileConfigs(settings.normalizedInstallDirectory);
       return settings;

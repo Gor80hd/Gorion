@@ -18,6 +18,8 @@ import 'package:gorion_clean/features/settings/model/connection_tuning_settings.
 import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
 import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
 import 'package:gorion_clean/features/settings/widget/split_tunnel_section.dart';
+import 'package:gorion_clean/features/update/application/app_update_controller.dart';
+import 'package:gorion_clean/features/update/model/app_update_state.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
 
@@ -117,10 +119,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   ConnectionTuningSettings? _syncedSettings;
   int? _autoSelectIntervalDraftMinutes;
   int? _syncedAutoSelectIntervalMinutes;
+  int? _liveServerPingIntervalDraftSeconds;
+  int? _syncedLiveServerPingIntervalSeconds;
   ConnectionTuningSettings? _failedConnectionSettings;
   int? _failedAutoSelectIntervalMinutes;
+  int? _failedLiveServerPingIntervalSeconds;
   Timer? _connectionAutoSaveTimer;
   Timer? _autoSelectAutoSaveTimer;
+  Timer? _liveServerPingAutoSaveTimer;
   bool _autoSaveFlushScheduled = false;
   bool _resetInProgress = false;
   _SettingsGroup? _selectedGroup;
@@ -136,6 +142,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   void dispose() {
     _connectionAutoSaveTimer?.cancel();
     _autoSelectAutoSaveTimer?.cancel();
+    _liveServerPingAutoSaveTimer?.cancel();
     _sniController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -147,26 +154,43 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final appThemeSettings = ref.watch(appThemeSettingsProvider);
     final desktopSettingsState = ref.watch(desktopSettingsControllerProvider);
     final zapretState = ref.watch(zapretControllerProvider);
+    final appUpdateState = ref.watch(appUpdateControllerProvider);
     _syncDraft(dashboardState.connectionTuningSettings);
 
     final savedBestServerCheckIntervalMinutes =
         dashboardState.autoSelectSettings.bestServerCheckIntervalMinutes;
     _syncAutoSelectInterval(savedBestServerCheckIntervalMinutes);
+    final savedLiveServerPingIntervalSeconds =
+        dashboardState.autoSelectSettings.liveServerPingIntervalSeconds;
+    _syncLiveServerPingInterval(savedLiveServerPingIntervalSeconds);
 
     final bestServerCheckIntervalMinutes =
         _autoSelectIntervalDraftMinutes ?? savedBestServerCheckIntervalMinutes;
+    final liveServerPingIntervalSeconds =
+        _liveServerPingIntervalDraftSeconds ??
+        savedLiveServerPingIntervalSeconds;
     final hasPendingConnectionChanges =
         _draft != dashboardState.connectionTuningSettings;
     final hasPendingAutoSelectChanges =
         bestServerCheckIntervalMinutes != savedBestServerCheckIntervalMinutes;
+    final hasPendingLiveServerPingChanges =
+        liveServerPingIntervalSeconds != savedLiveServerPingIntervalSeconds;
     final hasPendingChanges =
-        hasPendingConnectionChanges || hasPendingAutoSelectChanges;
+        hasPendingConnectionChanges ||
+        hasPendingAutoSelectChanges ||
+        hasPendingLiveServerPingChanges;
     final hasFailedConnectionSave =
         hasPendingConnectionChanges && _failedConnectionSettings == _draft;
     final hasFailedAutoSelectSave =
         hasPendingAutoSelectChanges &&
         _failedAutoSelectIntervalMinutes == bestServerCheckIntervalMinutes;
-    final hasFailedSaves = hasFailedConnectionSave || hasFailedAutoSelectSave;
+    final hasFailedLiveServerPingSave =
+        hasPendingLiveServerPingChanges &&
+        _failedLiveServerPingIntervalSeconds == liveServerPingIntervalSeconds;
+    final hasFailedSaves =
+        hasFailedConnectionSave ||
+        hasFailedAutoSelectSave ||
+        hasFailedLiveServerPingSave;
     final isConnected =
         dashboardState.connectionStage == ConnectionStage.connected;
     final pageBusy =
@@ -193,6 +217,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 zapretState: zapretState,
                 isWide: isWide,
                 bestServerCheckIntervalMinutes: bestServerCheckIntervalMinutes,
+                liveServerPingIntervalSeconds: liveServerPingIntervalSeconds,
               )
             : _buildGroupPage(
                 context,
@@ -201,6 +226,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 desktopSettingsState: desktopSettingsState,
                 zapretState: zapretState,
                 bestServerCheckIntervalMinutes: bestServerCheckIntervalMinutes,
+                liveServerPingIntervalSeconds: liveServerPingIntervalSeconds,
               );
 
         return SingleChildScrollView(
@@ -216,7 +242,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 hasFailedSaves: hasFailedSaves,
                 canManualSave: canManualSave,
                 isConnected: isConnected,
+                appUpdateState: appUpdateState,
                 onSave: canManualSave ? _savePendingChanges : null,
+                onCheckUpdates: _checkForUpdatesManually,
                 onBack: _selectedGroup == null ? null : _closeGroup,
               ),
               const SizedBox(height: 10),
@@ -274,6 +302,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     required ZapretState zapretState,
     required bool isWide,
     required int bestServerCheckIntervalMinutes,
+    required int liveServerPingIntervalSeconds,
   }) {
     final groups = _visibleGroups.toList(growable: false);
 
@@ -287,6 +316,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           desktopSettingsState,
           zapretState,
           bestServerCheckIntervalMinutes,
+          liveServerPingIntervalSeconds,
         ),
         onTap: () => _openGroup(group),
       );
@@ -327,6 +357,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     required DesktopSettingsState desktopSettingsState,
     required ZapretState zapretState,
     required int bestServerCheckIntervalMinutes,
+    required int liveServerPingIntervalSeconds,
   }) {
     final group = _selectedGroup!;
     final isConnected =
@@ -344,6 +375,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           _buildAutoSelectSection(
             dashboardState,
             bestServerCheckIntervalMinutes,
+            liveServerPingIntervalSeconds,
           ),
         if (group == _SettingsGroup.splitTunnel)
           _buildSplitTunnelSection(dashboardState, isConnected),
@@ -605,12 +637,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Widget _buildAutoSelectSection(
     DashboardState dashboardState,
     int bestServerCheckIntervalMinutes,
+    int liveServerPingIntervalSeconds,
   ) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final muted = theme.gorionTokens.onSurfaceMuted;
     final draftMinutes =
         _autoSelectIntervalDraftMinutes ?? bestServerCheckIntervalMinutes;
+    final draftLivePingSeconds =
+        _liveServerPingIntervalDraftSeconds ?? liveServerPingIntervalSeconds;
 
     return _SettingsSection(
       title: 'Автовыбор сервера',
@@ -715,6 +750,150 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 14),
+          _ToggleTile(
+            title: 'Live ping серверов',
+            subtitle:
+                'Обновляет задержку серверов через быстрый GET в активном proxy runtime. Работает только при подключении и не запускает тяжёлый speed benchmark.',
+            value: dashboardState.autoSelectSettings.liveServerPingEnabled,
+            onChanged: dashboardState.busy
+                ? null
+                : (value) {
+                    unawaited(
+                      ref
+                          .read(dashboardControllerProvider.notifier)
+                          .setLiveServerPingEnabled(value),
+                    );
+                  },
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            decoration: BoxDecoration(
+              color: scheme.onSurface.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: scheme.onSurface.withValues(alpha: 0.08),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Интервал Live ping',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: scheme.onSurface,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Как часто обновлять задержку серверов через активный proxy runtime.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: muted,
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    _Badge(
+                      label: _formatLiveServerPingIntervalLabel(
+                        draftLivePingSeconds,
+                      ),
+                      backgroundColor: theme.brandAccent.withValues(
+                        alpha: 0.14,
+                      ),
+                      foregroundColor: theme.brandAccent,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Slider(
+                  value: draftLivePingSeconds.toDouble(),
+                  min: liveServerPingIntervalMinSeconds.toDouble(),
+                  max: liveServerPingIntervalMaxSeconds.toDouble(),
+                  divisions:
+                      liveServerPingIntervalMaxSeconds -
+                      liveServerPingIntervalMinSeconds,
+                  label: _formatLiveServerPingIntervalLabel(
+                    draftLivePingSeconds,
+                  ),
+                  onChanged:
+                      dashboardState.busy ||
+                          !dashboardState
+                              .autoSelectSettings
+                              .liveServerPingEnabled
+                      ? null
+                      : (value) {
+                          _updateLiveServerPingIntervalDraft(value.round());
+                          _scheduleLiveServerPingIntervalSave();
+                        },
+                  onChangeEnd:
+                      dashboardState.busy ||
+                          !dashboardState
+                              .autoSelectSettings
+                              .liveServerPingEnabled
+                      ? null
+                      : (value) {
+                          _updateLiveServerPingIntervalDraft(value.round());
+                          _scheduleLiveServerPingIntervalSave(
+                            debounce: Duration.zero,
+                          );
+                        },
+                ),
+                Row(
+                  children: [
+                    Text(
+                      '$liveServerPingIntervalMinSeconds сек',
+                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                    ),
+                    const Spacer(),
+                    Text(
+                      _formatLiveServerPingIntervalLabel(
+                        liveServerPingIntervalMaxSeconds,
+                      ),
+                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Минимум 15 секунд, максимум 15 минут. По умолчанию 15 минут. Чем меньше интервал, тем чаще идут сетевые GET-проверки.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: muted,
+                    height: 1.45,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          _ToggleTile(
+            title: 'Пинговать при запуске',
+            subtitle:
+                'После запуска приложения выполнит первый быстрый Live ping, когда появится активное подключение.',
+            value: dashboardState
+                .autoSelectSettings
+                .liveServerPingOnStartupEnabled,
+            onChanged: dashboardState.busy
+                ? null
+                : (value) {
+                    unawaited(
+                      ref
+                          .read(dashboardControllerProvider.notifier)
+                          .setLiveServerPingOnStartupEnabled(value),
+                    );
+                  },
           ),
           const SizedBox(height: 14),
           Text(
@@ -881,6 +1060,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     DesktopSettingsState desktopSettingsState,
     ZapretState zapretState,
     int bestServerCheckIntervalMinutes,
+    int liveServerPingIntervalSeconds,
   ) {
     final savedSettings = dashboardState.connectionTuningSettings;
 
@@ -921,20 +1101,31 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           hasPendingChanges: _hasVlessChanges(savedSettings),
         );
       case _SettingsGroup.autoSelect:
+        final livePingEnabled =
+            dashboardState.autoSelectSettings.liveServerPingEnabled;
+        final livePingPending =
+            liveServerPingIntervalSeconds !=
+            dashboardState.autoSelectSettings.liveServerPingIntervalSeconds;
         return _SettingsGroupSnapshot(
           badgeLabel: _formatBestServerCheckIntervalBadge(
             bestServerCheckIntervalMinutes,
           ),
           supportingLabel:
               bestServerCheckIntervalMinutes ==
-                  dashboardState
-                      .autoSelectSettings
-                      .bestServerCheckIntervalMinutes
-              ? 'Применяется без переподключения'
+                      dashboardState
+                          .autoSelectSettings
+                          .bestServerCheckIntervalMinutes &&
+                  !livePingPending
+              ? (livePingEnabled
+                    ? 'Live ping: ${_formatLiveServerPingIntervalLabel(liveServerPingIntervalSeconds)}'
+                    : 'Live ping выключен')
               : 'Новое значение отправляется автоматически',
           hasPendingChanges:
               bestServerCheckIntervalMinutes !=
-              dashboardState.autoSelectSettings.bestServerCheckIntervalMinutes,
+                  dashboardState
+                      .autoSelectSettings
+                      .bestServerCheckIntervalMinutes ||
+              livePingPending,
         );
       case _SettingsGroup.splitTunnel:
         final splitTunnel = _draft.splitTunnel;
@@ -1059,6 +1250,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     });
   }
 
+  void _updateLiveServerPingIntervalDraft(int seconds) {
+    final clamped = clampLiveServerPingIntervalSeconds(seconds);
+    setState(() {
+      _liveServerPingIntervalDraftSeconds = clamped;
+      if (_failedLiveServerPingIntervalSeconds != clamped) {
+        _failedLiveServerPingIntervalSeconds = null;
+      }
+    });
+  }
+
   void _scheduleConnectionAutoSave({
     Duration debounce = const Duration(milliseconds: 360),
   }) {
@@ -1077,6 +1278,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     });
   }
 
+  void _scheduleLiveServerPingIntervalSave({
+    Duration debounce = const Duration(milliseconds: 180),
+  }) {
+    _liveServerPingAutoSaveTimer?.cancel();
+    _liveServerPingAutoSaveTimer = Timer(debounce, () {
+      unawaited(_tryAutoSaveLiveServerPingInterval(ignoreDebounce: true));
+    });
+  }
+
   void _scheduleAutoSaveFlush() {
     if (_autoSaveFlushScheduled) {
       return;
@@ -1089,6 +1299,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       }
       unawaited(_tryAutoSaveConnectionSettings());
       unawaited(_tryAutoSaveAutoSelectInterval());
+      unawaited(_tryAutoSaveLiveServerPingInterval());
     });
   }
 
@@ -1134,6 +1345,29 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
 
     return _saveAutoSelectInterval(target);
+  }
+
+  Future<bool> _tryAutoSaveLiveServerPingInterval({
+    bool ignoreDebounce = false,
+  }) async {
+    if (!mounted) {
+      return false;
+    }
+    if (!ignoreDebounce && (_liveServerPingAutoSaveTimer?.isActive ?? false)) {
+      return false;
+    }
+
+    final state = ref.read(dashboardControllerProvider);
+    final target =
+        _liveServerPingIntervalDraftSeconds ??
+        state.autoSelectSettings.liveServerPingIntervalSeconds;
+    if (state.busy ||
+        state.autoSelectSettings.liveServerPingIntervalSeconds == target ||
+        _failedLiveServerPingIntervalSeconds == target) {
+      return state.autoSelectSettings.liveServerPingIntervalSeconds == target;
+    }
+
+    return _saveLiveServerPingInterval(target);
   }
 
   Future<bool> _saveConnectionSettings(
@@ -1227,10 +1461,53 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     return true;
   }
 
+  Future<bool> _saveLiveServerPingInterval(int seconds) async {
+    final clamped = clampLiveServerPingIntervalSeconds(seconds);
+    final state = ref.read(dashboardControllerProvider);
+    if (state.busy) {
+      return false;
+    }
+    if (state.autoSelectSettings.liveServerPingIntervalSeconds == clamped) {
+      if (_failedLiveServerPingIntervalSeconds == clamped) {
+        setState(() {
+          _failedLiveServerPingIntervalSeconds = null;
+        });
+      }
+      return true;
+    }
+
+    await ref
+        .read(dashboardControllerProvider.notifier)
+        .setLiveServerPingIntervalSeconds(clamped);
+    if (!mounted) {
+      return false;
+    }
+
+    final updatedState = ref.read(dashboardControllerProvider);
+    final saved =
+        updatedState.errorMessage == null &&
+        updatedState.autoSelectSettings.liveServerPingIntervalSeconds ==
+            clamped;
+    if (!saved) {
+      setState(() {
+        _failedLiveServerPingIntervalSeconds = clamped;
+      });
+      return false;
+    }
+
+    if (_failedLiveServerPingIntervalSeconds == clamped) {
+      setState(() {
+        _failedLiveServerPingIntervalSeconds = null;
+      });
+    }
+    return true;
+  }
+
   Future<void> _savePendingChanges() async {
     FocusScope.of(context).unfocus();
     _connectionAutoSaveTimer?.cancel();
     _autoSelectAutoSaveTimer?.cancel();
+    _liveServerPingAutoSaveTimer?.cancel();
 
     final autoSelectSaved = await _tryAutoSaveAutoSelectInterval(
       ignoreDebounce: true,
@@ -1239,7 +1516,39 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       return;
     }
 
+    final livePingSaved = await _tryAutoSaveLiveServerPingInterval(
+      ignoreDebounce: true,
+    );
+    if (!mounted || !livePingSaved) {
+      return;
+    }
+
     await _tryAutoSaveConnectionSettings(ignoreDebounce: true);
+  }
+
+  Future<void> _checkForUpdatesManually() async {
+    final controller = ref.read(appUpdateControllerProvider.notifier);
+    await controller.checkForUpdates(force: true);
+    if (!mounted) {
+      return;
+    }
+
+    final updateState = ref.read(appUpdateControllerProvider);
+    final message = switch (updateState.status) {
+      AppUpdateStatus.updateAvailable =>
+        'Найдена новая версия ${updateState.availableUpdate?.latestVersion ?? ''}.',
+      AppUpdateStatus.upToDate =>
+        'Установлена актуальная версия ${updateState.currentVersion ?? ''}.',
+      AppUpdateStatus.failure => 'Не удалось проверить обновления.',
+      _ => null,
+    };
+    if (message == null) {
+      return;
+    }
+
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _confirmResetAllSettings() async {
@@ -1423,6 +1732,28 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       _failedAutoSelectIntervalMinutes = null;
     }
   }
+
+  void _syncLiveServerPingInterval(int seconds) {
+    if (_syncedLiveServerPingIntervalSeconds == seconds) {
+      if (_liveServerPingIntervalDraftSeconds == seconds) {
+        _failedLiveServerPingIntervalSeconds = null;
+      }
+      return;
+    }
+
+    final previousSyncedSeconds = _syncedLiveServerPingIntervalSeconds;
+    _syncedLiveServerPingIntervalSeconds = seconds;
+    final shouldAdoptSavedInterval =
+        previousSyncedSeconds == null ||
+        _liveServerPingIntervalDraftSeconds == null ||
+        _liveServerPingIntervalDraftSeconds == previousSyncedSeconds;
+    if (shouldAdoptSavedInterval) {
+      _liveServerPingIntervalDraftSeconds = seconds;
+    }
+    if (_liveServerPingIntervalDraftSeconds == seconds) {
+      _failedLiveServerPingIntervalSeconds = null;
+    }
+  }
 }
 
 String _formatBestServerCheckIntervalLabel(int minutes) {
@@ -1450,6 +1781,18 @@ String _formatBestServerCheckIntervalBadge(int minutes) {
   return '$hours ч $remainingMinutes мин';
 }
 
+String _formatLiveServerPingIntervalLabel(int seconds) {
+  if (seconds < 60) {
+    return '$seconds сек';
+  }
+  final minutes = seconds ~/ 60;
+  final remainingSeconds = seconds % 60;
+  if (remainingSeconds == 0) {
+    return '$minutes мин';
+  }
+  return '$minutes мин $remainingSeconds сек';
+}
+
 class _HeroPanel extends StatelessWidget {
   const _HeroPanel({
     required this.busy,
@@ -1458,7 +1801,9 @@ class _HeroPanel extends StatelessWidget {
     required this.hasFailedSaves,
     required this.canManualSave,
     required this.isConnected,
+    required this.appUpdateState,
     required this.onSave,
+    required this.onCheckUpdates,
     this.onBack,
   });
 
@@ -1468,7 +1813,9 @@ class _HeroPanel extends StatelessWidget {
   final bool hasFailedSaves;
   final bool canManualSave;
   final bool isConnected;
+  final AppUpdateState appUpdateState;
   final VoidCallback? onSave;
+  final VoidCallback onCheckUpdates;
   final VoidCallback? onBack;
 
   @override
@@ -1493,6 +1840,8 @@ class _HeroPanel extends StatelessWidget {
         : hasPendingChanges
         ? Icons.schedule_rounded
         : Icons.check_rounded;
+    final update = appUpdateState.availableUpdate;
+    final updateCheckBusy = appUpdateState.busy;
     final heroMetaChildren = <Widget>[
       if (onBack != null)
         OutlinedButton.icon(
@@ -1505,6 +1854,12 @@ class _HeroPanel extends StatelessWidget {
           label: activeGroup!.title,
           backgroundColor: activeGroup!.accentColor.withValues(alpha: 0.14),
           foregroundColor: activeGroup!.accentColor,
+        ),
+      if (update != null)
+        _Badge(
+          label: 'Новая версия ${update.latestVersion}',
+          backgroundColor: const Color(0x22FFC857),
+          foregroundColor: const Color(0xFFFFC857),
         ),
       if (hasPendingChanges)
         _Badge(
@@ -1534,6 +1889,18 @@ class _HeroPanel extends StatelessWidget {
               icon: Icon(saveIcon),
               label: Text(saveLabel),
             );
+            final updateCheckButton = OutlinedButton.icon(
+              onPressed: updateCheckBusy ? null : onCheckUpdates,
+              icon: Icon(
+                updateCheckBusy
+                    ? Icons.sync_rounded
+                    : Icons.system_update_alt_rounded,
+              ),
+              label: Text(
+                updateCheckBusy ? 'Проверяем...' : 'Проверить обновления',
+              ),
+            );
+            final actionButtons = <Widget>[saveButton, updateCheckButton];
 
             if (constraints.maxWidth < 760) {
               return Column(
@@ -1550,7 +1917,7 @@ class _HeroPanel extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 10),
-                  saveButton,
+                  Wrap(spacing: 10, runSpacing: 10, children: actionButtons),
                 ],
               );
             }
@@ -1563,7 +1930,12 @@ class _HeroPanel extends StatelessWidget {
                   children: [
                     Expanded(child: titleBlock),
                     const SizedBox(width: 16),
-                    saveButton,
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      alignment: WrapAlignment.end,
+                      children: actionButtons,
+                    ),
                   ],
                 ),
                 if (hasHeroMeta) ...[
@@ -1625,7 +1997,7 @@ class _SettingsGroupCard extends StatelessWidget {
               final bodyGap = isCompact ? 6.0 : 8.0;
               final badgeGap = isCompact ? 12.0 : 16.0;
               final supportingGap = isCompact ? 8.0 : 10.0;
-              final footerGap = isCompact ? 12.0 : 18.0;
+              final footerGap = isCompact ? 12.0 : 16.0;
 
               return Padding(
                 padding: EdgeInsets.all(cardPadding),

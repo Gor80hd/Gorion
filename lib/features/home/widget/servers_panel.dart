@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
@@ -14,6 +15,7 @@ import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/home/application/server_benchmark_controller.dart';
+import 'package:gorion_clean/features/home/application/server_favorites_controller.dart';
 import 'package:gorion_clean/features/home/data/server_benchmark_runtime_service.dart';
 import 'package:gorion_clean/features/home/model/server_sort_mode.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
@@ -31,6 +33,7 @@ import 'package:gorion_clean/features/profiles/utils/profile_display_order.dart'
 import 'package:gorion_clean/features/proxy/data/proxy_data_providers.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
 import 'package:gorion_clean/features/runtime/notifier/core_restart_signal.dart';
+import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 import 'package:gorion_clean/utils/link_parsers.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
@@ -57,6 +60,7 @@ class ServersPanelWidget extends HookConsumerWidget {
     final selectedPreview = ref.watch(selectedServerPreviewProvider);
     final pendingSelection = ref.watch(pendingServerSelectionProvider);
     final benchmarkState = ref.watch(serverBenchmarkControllerProvider);
+    final favoriteServerKeys = ref.watch(serverFavoritesProvider);
     final activeProfile = ref.watch(activeProfileProvider).asData?.value;
     final profileRepo = ref.watch(profileRepoFacadeProvider).valueOrNull;
     final profileDataSource = ref.watch(profileDataSourceProvider);
@@ -99,6 +103,82 @@ class ServersPanelWidget extends HookConsumerWidget {
       },
     );
 
+    final liveServerPingEnabled = ref.watch(
+      dashboardControllerProvider.select(
+        (state) => state.autoSelectSettings.liveServerPingEnabled,
+      ),
+    );
+    final liveServerPingInterval = ref.watch(
+      dashboardControllerProvider.select(
+        (state) => state.autoSelectSettings.liveServerPingInterval,
+      ),
+    );
+    final liveServerPingOnStartupEnabled = ref.watch(
+      dashboardControllerProvider.select(
+        (state) => state.autoSelectSettings.liveServerPingOnStartupEnabled,
+      ),
+    );
+    final liveServerPingSessionKey = ref.watch(
+      dashboardControllerProvider.select((state) {
+        final session = state.runtimeSession;
+        if (state.connectionStage != ConnectionStage.connected ||
+            session == null) {
+          return '';
+        }
+        return '${session.profileId}:${session.controllerPort}';
+      }),
+    );
+    final startupLivePingTriggered = useRef(false);
+
+    useEffect(
+      () {
+        if (!liveServerPingEnabled || liveServerPingSessionKey.isEmpty) {
+          return null;
+        }
+
+        var disposed = false;
+        Future<void> refreshLivePings() async {
+          if (disposed) return;
+          final dashboardState = ref.read(dashboardControllerProvider);
+          if (!dashboardState.autoSelectSettings.liveServerPingEnabled ||
+              dashboardState.connectionStage != ConnectionStage.connected ||
+              dashboardState.runtimeSession == null ||
+              dashboardState.refreshingDelays ||
+              dashboardState.busy ||
+              ref.read(serverBenchmarkControllerProvider).active) {
+            return;
+          }
+          await ref
+              .read(dashboardControllerProvider.notifier)
+              .refreshDelays(silent: true);
+        }
+
+        Timer? initialTimer;
+        if (liveServerPingOnStartupEnabled && !startupLivePingTriggered.value) {
+          startupLivePingTriggered.value = true;
+          initialTimer = Timer(
+            const Duration(milliseconds: 750),
+            () => unawaited(refreshLivePings()),
+          );
+        }
+        final timer = Timer.periodic(
+          liveServerPingInterval,
+          (_) => unawaited(refreshLivePings()),
+        );
+        return () {
+          disposed = true;
+          initialTimer?.cancel();
+          timer.cancel();
+        };
+      },
+      [
+        liveServerPingEnabled,
+        liveServerPingInterval,
+        liveServerPingOnStartupEnabled,
+        liveServerPingSessionKey,
+      ],
+    );
+
     final proxyRepo = ref.watch(proxyRepositoryProvider);
     final coreRestartSignal = ref.watch(coreRestartSignalProvider);
     final autoServerSelectionEnabled = ref.watch(Preferences.autoSelectServer);
@@ -111,6 +191,9 @@ class ServersPanelWidget extends HookConsumerWidget {
       dashboardControllerProvider.select(
         (state) => state.hasRecentSuccessfulAutoConnectForActiveProfile,
       ),
+    );
+    final liveDelayByTag = ref.watch(
+      dashboardControllerProvider.select((state) => state.delayByTag),
     );
     final dashboardBusy = ref.watch(
       dashboardControllerProvider.select((state) => state.busy),
@@ -152,7 +235,10 @@ class ServersPanelWidget extends HookConsumerWidget {
             orElse: () => null,
           );
     final autoCardPing = autoServerSelectionProgress == null
-        ? currentOnlineServer?.urlTestDelay
+        ? (currentOnlineServer == null
+              ? null
+              : liveDelayByTag[currentOnlineServer.tag] ??
+                    currentOnlineServer.urlTestDelay)
         : 0;
     final autoCardServer = OutboundInfo(
       tag: 'Автоматически',
@@ -199,7 +285,6 @@ class ServersPanelWidget extends HookConsumerWidget {
           ? (autoResetEnabled ? 0.35 : 0.24)
           : 0.18,
     );
-    final activeProfileLabel = activeProfile?.name ?? 'Нет активной подписки';
     final updateState = ref
         .watch(foregroundProfilesUpdateNotifierProvider)
         .valueOrNull;
@@ -212,11 +297,6 @@ class ServersPanelWidget extends HookConsumerWidget {
               '${profile.id}:${profile.lastUpdate.millisecondsSinceEpoch}',
         )
         .join('|');
-    final subscriptionsSubtitle = allProfiles.isEmpty
-        ? 'Добавьте первую подписку из буфера обмена, ссылки или QR-кода'
-        : connectionMode == ProfileConnectionMode.mergedProfiles
-        ? '${visibleProfiles.length} из ${allProfiles.length} отображаются · Режим: общий пул'
-        : '${visibleProfiles.length} из ${allProfiles.length} отображаются · Текущая: $activeProfileLabel';
     final parsedSubscriptionGroupsAsync = useFuture(
       useMemoized(() async {
         if (profileRepo == null) return <String, OutboundGroup?>{};
@@ -262,6 +342,7 @@ class ServersPanelWidget extends HookConsumerWidget {
 
     int effectivePing(String profileId, OutboundInfo server) =>
         benchmarkState.pingResults[_benchmarkKey(profileId, server.tag)] ??
+        liveDelayByTag[server.tag] ??
         server.urlTestDelay;
 
     int effectiveSpeed(String profileId, OutboundInfo server) =>
@@ -278,6 +359,19 @@ class ServersPanelWidget extends HookConsumerWidget {
       return autoServerSelectionExcluded.contains(
         autoSelectExclusionKey(profileId, server),
       );
+    }
+
+    bool isFavoriteServer(String profileId, OutboundInfo server) {
+      return favoriteServerKeys.contains(_benchmarkKey(profileId, server.tag));
+    }
+
+    Future<void> toggleFavoriteServer(
+      ProfileEntity profile,
+      OutboundInfo server,
+    ) async {
+      await ref
+          .read(serverFavoritesProvider.notifier)
+          .toggle(_benchmarkKey(profile.id, server.tag));
     }
 
     Future<void> toggleAutoSelectExclusion(
@@ -427,31 +521,57 @@ class ServersPanelWidget extends HookConsumerWidget {
         child: Column(
           children: [
             GlassPanel(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-              borderRadius: 20,
-              backgroundColor: _softAccentSurface(theme, emphasis: 0.82),
-              opacity: 0.08,
-              strokeOpacity: 0.14,
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              borderRadius: 24,
+              backgroundColor: _softAccentSurface(theme, emphasis: 0.76),
+              opacity: 0.07,
+              strokeOpacity: 0.10,
               strokeColor: theme.brandAccent,
               boxShadow: [
                 BoxShadow(
                   color: theme.shadowColor.withValues(alpha: 0.18),
-                  blurRadius: 24,
-                  offset: const Offset(0, 8),
+                  blurRadius: 28,
+                  offset: const Offset(0, 12),
                 ),
               ],
               child: Column(
                 children: [
-                  _GlassTextField(
-                    controller: searchCtrl,
-                    hint: 'Поиск',
-                    prefixIcon: Icon(
-                      Icons.search_rounded,
-                      size: 18,
-                      color: _softAccentForeground(theme, emphasis: 0.60),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _GlassTextField(
+                          controller: searchCtrl,
+                          hint: 'Поиск',
+                          prefixIcon: Icon(
+                            Icons.search_rounded,
+                            size: 20,
+                            color: _softAccentForeground(theme, emphasis: 0.60),
+                          ),
+                        ),
+                      ),
+                      const Gap(8),
+                      _SubscriptionMenuButton(
+                        showUpdate: isRemoteProfile,
+                        updateRunning: updateState?.running == true,
+                        onAdd: () =>
+                            ref.read(appModalRouterProvider).showAddProfile(),
+                        onManage: () => ref
+                            .read(appModalRouterProvider)
+                            .showProfilesOverview(),
+                        onUpdate: updateState?.running == true
+                            ? null
+                            : () {
+                                ref
+                                    .read(
+                                      foregroundProfilesUpdateNotifierProvider
+                                          .notifier,
+                                    )
+                                    .trigger();
+                              },
+                      ),
+                    ],
                   ),
-                  const Gap(8),
+                  const Gap(10),
                   Row(
                     children: [
                       Expanded(
@@ -464,7 +584,7 @@ class ServersPanelWidget extends HookConsumerWidget {
                           },
                         ),
                       ),
-                      const Gap(6),
+                      const Gap(8),
                       if (benchmarkState.active)
                         _SmallGlassButton(
                           icon: Icons.stop_circle_rounded,
@@ -486,25 +606,6 @@ class ServersPanelWidget extends HookConsumerWidget {
                               ? runBatchBenchmark
                               : null,
                         ),
-                      if (isRemoteProfile) ...[
-                        const Gap(6),
-                        _SmallGlassButton(
-                          icon: updateState?.running == true
-                              ? Icons.sync_rounded
-                              : Icons.refresh_rounded,
-                          tooltip: 'Обновить подписки',
-                          onTap: updateState?.running == true
-                              ? null
-                              : () {
-                                  ref
-                                      .read(
-                                        foregroundProfilesUpdateNotifierProvider
-                                            .notifier,
-                                      )
-                                      .trigger();
-                                },
-                        ),
-                      ],
                     ],
                   ),
                   if (benchmarkState.active ||
@@ -539,390 +640,410 @@ class ServersPanelWidget extends HookConsumerWidget {
                     );
               },
             ),
-            const Gap(8),
-            _SubscriptionStrip(
-              title: 'Подписки',
-              subtitle: subscriptionsSubtitle,
-              updateState: updateState,
-              onAdd: () => ref.read(appModalRouterProvider).showAddProfile(),
-              onManage: () =>
-                  ref.read(appModalRouterProvider).showProfilesOverview(),
-            ),
+            const Gap(6),
             Expanded(
-              child: () {
-                if (profilesAsync.connectionState == ConnectionState.waiting &&
-                    !profilesAsync.hasData) {
-                  return Center(
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: scheme.primary,
-                    ),
-                  );
-                }
-                if (allProfiles.isEmpty) {
-                  return const Center(child: _EmptyServersCard());
-                }
-                if (allProfiles.isNotEmpty && visibleProfiles.isEmpty) {
-                  return ListView(
-                    padding: const EdgeInsets.only(top: 8, bottom: 8),
-                    children: [
-                      _SubscriptionsHiddenHint(
-                        onManage: () => ref
-                            .read(appModalRouterProvider)
-                            .showProfilesOverview(),
+              child: _ServerListWindow(
+                child: () {
+                  if (profilesAsync.connectionState ==
+                          ConnectionState.waiting &&
+                      !profilesAsync.hasData) {
+                    return Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: scheme.primary,
                       ),
-                    ],
-                  );
-                }
+                    );
+                  }
+                  if (allProfiles.isEmpty) {
+                    return const Center(child: _EmptyServersCard());
+                  }
+                  if (allProfiles.isNotEmpty && visibleProfiles.isEmpty) {
+                    return ListView(
+                      padding: const EdgeInsets.only(top: 4, bottom: 4),
+                      children: [
+                        _SubscriptionsHiddenHint(
+                          onManage: () => ref
+                              .read(appModalRouterProvider)
+                              .showProfilesOverview(),
+                        ),
+                      ],
+                    );
+                  }
 
-                return ListView(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  children: [
-                    const Gap(8),
-                    PageReveal(
-                      key: const ValueKey('auto-server-card-reveal'),
-                      delay: serverCardRevealDelay(0, baseMilliseconds: 40),
-                      duration: const Duration(milliseconds: 220),
-                      child: _ServerCard(
-                        key: const ValueKey('auto-server-card'),
-                        server: autoCardServer,
-                        isSelected: autoCardSelected,
-                        groupName: autoCardDescription,
-                        detailLines: autoCardDetailLines,
-                        groupTag: onlineGroup?.tag ?? '',
-                        pingOverride: autoCardPing,
-                        hasSpeedResult: false,
-                        isBenchmarking: false,
-                        badge: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Tooltip(
-                              message: autoResetTooltipMessage,
-                              child: TextButton(
-                                onPressed: autoResetEnabled
-                                    ? () async {
-                                        await ref
-                                            .read(
-                                              dashboardControllerProvider
-                                                  .notifier,
-                                            )
-                                            .resetRecentSuccessfulAutoConnect();
-                                      }
-                                    : null,
-                                style: TextButton.styleFrom(
-                                  minimumSize: const Size(0, 0),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 7,
-                                    vertical: 2,
+                  return ListView(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    children: [
+                      const _ServerSectionLabel('РЕКОМЕНДОВАННЫЕ'),
+                      const Gap(8),
+                      PageReveal(
+                        key: const ValueKey('auto-server-card-reveal'),
+                        delay: serverCardRevealDelay(0, baseMilliseconds: 40),
+                        duration: const Duration(milliseconds: 220),
+                        child: _ServerCard(
+                          key: const ValueKey('auto-server-card'),
+                          server: autoCardServer,
+                          isSelected: autoCardSelected,
+                          groupName: autoCardDescription,
+                          detailLines: autoCardDetailLines,
+                          groupTag: onlineGroup?.tag ?? '',
+                          pingOverride: autoCardPing,
+                          hasSpeedResult: false,
+                          isBenchmarking: false,
+                          badge: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Tooltip(
+                                message: autoResetTooltipMessage,
+                                child: TextButton(
+                                  onPressed: autoResetEnabled
+                                      ? () async {
+                                          await ref
+                                              .read(
+                                                dashboardControllerProvider
+                                                    .notifier,
+                                              )
+                                              .resetRecentSuccessfulAutoConnect();
+                                        }
+                                      : null,
+                                  style: TextButton.styleFrom(
+                                    minimumSize: const Size(0, 0),
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 7,
+                                      vertical: 2,
+                                    ),
+                                    foregroundColor: autoTagInk,
+                                    disabledForegroundColor:
+                                        autoResetDisabledInk,
+                                    backgroundColor: autoResetBackgroundColor,
+                                    disabledBackgroundColor:
+                                        autoResetBackgroundColor,
+                                    side: BorderSide(
+                                      color: autoResetBorderColor,
+                                      width: 0.7,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    textStyle: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.4,
+                                    ),
                                   ),
-                                  foregroundColor: autoTagInk,
-                                  disabledForegroundColor: autoResetDisabledInk,
-                                  backgroundColor: autoResetBackgroundColor,
-                                  disabledBackgroundColor:
-                                      autoResetBackgroundColor,
-                                  side: BorderSide(
-                                    color: autoResetBorderColor,
+                                  child: const Text('RESET'),
+                                ),
+                              ),
+                              const Gap(6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: autoIntervalTagColor.withValues(
+                                    alpha: 0.14,
+                                  ),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: autoIntervalTagColor.withValues(
+                                      alpha: 0.35,
+                                    ),
                                     width: 0.7,
                                   ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  _formatBestServerCheckIntervalBadge(
+                                    autoSelectBestServerCheckIntervalMinutes,
                                   ),
-                                  textStyle: const TextStyle(
+                                  style: TextStyle(
+                                    color: autoTagInk,
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.4,
+                                    letterSpacing: 0.2,
                                   ),
                                 ),
-                                child: const Text('RESET'),
                               ),
-                            ),
-                            const Gap(6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 7,
-                                vertical: 2,
+                              const Gap(6),
+                              _ServerPingChip(
+                                ping: autoCardPing ?? 0,
+                                color: _pingColor(autoCardPing ?? 0),
+                                selected: autoCardSelected,
                               ),
-                              decoration: BoxDecoration(
-                                color: autoIntervalTagColor.withValues(
-                                  alpha: 0.14,
-                                ),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                  color: autoIntervalTagColor.withValues(
-                                    alpha: 0.35,
-                                  ),
-                                  width: 0.7,
-                                ),
-                              ),
-                              child: Text(
-                                _formatBestServerCheckIntervalBadge(
-                                  autoSelectBestServerCheckIntervalMinutes,
-                                ),
-                                style: TextStyle(
-                                  color: autoTagInk,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.2,
-                                ),
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
+                          selectionProgress: autoServerSelectionProgress,
+                          onSelect: () async {
+                            ref
+                                    .read(
+                                      selectedServerPreviewProvider.notifier,
+                                    )
+                                    .state =
+                                null;
+                            ref
+                                    .read(
+                                      pendingServerSelectionProvider.notifier,
+                                    )
+                                    .state =
+                                null;
+                            await ref
+                                .read(Preferences.autoSelectServer.notifier)
+                                .update(true);
+                            await ref
+                                .read(dashboardControllerProvider.notifier)
+                                .selectServer(autoSelectServerTag);
+                          },
                         ),
-                        selectionProgress: autoServerSelectionProgress,
-                        onSelect: () async {
-                          ref
-                                  .read(selectedServerPreviewProvider.notifier)
-                                  .state =
-                              null;
-                          ref
-                                  .read(pendingServerSelectionProvider.notifier)
-                                  .state =
-                              null;
-                          await ref
-                              .read(Preferences.autoSelectServer.notifier)
-                              .update(true);
-                          await ref
-                              .read(dashboardControllerProvider.notifier)
-                              .selectServer(autoSelectServerTag);
-                        },
                       ),
-                    ),
-                    const Gap(2),
-                    for (final profile in visibleProfiles) ...[
-                      Builder(
-                        builder: (context) {
-                          final sectionGroup = subscriptionGroup(profile);
-                          final sectionServers = visibleSubscriptionServers(
-                            profile,
-                          );
-                          final isExpanded = expandedSubscriptionIds.value
-                              .contains(profile.id);
-                          final isActiveProfile =
-                              connectionMode ==
-                                  ProfileConnectionMode.currentProfile &&
-                              profile.id == activeProfile?.id;
+                      const Gap(10),
+                      const _ServerSectionLabel('ВСЕ СЕРВЕРЫ'),
+                      const Gap(8),
+                      for (final profile in visibleProfiles) ...[
+                        Builder(
+                          builder: (context) {
+                            final sectionGroup = subscriptionGroup(profile);
+                            final sectionServers = visibleSubscriptionServers(
+                              profile,
+                            );
+                            final isExpanded = expandedSubscriptionIds.value
+                                .contains(profile.id);
+                            final isActiveProfile =
+                                connectionMode ==
+                                    ProfileConnectionMode.currentProfile &&
+                                profile.id == activeProfile?.id;
 
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _SubscriptionCompactRow(
-                                name: profile.name,
-                                serverCount: sectionServers.length,
-                                isActive: isActiveProfile,
-                                isExpanded: isExpanded,
-                                onTap: () {
-                                  final next = {
-                                    ...expandedSubscriptionIds.value,
-                                  };
-                                  if (!next.add(profile.id)) {
-                                    next.remove(profile.id);
-                                  }
-                                  expandedSubscriptionIds.value = next;
-                                },
-                              ),
-                              if (isExpanded) ...[
-                                const Gap(6),
-                                if (sectionGroup == null)
-                                  const _SubscriptionServersPlaceholder(
-                                    message:
-                                        'Не удалось загрузить серверы для этой подписки.',
-                                  )
-                                else if (sectionServers.isEmpty)
-                                  _SubscriptionServersPlaceholder(
-                                    message: searchQuery.value.isNotEmpty
-                                        ? 'По текущему фильтру серверы не найдены.'
-                                        : 'В этой подписке пока нет доступных серверов.',
-                                  )
-                                else
-                                  for (
-                                    var index = 0;
-                                    index < sectionServers.length;
-                                    index++
-                                  ) ...[
-                                    Builder(
-                                      builder: (context) {
-                                        final server = sectionServers[index];
-                                        final isAutoExcluded =
-                                            isAutoSelectExcluded(
-                                              profile.id,
-                                              server,
-                                            );
-                                        return PageReveal(
-                                          key: ValueKey(
-                                            'reveal-${_benchmarkKey(profile.id, server.tag)}',
-                                          ),
-                                          delay: serverCardRevealDelay(
-                                            index,
-                                            baseMilliseconds: 90,
-                                          ),
-                                          duration: const Duration(
-                                            milliseconds: 220,
-                                          ),
-                                          offset: const Offset(0, 0.045),
-                                          child: _ServerCard(
-                                            key: ValueKey(
-                                              _benchmarkKey(
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _SubscriptionCompactRow(
+                                  name: profile.name,
+                                  serverCount: sectionServers.length,
+                                  isActive: isActiveProfile,
+                                  isExpanded: isExpanded,
+                                  onTap: () {
+                                    final next = {
+                                      ...expandedSubscriptionIds.value,
+                                    };
+                                    if (!next.add(profile.id)) {
+                                      next.remove(profile.id);
+                                    }
+                                    expandedSubscriptionIds.value = next;
+                                  },
+                                ),
+                                if (isExpanded) ...[
+                                  const Gap(6),
+                                  if (sectionGroup == null)
+                                    const _SubscriptionServersPlaceholder(
+                                      message:
+                                          'Не удалось загрузить серверы для этой подписки.',
+                                    )
+                                  else if (sectionServers.isEmpty)
+                                    _SubscriptionServersPlaceholder(
+                                      message: searchQuery.value.isNotEmpty
+                                          ? 'По текущему фильтру серверы не найдены.'
+                                          : 'В этой подписке пока нет доступных серверов.',
+                                    )
+                                  else
+                                    for (
+                                      var index = 0;
+                                      index < sectionServers.length;
+                                      index++
+                                    ) ...[
+                                      Builder(
+                                        builder: (context) {
+                                          final server = sectionServers[index];
+                                          final isAutoExcluded =
+                                              isAutoSelectExcluded(
                                                 profile.id,
-                                                server.tag,
-                                              ),
+                                                server,
+                                              );
+                                          return PageReveal(
+                                            key: ValueKey(
+                                              'reveal-${_benchmarkKey(profile.id, server.tag)}',
                                             ),
-                                            server: server,
-                                            isSelected:
-                                                !autoCardSelected &&
-                                                ((pendingSelection?.profileId ==
-                                                            profile.id &&
-                                                        pendingSelection
-                                                                ?.outboundTag ==
-                                                            server.tag) ||
-                                                    (isActiveProfile &&
-                                                        (selectedPreview != null
-                                                            ? selectedPreview
-                                                                      .tag ==
-                                                                  server.tag
-                                                            : server
-                                                                  .isSelected))),
-                                            groupName: '',
-                                            groupTag: sectionGroup.tag,
-                                            pingOverride:
-                                                benchmarkState
-                                                    .pingResults[_benchmarkKey(
+                                            delay: serverCardRevealDelay(
+                                              index,
+                                              baseMilliseconds: 90,
+                                            ),
+                                            duration: const Duration(
+                                              milliseconds: 220,
+                                            ),
+                                            offset: const Offset(0, 0.045),
+                                            child: _ServerCard(
+                                              key: ValueKey(
+                                                _benchmarkKey(
                                                   profile.id,
                                                   server.tag,
-                                                )],
-                                            speedOverride:
-                                                benchmarkState
-                                                    .speedResults[_benchmarkKey(
-                                                  profile.id,
-                                                  server.tag,
-                                                )],
-                                            hasSpeedResult: benchmarkState
-                                                .speedResults
-                                                .containsKey(
-                                                  _benchmarkKey(
+                                                ),
+                                              ),
+                                              server: server,
+                                              isSelected:
+                                                  !autoCardSelected &&
+                                                  ((pendingSelection
+                                                                  ?.profileId ==
+                                                              profile.id &&
+                                                          pendingSelection
+                                                                  ?.outboundTag ==
+                                                              server.tag) ||
+                                                      (isActiveProfile &&
+                                                          (selectedPreview !=
+                                                                  null
+                                                              ? selectedPreview
+                                                                        .tag ==
+                                                                    server.tag
+                                                              : server
+                                                                    .isSelected))),
+                                              groupName: '',
+                                              groupTag: sectionGroup.tag,
+                                              pingOverride: effectivePing(
+                                                profile.id,
+                                                server,
+                                              ),
+                                              speedOverride:
+                                                  benchmarkState
+                                                      .speedResults[_benchmarkKey(
                                                     profile.id,
                                                     server.tag,
+                                                  )],
+                                              hasSpeedResult: benchmarkState
+                                                  .speedResults
+                                                  .containsKey(
+                                                    _benchmarkKey(
+                                                      profile.id,
+                                                      server.tag,
+                                                    ),
                                                   ),
-                                                ),
-                                            isBenchmarking: benchmarkState
-                                                .benchmarkingKeys
-                                                .contains(
-                                                  _benchmarkKey(
-                                                    profile.id,
-                                                    server.tag,
+                                              isBenchmarking: benchmarkState
+                                                  .benchmarkingKeys
+                                                  .contains(
+                                                    _benchmarkKey(
+                                                      profile.id,
+                                                      server.tag,
+                                                    ),
                                                   ),
-                                                ),
-                                            isAutoExcluded: isAutoExcluded,
-                                            onToggleAutoExclusion: () =>
-                                                toggleAutoSelectExclusion(
+                                              isFavorite: isFavoriteServer(
+                                                profile.id,
+                                                server,
+                                              ),
+                                              onToggleFavorite: () => unawaited(
+                                                toggleFavoriteServer(
                                                   profile,
                                                   server,
                                                 ),
-                                            onShowDetails: () =>
-                                                showServerSettings(
-                                                  profile,
-                                                  server,
-                                                ),
-                                            onSelect: benchmarkState.active
-                                                ? null
-                                                : () async {
-                                                    await ref
-                                                        .read(
-                                                          Preferences
-                                                              .autoSelectServer
-                                                              .notifier,
-                                                        )
-                                                        .update(false);
-                                                    final selectionRequestId =
-                                                        DateTime.now()
-                                                            .microsecondsSinceEpoch;
-                                                    ref
-                                                        .read(
-                                                          selectedServerPreviewProvider
-                                                              .notifier,
-                                                        )
-                                                        .state = server.clone()
-                                                      ..isSelected = true;
-                                                    ref
-                                                        .read(
-                                                          pendingServerSelectionProvider
-                                                              .notifier,
-                                                        )
-                                                        .state = PendingServerSelection(
-                                                      requestId:
-                                                          selectionRequestId,
-                                                      profileId: profile.id,
-                                                      groupTag:
+                                              ),
+                                              isAutoExcluded: isAutoExcluded,
+                                              onToggleAutoExclusion: () =>
+                                                  toggleAutoSelectExclusion(
+                                                    profile,
+                                                    server,
+                                                  ),
+                                              onShowDetails: () =>
+                                                  showServerSettings(
+                                                    profile,
+                                                    server,
+                                                  ),
+                                              onSelect: benchmarkState.active
+                                                  ? null
+                                                  : () async {
+                                                      await ref
+                                                          .read(
+                                                            Preferences
+                                                                .autoSelectServer
+                                                                .notifier,
+                                                          )
+                                                          .update(false);
+                                                      final selectionRequestId =
+                                                          DateTime.now()
+                                                              .microsecondsSinceEpoch;
+                                                      ref
+                                                          .read(
+                                                            selectedServerPreviewProvider
+                                                                .notifier,
+                                                          )
+                                                          .state = server.clone()
+                                                        ..isSelected = true;
+                                                      ref
+                                                          .read(
+                                                            pendingServerSelectionProvider
+                                                                .notifier,
+                                                          )
+                                                          .state = PendingServerSelection(
+                                                        requestId:
+                                                            selectionRequestId,
+                                                        profileId: profile.id,
+                                                        groupTag:
+                                                            connectionMode ==
+                                                                ProfileConnectionMode
+                                                                    .mergedProfiles
+                                                            ? null
+                                                            : sectionGroup.tag,
+                                                        outboundTag: server.tag,
+                                                      );
+                                                      if (!isActiveProfile &&
+                                                          connectionMode ==
+                                                              ProfileConnectionMode
+                                                                  .currentProfile) {
+                                                        await setActiveSubscription(
+                                                          profile,
+                                                        );
+                                                        return;
+                                                      }
+                                                      final liveGroupTag =
                                                           connectionMode ==
                                                               ProfileConnectionMode
                                                                   .mergedProfiles
-                                                          ? null
-                                                          : sectionGroup.tag,
-                                                      outboundTag: server.tag,
-                                                    );
-                                                    if (!isActiveProfile &&
-                                                        connectionMode ==
-                                                            ProfileConnectionMode
-                                                                .currentProfile) {
-                                                      await setActiveSubscription(
-                                                        profile,
-                                                      );
-                                                      return;
-                                                    }
-                                                    final liveGroupTag =
-                                                        connectionMode ==
-                                                            ProfileConnectionMode
-                                                                .mergedProfiles
-                                                        ? onlineGroup?.tag
-                                                        : sectionGroup.tag;
-                                                    if (liveGroupTag == null) {
-                                                      return;
-                                                    }
-                                                    final result = await ref
-                                                        .read(
-                                                          proxyRepositoryProvider,
-                                                        )
-                                                        .selectProxy(
-                                                          liveGroupTag,
-                                                          server.tag,
-                                                        )
-                                                        .run();
-                                                    result.match((_) => null, (
-                                                      _,
-                                                    ) {
-                                                      final currentPending = ref
-                                                          .read(
-                                                            pendingServerSelectionProvider,
-                                                          );
-                                                      if (currentPending
-                                                              ?.requestId ==
-                                                          selectionRequestId) {
-                                                        ref
-                                                                .read(
-                                                                  pendingServerSelectionProvider
-                                                                      .notifier,
-                                                                )
-                                                                .state =
-                                                            null;
+                                                          ? onlineGroup?.tag
+                                                          : sectionGroup.tag;
+                                                      if (liveGroupTag ==
+                                                          null) {
+                                                        return;
                                                       }
-                                                    });
-                                                  },
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ],
+                                                      final result = await ref
+                                                          .read(
+                                                            proxyRepositoryProvider,
+                                                          )
+                                                          .selectProxy(
+                                                            liveGroupTag,
+                                                            server.tag,
+                                                          )
+                                                          .run();
+                                                      result.match((_) => null, (
+                                                        _,
+                                                      ) {
+                                                        final currentPending =
+                                                            ref.read(
+                                                              pendingServerSelectionProvider,
+                                                            );
+                                                        if (currentPending
+                                                                ?.requestId ==
+                                                            selectionRequestId) {
+                                                          ref
+                                                                  .read(
+                                                                    pendingServerSelectionProvider
+                                                                        .notifier,
+                                                                  )
+                                                                  .state =
+                                                              null;
+                                                        }
+                                                      });
+                                                    },
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                ],
+                                const Gap(8),
                               ],
-                              const Gap(8),
-                            ],
-                          );
-                        },
-                      ),
+                            );
+                          },
+                        ),
+                      ],
                     ],
-                  ],
-                );
-              }(),
+                  );
+                }(),
+              ),
             ),
           ],
         ),
@@ -1154,6 +1275,133 @@ class _SmallGlassButton extends StatelessWidget {
   }
 }
 
+enum _SubscriptionMenuAction { add, manage, update }
+
+class _SubscriptionMenuButton extends StatelessWidget {
+  const _SubscriptionMenuButton({
+    required this.showUpdate,
+    required this.updateRunning,
+    this.onAdd,
+    this.onManage,
+    this.onUpdate,
+  });
+
+  final bool showUpdate;
+  final bool updateRunning;
+  final VoidCallback? onAdd;
+  final VoidCallback? onManage;
+  final VoidCallback? onUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
+    final accent = _softAccentForeground(theme, emphasis: 0.92);
+
+    return Tooltip(
+      message: 'Подписки',
+      child: GlassPanel(
+        width: ServersPanelWidget.searchFieldHeight,
+        height: ServersPanelWidget.searchFieldHeight,
+        borderRadius: 18,
+        backgroundColor: _softAccentSurface(theme, emphasis: 0.92),
+        opacity: 0.08,
+        strokeColor: theme.brandAccent,
+        strokeOpacity: 0.10,
+        child: PopupMenuButton<_SubscriptionMenuAction>(
+          tooltip: 'Подписки',
+          color: scheme.surface,
+          elevation: 14,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          onSelected: (action) {
+            switch (action) {
+              case _SubscriptionMenuAction.add:
+                onAdd?.call();
+              case _SubscriptionMenuAction.manage:
+                onManage?.call();
+              case _SubscriptionMenuAction.update:
+                onUpdate?.call();
+            }
+          },
+          itemBuilder: (context) => [
+            _subscriptionMenuItem(
+              context,
+              value: _SubscriptionMenuAction.add,
+              icon: Icons.add_rounded,
+              label: 'Добавить подписку',
+              enabled: onAdd != null,
+            ),
+            _subscriptionMenuItem(
+              context,
+              value: _SubscriptionMenuAction.manage,
+              icon: Icons.inventory_2_outlined,
+              label: 'Управление подписками',
+              enabled: onManage != null,
+            ),
+            if (showUpdate)
+              _subscriptionMenuItem(
+                context,
+                value: _SubscriptionMenuAction.update,
+                icon: updateRunning
+                    ? Icons.sync_rounded
+                    : Icons.refresh_rounded,
+                label: updateRunning
+                    ? 'Обновление выполняется'
+                    : 'Обновить подписки',
+                enabled: onUpdate != null,
+              ),
+          ],
+          child: Center(
+            child: Icon(
+              Icons.tune_rounded,
+              size: 21,
+              color: onAdd != null || onManage != null || onUpdate != null
+                  ? accent
+                  : muted.withValues(alpha: 0.52),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<_SubscriptionMenuAction> _subscriptionMenuItem(
+    BuildContext context, {
+    required _SubscriptionMenuAction value,
+    required IconData icon,
+    required String label,
+    required bool enabled,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final color = enabled
+        ? scheme.onSurface.withValues(alpha: 0.88)
+        : theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.48);
+
+    return PopupMenuItem<_SubscriptionMenuAction>(
+      value: value,
+      enabled: enabled,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: color),
+          const Gap(10),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PingTestProgress extends StatelessWidget {
   const _PingTestProgress({
     required this.completed,
@@ -1234,125 +1482,44 @@ class _PingTestProgress extends StatelessWidget {
   }
 }
 
-class _SubscriptionStrip extends StatelessWidget {
-  const _SubscriptionStrip({
-    required this.title,
-    required this.subtitle,
-    required this.updateState,
-    this.onAdd,
-    this.onManage,
-  });
+class _ServerListWindow extends StatelessWidget {
+  const _ServerListWindow({required this.child});
 
-  final String title;
-  final String subtitle;
-  final ({
-    String? currentName,
-    int completed,
-    int total,
-    int updated,
-    int failed,
-    bool running,
-    bool force,
-    DateTime? lastRun,
-    String? message,
-  })?
-  updateState;
-  final VoidCallback? onAdd;
-  final VoidCallback? onManage;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final muted = theme.gorionTokens.onSurfaceMuted;
-    final isRunning = updateState?.running == true;
-    final progress = isRunning && (updateState?.total ?? 0) > 0
-        ? (updateState!.completed / updateState!.total).clamp(0.0, 1.0)
-        : null;
-    final statusLine = isRunning
-        ? '${updateState?.message ?? 'Обновляем подписки…'}${updateState?.currentName != null ? ' · ${updateState!.currentName}' : ''}'
-        : _formatUpdateSummary(updateState);
-
     return GlassPanel(
-      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-      borderRadius: 15,
-      backgroundColor: _softAccentSurface(theme, emphasis: 0.86),
-      opacity: 0.06,
-      strokeOpacity: 0.08,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      borderRadius: 24,
+      backgroundColor: _softAccentSurface(theme, emphasis: 0.64),
+      opacity: 0.07,
+      strokeOpacity: 0.09,
       strokeColor: theme.brandAccent,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const Gap(2),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: muted.withValues(alpha: 0.95),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Gap(8),
-              _SmallGlassButton(
-                icon: Icons.add_rounded,
-                tooltip: 'Добавить подписку',
-                onTap: onAdd,
-              ),
-              const Gap(6),
-              _SmallGlassButton(
-                icon: Icons.inventory_2_outlined,
-                tooltip: 'Список подписок',
-                onTap: onManage,
-              ),
-            ],
-          ),
-          if (statusLine != null && statusLine.isNotEmpty) ...[
-            const Gap(10),
-            Text(
-              statusLine,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: scheme.onSurface.withValues(alpha: 0.7),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-          if (isRunning) ...[
-            const Gap(8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                minHeight: 6,
-                value: progress,
-                backgroundColor: _softAccentFill(theme, emphasis: 0.9),
-                valueColor: AlwaysStoppedAnimation(scheme.primary),
-              ),
-            ),
-          ],
-        ],
+      showGlow: false,
+      child: child,
+    );
+  }
+}
+
+class _ServerSectionLabel extends StatelessWidget {
+  const _ServerSectionLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(left: 2),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.86),
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.35,
+        ),
       ),
     );
   }
@@ -1387,81 +1554,88 @@ class _SubscriptionCompactRow extends StatelessWidget {
     final badgeBorder = isActive
         ? _softAccentBorder(theme, emphasis: 1.20)
         : _softAccentBorder(theme, emphasis: 0.82);
-    final strokeColor = isActive
-        ? Color.lerp(
-            theme.brandAccent,
-            scheme.onSurface,
-            theme.brightness == Brightness.dark ? 0.26 : 0.12,
-          )!
-        : theme.brandAccent;
     final countColor = isActive
         ? _softAccentForeground(theme, emphasis: 0.96)
         : muted.withValues(alpha: 0.84);
+    final indicatorColor = isActive
+        ? theme.brandAccent.withValues(alpha: 0.92)
+        : Colors.transparent;
 
-    return GestureDetector(
-      onTap: onTap,
-      child: GlassPanel(
+    return Material(
+      color: Colors.transparent,
+      child: SizedBox(
         height: 42,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        borderRadius: 14,
-        backgroundColor: _softAccentSurface(
-          theme,
-          emphasis: isActive ? 0.96 : 0.78,
-        ),
-        opacity: isActive ? 0.06 : 0.04,
-        strokeOpacity: isActive ? 0.10 : 0.04,
-        strokeColor: strokeColor,
-        gradientBegin: const Alignment(-1, -0.95),
-        gradientEnd: const Alignment(0.82, 1),
-        child: Row(
-          children: [
-            Container(
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(
-                color: badgeFill,
-                borderRadius: BorderRadius.circular(7),
-                border: Border.all(color: badgeBorder, width: 0.8),
-              ),
-              child: Icon(Icons.layers_rounded, size: 12.5, color: accent),
-            ),
-            const Gap(10),
-            Expanded(
-              child: Text(
-                name,
-                style: TextStyle(
-                  color: scheme.onSurface,
-                  fontSize: 13,
-                  fontWeight: isActive ? FontWeight.w800 : FontWeight.w700,
-                  height: 1,
-                  letterSpacing: 0.15,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          hoverColor: scheme.onSurface.withValues(
+            alpha: theme.brightness == Brightness.dark ? 0.035 : 0.045,
+          ),
+          splashColor: theme.brandAccent.withValues(alpha: 0.08),
+          highlightColor: theme.brandAccent.withValues(alpha: 0.05),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 3,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: indicatorColor,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+                const Gap(9),
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: badgeFill,
+                    borderRadius: BorderRadius.circular(7),
+                    border: Border.all(color: badgeBorder, width: 0.8),
+                  ),
+                  child: Icon(Icons.layers_rounded, size: 12.5, color: accent),
+                ),
+                const Gap(10),
+                Expanded(
+                  child: Text(
+                    name,
+                    style: TextStyle(
+                      color: scheme.onSurface,
+                      fontSize: 13,
+                      fontWeight: isActive ? FontWeight.w800 : FontWeight.w700,
+                      height: 1,
+                      letterSpacing: 0.15,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  '$serverCount',
+                  style: TextStyle(
+                    color: countColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    height: 1,
+                  ),
+                ),
+                const Gap(8),
+                AnimatedRotation(
+                  turns: isExpanded ? 0.25 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    size: 16,
+                    color: isActive
+                        ? scheme.primary.withValues(alpha: 0.82)
+                        : muted.withValues(alpha: 0.72),
+                  ),
+                ),
+              ],
             ),
-            Text(
-              '$serverCount',
-              style: TextStyle(
-                color: countColor,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                height: 1,
-              ),
-            ),
-            const Gap(8),
-            AnimatedRotation(
-              turns: isExpanded ? 0.25 : 0,
-              duration: const Duration(milliseconds: 200),
-              child: Icon(
-                Icons.chevron_right_rounded,
-                size: 16,
-                color: isActive
-                    ? scheme.primary.withValues(alpha: 0.82)
-                    : muted.withValues(alpha: 0.72),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1577,38 +1751,6 @@ class _SubscriptionsHiddenHint extends StatelessWidget {
   }
 }
 
-String? _formatUpdateSummary(
-  ({
-    String? currentName,
-    int completed,
-    int total,
-    int updated,
-    int failed,
-    bool running,
-    bool force,
-    DateTime? lastRun,
-    String? message,
-  })?
-  updateState,
-) {
-  if (updateState == null) {
-    return 'Автообновление проверяет подписки каждые 15 минут.';
-  }
-  if (updateState.message?.isNotEmpty == true && updateState.running == false) {
-    return '${updateState.message}${updateState.lastRun != null ? ' · ${_formatLastRun(updateState.lastRun!)}' : ''}';
-  }
-  if (updateState.lastRun != null) {
-    return _formatLastRun(updateState.lastRun!);
-  }
-  return 'Автообновление проверяет подписки каждые 15 минут.';
-}
-
-String _formatLastRun(DateTime lastRun) {
-  final local = lastRun.toLocal();
-  String two(int value) => value.toString().padLeft(2, '0');
-  return 'Последняя проверка: ${two(local.day)}.${two(local.month)} ${two(local.hour)}:${two(local.minute)}';
-}
-
 class _EmptyServersCard extends StatelessWidget {
   const _EmptyServersCard();
 
@@ -1648,6 +1790,45 @@ class _EmptyServersCard extends StatelessWidget {
 
 enum _ServerCardMenuAction { toggleAutoExclusion, details }
 
+class _ServerPingChip extends StatelessWidget {
+  const _ServerPingChip({
+    required this.ping,
+    required this.color,
+    required this.selected,
+  });
+
+  final int ping;
+  final Color color;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isUnavailable = ping == -1;
+    final hasPing = ping > 0;
+    final effectiveColor = isUnavailable ? const Color(0xFFEF4444) : color;
+    final label = isUnavailable
+        ? 'NO'
+        : hasPing
+        ? '$ping ms'
+        : '— ms';
+
+    return Text(
+      label,
+      style: TextStyle(
+        color: selected
+            ? scheme.onSurface.withValues(alpha: 0.92)
+            : effectiveColor.withValues(
+                alpha: theme.brightness == Brightness.dark ? 0.96 : 0.88,
+              ),
+        fontSize: 11.5,
+        fontWeight: FontWeight.w800,
+      ),
+    );
+  }
+}
+
 class _ServerCard extends HookConsumerWidget {
   const _ServerCard({
     super.key,
@@ -1662,6 +1843,8 @@ class _ServerCard extends HookConsumerWidget {
     required this.isBenchmarking,
     this.badge,
     this.selectionProgress,
+    this.isFavorite = false,
+    this.onToggleFavorite,
     this.isAutoExcluded = false,
     this.onToggleAutoExclusion,
     this.onShowDetails,
@@ -1679,6 +1862,8 @@ class _ServerCard extends HookConsumerWidget {
   final bool isBenchmarking;
   final Widget? badge;
   final AutoServerSelectionProgress? selectionProgress;
+  final bool isFavorite;
+  final VoidCallback? onToggleFavorite;
   final bool isAutoExcluded;
   final VoidCallback? onToggleAutoExclusion;
   final VoidCallback? onShowDetails;
@@ -1710,7 +1895,6 @@ class _ServerCard extends HookConsumerWidget {
     final cc = _extractCountryCode(name);
     final flag = cc != null ? _flagEmoji(cc) : '';
     final displayedName = cc != null ? _stripCountryPrefix(name) : name;
-    final type = server.type.isNotEmpty ? server.type.toUpperCase() : 'PROXY';
     final ping = pingOverride ?? server.urlTestDelay;
     final showAccent = isSelected;
     final selectedPrimaryInk = (isLightTheme ? Colors.black : Colors.white)
@@ -1719,9 +1903,6 @@ class _ServerCard extends HookConsumerWidget {
         .withValues(alpha: isLightTheme ? 0.72 : 0.84);
     final selectedTertiaryInk = (isLightTheme ? Colors.black : Colors.white)
         .withValues(alpha: isLightTheme ? 0.62 : 0.76);
-    final selectedMetricInk = (isLightTheme ? Colors.black : Colors.white)
-        .withValues(alpha: isLightTheme ? 0.82 : 0.92);
-    final typeColor = _typeColor(server.type, theme.brandAccent);
     final pingColor = _pingColor(ping);
     final throughput = speedOverride;
     final speedColor = switch (throughput ?? -1) {
@@ -1779,25 +1960,19 @@ class _ServerCard extends HookConsumerWidget {
     final actionsButtonIconColor = showAccent
         ? selectedPrimaryInk
         : scheme.onSurface.withValues(alpha: 0.88);
-    final typeTagFillColor = showAccent
-        ? theme.brandAccent.withValues(alpha: isLightTheme ? 0.92 : 0.96)
-        : typeColor.withValues(alpha: 0.13);
-    final typeTagBorderColor = showAccent
-        ? theme.brandAccent
-        : typeColor.withValues(alpha: 0.35);
-    final typeTagTextColor = showAccent
-        ? selectedPrimaryInk
-        : scheme.onSurface.withValues(alpha: 0.88);
+    final favoriteIconColor = isFavorite
+        ? const Color(0xFFFFD43B)
+        : actionsButtonIconColor.withValues(alpha: 0.72);
     final hasActionsMenu =
         onShowDetails != null || onToggleAutoExclusion != null;
 
     return GestureDetector(
       onTap: onSelect,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
+        margin: const EdgeInsets.only(bottom: 7),
         decoration: isBenchmarking
             ? BoxDecoration(
-                borderRadius: BorderRadius.circular(15),
+                borderRadius: BorderRadius.circular(18),
                 boxShadow: [
                   BoxShadow(
                     color: scheme.primary.withValues(
@@ -1810,14 +1985,14 @@ class _ServerCard extends HookConsumerWidget {
               )
             : null,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(18),
           child: BackdropFilter(
             filter: ui.ImageFilter.blur(sigmaX: 15, sigmaY: 15),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 220),
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(18),
                 color: cardBackgroundColor,
                 border: Border.all(
                   color: cardBorderColor,
@@ -1852,127 +2027,144 @@ class _ServerCard extends HookConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  if (flag.isNotEmpty) ...[
-                                    Text(
-                                      flag,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontFamily: 'Emoji',
-                                      ),
-                                    ),
-                                    const Gap(6),
-                                  ],
-                                  Expanded(
-                                    child: Text(
-                                      displayedName,
-                                      style: TextStyle(
-                                        color: isSelected
-                                            ? selectedPrimaryInk
-                                            : scheme.onSurface.withValues(
-                                                alpha: 0.9,
+                                  SizedBox(
+                                    width: 36,
+                                    height:
+                                        groupName.isNotEmpty ||
+                                            detailLines.isNotEmpty
+                                        ? 40
+                                        : 30,
+                                    child: Center(
+                                      child: flag.isNotEmpty
+                                          ? Text(
+                                              flag,
+                                              style: const TextStyle(
+                                                fontSize: 30,
+                                                fontFamily: 'Emoji',
+                                                height: 1,
                                               ),
-                                        fontSize: 14,
-                                        fontWeight: isSelected
-                                            ? FontWeight.w700
-                                            : FontWeight.w600,
-                                        letterSpacing: 0.1,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                            )
+                                          : Icon(
+                                              Icons.bolt_rounded,
+                                              size: 23,
+                                              color: isSelected
+                                                  ? selectedPrimaryInk
+                                                  : theme.brandAccent
+                                                        .withValues(
+                                                          alpha: 0.86,
+                                                        ),
+                                            ),
+                                    ),
+                                  ),
+                                  const Gap(10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          displayedName,
+                                          style: TextStyle(
+                                            color: isSelected
+                                                ? selectedPrimaryInk
+                                                : scheme.onSurface.withValues(
+                                                    alpha: 0.9,
+                                                  ),
+                                            fontSize: 13.5,
+                                            fontWeight: isSelected
+                                                ? FontWeight.w800
+                                                : FontWeight.w700,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        if (groupName.isNotEmpty) ...[
+                                          const Gap(2),
+                                          Text(
+                                            groupName,
+                                            style: TextStyle(
+                                              color: isSelected
+                                                  ? selectedSecondaryInk
+                                                  : muted.withValues(
+                                                      alpha: 0.78,
+                                                    ),
+                                              fontSize: 12,
+                                              height: 1.12,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ],
+                                        if (detailLines.isNotEmpty) ...[
+                                          const Gap(5),
+                                          for (
+                                            var index = 0;
+                                            index < detailLines.length;
+                                            index += 1
+                                          ) ...[
+                                            Text(
+                                              detailLines[index],
+                                              style: TextStyle(
+                                                color: isSelected
+                                                    ? selectedTertiaryInk
+                                                    : muted.withValues(
+                                                        alpha: 0.95,
+                                                      ),
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w500,
+                                                height: 1.25,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            if (index != detailLines.length - 1)
+                                              const Gap(2),
+                                          ],
+                                        ],
+                                        if (isAutoExcluded) ...[
+                                          const Gap(5),
+                                          Text(
+                                            'Исключён из автовыбора',
+                                            style: TextStyle(
+                                              color: const Color(
+                                                0xFFFF6B6B,
+                                              ).withValues(alpha: 0.95),
+                                              fontSize: 10.5,
+                                              fontWeight: FontWeight.w500,
+                                              height: 1.15,
+                                            ),
+                                          ),
+                                        ],
+                                        if (selectionProgress != null) ...[
+                                          const Gap(6),
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                            child: SizedBox(
+                                              height: 4,
+                                              child: LinearProgressIndicator(
+                                                value: selectionProgress!.value,
+                                                backgroundColor:
+                                                    _softAccentFill(
+                                                      theme,
+                                                      emphasis: 0.92,
+                                                    ),
+                                                valueColor:
+                                                    AlwaysStoppedAnimation<
+                                                      Color
+                                                    >(theme.brandAccent),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
                                     ),
                                   ),
                                 ],
                               ),
-                              if (groupName.isNotEmpty) ...[
-                                const Gap(2),
-                                Text(
-                                  groupName,
-                                  style: TextStyle(
-                                    color: isSelected
-                                        ? selectedSecondaryInk
-                                        : muted.withValues(alpha: 0.78),
-                                    fontSize: 12,
-                                  ),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.fade,
-                                ),
-                              ],
-                              if (detailLines.isNotEmpty) ...[
-                                const Gap(6),
-                                for (
-                                  var index = 0;
-                                  index < detailLines.length;
-                                  index += 1
-                                ) ...[
-                                  Text(
-                                    detailLines[index],
-                                    style: TextStyle(
-                                      color: isSelected
-                                          ? selectedTertiaryInk
-                                          : muted.withValues(alpha: 0.95),
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                      height: 1.25,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  if (index != detailLines.length - 1)
-                                    const Gap(2),
-                                ],
-                              ],
-                              if (isAutoExcluded) ...[
-                                const Gap(6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(
-                                      0xFFEF4444,
-                                    ).withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(999),
-                                    border: Border.all(
-                                      color: const Color(
-                                        0xFFEF4444,
-                                      ).withValues(alpha: 0.26),
-                                      width: 0.7,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    'Исключён из автовыбора',
-                                    style: TextStyle(
-                                      color: const Color(
-                                        0xFFFF8A8A,
-                                      ).withValues(alpha: 0.96),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.25,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              if (selectionProgress != null) ...[
-                                const Gap(6),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(999),
-                                  child: SizedBox(
-                                    height: 4,
-                                    child: LinearProgressIndicator(
-                                      value: selectionProgress!.value,
-                                      backgroundColor: _softAccentFill(
-                                        theme,
-                                        emphasis: 0.92,
-                                      ),
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        theme.brandAccent,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
                             ],
                           ),
                         ),
@@ -2016,29 +2208,33 @@ class _ServerCard extends HookConsumerWidget {
                                 else if (badge != null)
                                   badge!
                                 else
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 7,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: typeTagFillColor,
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(
-                                        color: typeTagBorderColor,
-                                        width: 0.7,
-                                      ),
-                                    ),
-                                    child: Text(
-                                      type,
-                                      style: TextStyle(
-                                        color: typeTagTextColor,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.4,
+                                  _ServerPingChip(
+                                    ping: ping,
+                                    color: pingColor,
+                                    selected: isSelected,
+                                  ),
+                                if (onToggleFavorite != null) ...[
+                                  const Gap(6),
+                                  Tooltip(
+                                    message: isFavorite
+                                        ? 'Убрать из избранного'
+                                        : 'Добавить в избранное',
+                                    child: GestureDetector(
+                                      onTap: onToggleFavorite,
+                                      child: SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: Icon(
+                                          isFavorite
+                                              ? Icons.star_rounded
+                                              : Icons.star_border_rounded,
+                                          size: 17,
+                                          color: favoriteIconColor,
+                                        ),
                                       ),
                                     ),
                                   ),
+                                ],
                                 if (hasActionsMenu) ...[
                                   const Gap(6),
                                   PopupMenuButton<_ServerCardMenuAction>(
@@ -2144,60 +2340,6 @@ class _ServerCard extends HookConsumerWidget {
                                 ],
                               ],
                             ),
-                            if (ping == -1) ...[
-                              const Gap(5),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    width: 5,
-                                    height: 5,
-                                    decoration: const BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Color(0xFFEF4444),
-                                    ),
-                                  ),
-                                  const Gap(4),
-                                  Text(
-                                    'NO',
-                                    style: TextStyle(
-                                      color: isSelected
-                                          ? selectedMetricInk
-                                          : const Color(0xFFEF4444),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ] else if (ping > 0) ...[
-                              const Gap(5),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    width: 5,
-                                    height: 5,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: pingColor,
-                                    ),
-                                  ),
-                                  const Gap(4),
-                                  Text(
-                                    '$ping ms',
-                                    style: TextStyle(
-                                      color: isSelected
-                                          ? selectedMetricInk
-                                          : pingColor,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
                             if (isBenchmarking && !hasSpeedResult) ...[
                               const Gap(4),
                               Text(
