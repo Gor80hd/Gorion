@@ -44,7 +44,9 @@ File privilegedHelperBootstrapFileForRuntimeDir(Directory runtimeDir) {
 }
 
 File privilegedHelperStartupLockFileForRuntimeDir(Directory runtimeDir) {
-  return File(p.join(runtimeDir.path, gorionPrivilegedHelperStartupLockFileName));
+  return File(
+    p.join(runtimeDir.path, gorionPrivilegedHelperStartupLockFileName),
+  );
 }
 
 String? normalizedJsonString(dynamic value) {
@@ -111,9 +113,9 @@ class PrivilegedHelperConnectionInfo {
     );
   }
 
-  Map<String, dynamic> toJson() {
+  Map<String, dynamic> toJson({bool includeToken = true}) {
     return {
-      'token': token,
+      if (includeToken) 'token': token,
       'host': host,
       'port': port,
       'pid': pid,

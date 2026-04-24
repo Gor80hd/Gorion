@@ -18,7 +18,9 @@ Future<void> runPrivilegedHelperServer() async {
 class _WindowsPrivilegedHelperServer {
   _WindowsPrivilegedHelperServer()
     : _runtimeService = SingboxRuntimeService(),
-      _zapretRuntimeService = ZapretRuntimeService(),
+      _zapretRuntimeService = ZapretRuntimeService(
+        forceBundledInstallDirectory: true,
+      ),
       _winHttpProxyService = const WindowsWinHttpProxyService();
 
   final SingboxRuntimeService _runtimeService;
@@ -28,6 +30,8 @@ class _WindowsPrivilegedHelperServer {
   int? _lastZapretExitCode;
   String? _authToken;
   PrivilegedHelperConnectionInfo? _connectionInfo;
+  WindowsWinHttpProxySettings? _previousWinHttpSettings;
+  WindowsWinHttpProxySettings? _managedWinHttpSettings;
 
   Future<void> run() async {
     if (!Platform.isWindows) {
@@ -118,6 +122,10 @@ class _WindowsPrivilegedHelperServer {
       }
       if (method == 'POST' && path == '/runtime/start') {
         final body = await _readJsonBody(request);
+        final mode = runtimeModeFromJsonValue(body['mode']);
+        if (!mode.usesTun) {
+          throw StateError('Privileged helper can only start the TUN runtime.');
+        }
         await _runtimeService.start(
           profileId: normalizedJsonString(body['profileId']) ?? '',
           templateConfig: normalizedJsonString(body['templateConfig']) ?? '',
@@ -129,7 +137,7 @@ class _WindowsPrivilegedHelperServer {
                 const <String, dynamic>{},
           ),
           urlTestUrl: normalizedJsonString(body['urlTestUrl']) ?? '',
-          mode: runtimeModeFromJsonValue(body['mode']),
+          mode: mode,
           selectedServerTag: normalizedJsonString(body['selectedServerTag']),
         );
         await _writeJson(
@@ -197,15 +205,26 @@ class _WindowsPrivilegedHelperServer {
         );
         return;
       }
-      if (method == 'GET' && path == '/windows/winhttp-proxy') {
-        final settings = await _winHttpProxyService.readSettings();
-        await _writeJson(request.response, HttpStatus.ok, settings.toJson());
+      if (method == 'POST' && path == '/windows/winhttp-proxy/managed-enable') {
+        final body = await _readJsonBody(request);
+        final mixedPort = _parseManagedProxyPort(body['mixedPort']);
+        final managedSettings = await _enableManagedWinHttpProxy(
+          mixedPort,
+          bypassSteam: body['bypassSteam'] == true,
+        );
+        await _writeJson(request.response, HttpStatus.ok, {
+          'ok': true,
+          'managedSettings': managedSettings.toJson(),
+        });
         return;
       }
-      if (method == 'POST' && path == '/windows/winhttp-proxy') {
+      if (method == 'POST' &&
+          path == '/windows/winhttp-proxy/managed-restore') {
         final body = await _readJsonBody(request);
-        await _winHttpProxyService.applySettings(
-          WindowsWinHttpProxySettings.fromJson(body),
+        final mixedPort = _parseManagedProxyPort(body['mixedPort']);
+        await _restoreManagedWinHttpProxy(
+          mixedPort,
+          bypassSteam: body['bypassSteam'] == true,
         );
         await _writeJson(request.response, HttpStatus.ok, {'ok': true});
         return;
@@ -234,6 +253,68 @@ class _WindowsPrivilegedHelperServer {
       logs: _zapretRuntimeService.logs,
       lastExitCode: _lastZapretExitCode,
     );
+  }
+
+  Future<WindowsWinHttpProxySettings> _enableManagedWinHttpProxy(
+    int mixedPort, {
+    required bool bypassSteam,
+  }) async {
+    final previousSettings = await _winHttpProxyService.readSettings();
+    final managedSettings = WindowsWinHttpProxySettings(
+      proxyServer: buildManagedWindowsWinHttpProxyServer(mixedPort),
+      bypassList: buildManagedWindowsWinHttpBypassList(
+        bypassSteam: bypassSteam,
+      ),
+    );
+
+    try {
+      await _winHttpProxyService.applySettings(managedSettings);
+    } on Object {
+      await _winHttpProxyService.applySettings(previousSettings);
+      rethrow;
+    }
+
+    _previousWinHttpSettings = previousSettings;
+    _managedWinHttpSettings = managedSettings;
+    return managedSettings;
+  }
+
+  Future<void> _restoreManagedWinHttpProxy(
+    int mixedPort, {
+    required bool bypassSteam,
+  }) async {
+    final expectedManagedSettings = WindowsWinHttpProxySettings(
+      proxyServer: buildManagedWindowsWinHttpProxyServer(mixedPort),
+      bypassList: buildManagedWindowsWinHttpBypassList(
+        bypassSteam: bypassSteam,
+      ),
+    );
+    final currentSettings = await _winHttpProxyService.readSettings();
+    if (!currentSettings.isManagedBy(expectedManagedSettings)) {
+      if (_managedWinHttpSettings?.matches(expectedManagedSettings) ?? false) {
+        _previousWinHttpSettings = null;
+        _managedWinHttpSettings = null;
+      }
+      return;
+    }
+
+    final previousSettings =
+        (_managedWinHttpSettings?.matches(expectedManagedSettings) ?? false)
+        ? _previousWinHttpSettings
+        : null;
+    await _winHttpProxyService.applySettings(
+      previousSettings ?? const WindowsWinHttpProxySettings(),
+    );
+    _previousWinHttpSettings = null;
+    _managedWinHttpSettings = null;
+  }
+
+  int _parseManagedProxyPort(dynamic value) {
+    final port = (value as num?)?.toInt();
+    if (port == null || port <= 0 || port > 65535) {
+      throw const FormatException('Invalid managed WinHTTP proxy port.');
+    }
+    return port;
   }
 
   Future<Map<String, dynamic>> _readJsonBody(HttpRequest request) async {
@@ -298,7 +379,10 @@ class _WindowsPrivilegedHelperServer {
     PrivilegedHelperConnectionInfo info,
   ) async {
     final stateFile = privilegedHelperStateFileForRuntimeDir(runtimeDir);
-    await stateFile.writeAsString(jsonEncode(info.toJson()), flush: true);
+    await stateFile.writeAsString(
+      jsonEncode(info.toJson(includeToken: false)),
+      flush: true,
+    );
   }
 
   Future<void> _writeFailureState(

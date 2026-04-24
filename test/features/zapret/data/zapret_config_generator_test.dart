@@ -110,6 +110,46 @@ void main() {
     },
   );
 
+  test('keeps game filter ports inert when IPSet mode is disabled', () async {
+    final packageDir = await _createZapretPackage();
+    addTearDown(() => packageDir.delete(recursive: true));
+
+    final configuration = generator.build(
+      ZapretSettings(
+        installDirectory: packageDir.path,
+        gameFilterMode: ZapretGameFilterMode.all,
+        ipSetFilterMode: ZapretIpSetFilterMode.none,
+      ),
+    );
+
+    expect(configuration.arguments, contains('--wf-tcp-out=80,443,1024-65535'));
+    expect(configuration.arguments, contains('--wf-udp-out=443,1024-65535'));
+    expect(configuration.arguments, isNot(contains(contains('ipset-all.txt'))));
+    expect(configuration.arguments, contains('--ipset-ip=203.0.113.113/32'));
+  });
+
+  test('keeps ipset-all when IPSet mode is enabled', () async {
+    final packageDir = await _createZapretPackage();
+    addTearDown(() => packageDir.delete(recursive: true));
+
+    final configuration = generator.build(
+      ZapretSettings(
+        installDirectory: packageDir.path,
+        gameFilterMode: ZapretGameFilterMode.all,
+        ipSetFilterMode: ZapretIpSetFilterMode.any,
+      ),
+    );
+
+    expect(
+      configuration.arguments,
+      contains('--ipset=${p.join(packageDir.path, 'files', 'ipset-all.txt')}'),
+    );
+    expect(
+      configuration.arguments,
+      isNot(contains('--ipset-ip=203.0.113.113/32')),
+    );
+  });
+
   test(
     'translates legacy split2 badseq strategy into winws2 multisplit',
     () async {
@@ -277,6 +317,29 @@ void main() {
       generator.resolveExecutablePath(packageDir.path),
       fallbackWinws2.path,
     );
+  });
+
+  test('legacy .bat launch always uses bundled winws executable', () async {
+    final packageDir = await _createZapretPackage();
+    addTearDown(() => packageDir.delete(recursive: true));
+
+    await _writeConfig(packageDir, 'legacy.bat', '''
+start "" /min "C:\\Temp\\evil.exe" --hostlist="%LISTS%list-general.txt" --comment=winws.exe
+''');
+
+    final configuration = generator.build(
+      ZapretSettings(
+        installDirectory: packageDir.path,
+        configFileName: 'legacy.bat',
+      ),
+    );
+
+    expect(
+      configuration.executablePath,
+      p.join(packageDir.path, 'binaries', 'windows-x86_64', 'winws2.exe'),
+    );
+    expect(configuration.executablePath, isNot(contains('evil.exe')));
+    expect(configuration.requiredFiles, isNot(contains('C:\\Temp\\evil.exe')));
   });
 
   test('normalizes legacy .bat name to matching .conf profile', () async {

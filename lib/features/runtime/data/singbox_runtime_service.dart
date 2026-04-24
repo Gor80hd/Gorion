@@ -26,6 +26,9 @@ const _winHttpProxyMarkerFileName = 'winhttp-proxy.json';
 
 enum SingboxRuntimeBackend { local, privilegedHelper }
 
+typedef RuntimeExitCallback =
+    void Function(RuntimeSession session, int exitCode);
+
 SingboxRuntimeBackend selectSingboxRuntimeBackend({
   required RuntimeMode mode,
   required bool privilegedHelperProvisioned,
@@ -116,6 +119,7 @@ class SingboxRuntimeService {
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
+    RuntimeExitCallback? onExit,
   }) {
     return _serializeLifecycle(
       () => _startImpl(
@@ -126,6 +130,7 @@ class SingboxRuntimeService {
         urlTestUrl: urlTestUrl,
         mode: mode,
         selectedServerTag: selectedServerTag,
+        onExit: onExit,
       ),
     );
   }
@@ -139,6 +144,7 @@ class SingboxRuntimeService {
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
+    RuntimeExitCallback? onExit,
   }) async {
     final runtimeDir = await _runtimeDirectory();
     await _stopImpl();
@@ -237,6 +243,18 @@ class SingboxRuntimeService {
             .transform(const LineSplitter())
             .listen((line) => _pushLog('STDERR $line', isError: true));
 
+        final session = RuntimeSession(
+          profileId: profileId,
+          mode: mode,
+          binaryPath: binaryFile.path,
+          configPath: configFile.path,
+          controllerPort: controllerPort,
+          mixedPort: mixedPort,
+          secret: secret,
+          manualSelectorTag: built.manualSelectorTag,
+          autoGroupTag: built.autoGroupTag,
+        );
+
         process.exitCode.then((code) {
           startupExitCode = code;
           unawaited(_deleteProcessMarker(runtimeDir, expectedPid: process.pid));
@@ -245,6 +263,7 @@ class SingboxRuntimeService {
             return;
           }
           if (identical(_process, process)) {
+            final activeSession = _session;
             final lease = _systemProxyLease;
             final winHttpLease = _winHttpProxyLease;
             _systemProxyLease = null;
@@ -268,20 +287,11 @@ class SingboxRuntimeService {
             }
             _process = null;
             _session = null;
+            if (activeSession != null) {
+              onExit?.call(activeSession, code);
+            }
           }
         });
-
-        final session = RuntimeSession(
-          profileId: profileId,
-          mode: mode,
-          binaryPath: binaryFile.path,
-          configPath: configFile.path,
-          controllerPort: controllerPort,
-          mixedPort: mixedPort,
-          secret: secret,
-          manualSelectorTag: built.manualSelectorTag,
-          autoGroupTag: built.autoGroupTag,
-        );
 
         final clashClient = ClashApiClient.fromSession(session);
         try {
@@ -309,6 +319,7 @@ class SingboxRuntimeService {
               mode: mode,
               runtimeDir: runtimeDir,
               mixedPort: mixedPort,
+              bypassSteam: connectionTuningSettings.bypassSteamForSystemProxy,
               onLog: _pushLog,
             );
           } on Object catch (error, stackTrace) {
@@ -322,6 +333,7 @@ class SingboxRuntimeService {
           await _enableWinHttpProxy(
             runtimeDir: runtimeDir,
             mixedPort: mixedPort,
+            bypassSteam: connectionTuningSettings.bypassSteamForSystemProxy,
           );
         }
 
@@ -393,7 +405,9 @@ class SingboxRuntimeService {
           runtimeDir: runtimeDir,
           lease: winHttpProxyLease,
         );
-      } on Object catch (error) {
+      } on Object catch (error, stackTrace) {
+        restoreError ??= error;
+        restoreStackTrace ??= stackTrace;
         _pushLog('Failed to restore the WinHTTP proxy: $error', isError: true);
       }
     }
@@ -626,19 +640,23 @@ class SingboxRuntimeService {
     if (helperClient == null) {
       return;
     }
+    if (marker.mixedPort <= 0) {
+      _pushLog(
+        'Skipping stale WinHTTP proxy cleanup because the saved managed port is invalid.',
+        isError: true,
+      );
+      await _deleteWinHttpProxyMarker(runtimeDir);
+      return;
+    }
 
     try {
-      final current = await helperClient.readWinHttpProxySettings();
-      if (current.isManagedBy(marker.managedSettings)) {
-        await helperClient.applyWinHttpProxySettings(marker.previousSettings);
-        _pushLog(
-          'Restored WinHTTP proxy settings left behind by a previous app session.',
-        );
-      } else {
-        _pushLog(
-          'WinHTTP proxy settings changed outside Gorion; keeping the current values and clearing the stale marker.',
-        );
-      }
+      await helperClient.restoreManagedWinHttpProxy(
+        mixedPort: marker.mixedPort,
+        bypassSteam: _winHttpProxyMarkerBypassesSteam(marker),
+      );
+      _pushLog(
+        'Asked privileged helper to clean up stale managed WinHTTP proxy settings.',
+      );
     } on Object catch (error) {
       _pushLog(
         'Failed to clean up stale WinHTTP proxy settings: $error',
@@ -653,6 +671,7 @@ class SingboxRuntimeService {
   Future<void> _enableWinHttpProxy({
     required Directory runtimeDir,
     required int mixedPort,
+    required bool bypassSteam,
   }) async {
     final helperClient = _privilegedHelperClient;
     if (helperClient == null) {
@@ -660,29 +679,17 @@ class SingboxRuntimeService {
     }
 
     try {
-      final previousSettings = await helperClient.readWinHttpProxySettings();
-      final managedSettings = previousSettings.copyWith(
-        proxyServer: buildManagedWindowsWinHttpProxyServer(mixedPort),
-        bypassList: buildManagedWindowsWinHttpBypassList(),
+      final managedSettings = await helperClient.enableManagedWinHttpProxy(
+        mixedPort: mixedPort,
+        bypassSteam: bypassSteam,
       );
       final lease = _WinHttpProxyLease._(
         _WinHttpProxyMarker(
-          previousSettings: previousSettings,
+          mixedPort: mixedPort,
           managedSettings: managedSettings,
         ),
       );
       await _writeWinHttpProxyMarker(runtimeDir, lease._marker);
-      try {
-        await helperClient.applyWinHttpProxySettings(managedSettings);
-      } on Object {
-        try {
-          await helperClient.applyWinHttpProxySettings(previousSettings);
-        } on Object {
-          rethrow;
-        }
-        await _deleteWinHttpProxyMarker(runtimeDir);
-        rethrow;
-      }
       _winHttpProxyLease = lease;
       _pushLog(
         'WinHTTP proxy enabled through 127.0.0.1:$mixedPort for apps that bypass WinINET.',
@@ -702,19 +709,17 @@ class SingboxRuntimeService {
     if (helperClient == null || marker == null) {
       return;
     }
+    if (marker.mixedPort <= 0) {
+      await _deleteWinHttpProxyMarker(runtimeDir);
+      return;
+    }
 
     var shouldDeleteMarker = false;
     try {
-      final current = await helperClient.readWinHttpProxySettings();
-      if (!current.isManagedBy(marker.managedSettings)) {
-        _pushLog(
-          'WinHTTP proxy settings changed outside Gorion; skipping restore to avoid overwriting newer values.',
-        );
-        shouldDeleteMarker = true;
-        return;
-      }
-
-      await helperClient.applyWinHttpProxySettings(marker.previousSettings);
+      await helperClient.restoreManagedWinHttpProxy(
+        mixedPort: marker.mixedPort,
+        bypassSteam: _winHttpProxyMarkerBypassesSteam(marker),
+      );
       _pushLog('WinHTTP proxy restored to its previous state.');
       shouldDeleteMarker = true;
     } finally {
@@ -773,6 +778,12 @@ class SingboxRuntimeService {
 
   File _winHttpProxyMarkerFile(Directory runtimeDir) {
     return File(p.join(runtimeDir.path, _winHttpProxyMarkerFileName));
+  }
+
+  bool _winHttpProxyMarkerBypassesSteam(_WinHttpProxyMarker marker) {
+    final bypassList = marker.managedSettings.bypassList?.toLowerCase() ?? '';
+    return bypassList.contains('steampowered.com') ||
+        bypassList.contains('steamcommunity.com');
   }
 
   int? _tryParseInt(dynamic value) {
@@ -947,36 +958,56 @@ class _WinHttpProxyLease {
 
 class _WinHttpProxyMarker {
   const _WinHttpProxyMarker({
-    required this.previousSettings,
+    required this.mixedPort,
     required this.managedSettings,
   });
 
-  final WindowsWinHttpProxySettings previousSettings;
+  final int mixedPort;
   final WindowsWinHttpProxySettings managedSettings;
 
   Map<String, dynamic> toJson() {
     return {
-      'previousSettings': previousSettings.toJson(),
+      'mixedPort': mixedPort,
       'managedSettings': managedSettings.toJson(),
     };
   }
 
   factory _WinHttpProxyMarker.fromJson(Map<String, dynamic> json) {
-    return _WinHttpProxyMarker(
-      previousSettings: WindowsWinHttpProxySettings.fromJson(
-        Map<String, dynamic>.from(
-          ((json['previousSettings'] as Map?) ?? const <String, dynamic>{})
-              .cast<String, dynamic>(),
-        ),
-      ),
-      managedSettings: WindowsWinHttpProxySettings.fromJson(
-        Map<String, dynamic>.from(
-          ((json['managedSettings'] as Map?) ?? const <String, dynamic>{})
-              .cast<String, dynamic>(),
-        ),
+    final managedSettings = WindowsWinHttpProxySettings.fromJson(
+      Map<String, dynamic>.from(
+        ((json['managedSettings'] as Map?) ?? const <String, dynamic>{})
+            .cast<String, dynamic>(),
       ),
     );
+    return _WinHttpProxyMarker(
+      mixedPort:
+          (json['mixedPort'] as num?)?.toInt() ??
+          _tryParseManagedWinHttpProxyPort(managedSettings.proxyServer) ??
+          0,
+      managedSettings: managedSettings,
+    );
   }
+}
+
+int? _tryParseManagedWinHttpProxyPort(String? proxyServer) {
+  final normalized = proxyServer?.trim();
+  if (normalized == null || normalized.isEmpty) {
+    return null;
+  }
+  final firstEntry = normalized.split(';').first.trim();
+  final endpoint = firstEntry.contains('=')
+      ? firstEntry.substring(firstEntry.indexOf('=') + 1).trim()
+      : firstEntry;
+  final parsed = Uri.tryParse(
+    endpoint.contains('://') ? endpoint : 'http://$endpoint',
+  );
+  final host = parsed?.host.toLowerCase();
+  if (parsed == null ||
+      !parsed.hasPort ||
+      (host != '127.0.0.1' && host != 'localhost')) {
+    return null;
+  }
+  return parsed.port;
 }
 
 class _PrivilegedHelperSingboxRuntimeService extends SingboxRuntimeService {
@@ -1023,6 +1054,7 @@ class _PrivilegedHelperSingboxRuntimeService extends SingboxRuntimeService {
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
+    RuntimeExitCallback? onExit,
   }) async {
     final snapshot = await _helperClient.startRuntime(
       profileId: profileId,
@@ -1122,6 +1154,7 @@ class _AdaptiveSingboxRuntimeService extends SingboxRuntimeService {
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
+    RuntimeExitCallback? onExit,
   }) {
     return _serializeLifecycle(
       () => _startAdaptive(
@@ -1132,6 +1165,7 @@ class _AdaptiveSingboxRuntimeService extends SingboxRuntimeService {
         urlTestUrl: urlTestUrl,
         mode: mode,
         selectedServerTag: selectedServerTag,
+        onExit: onExit,
       ),
     );
   }
@@ -1144,6 +1178,7 @@ class _AdaptiveSingboxRuntimeService extends SingboxRuntimeService {
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
+    RuntimeExitCallback? onExit,
   }) async {
     final nextService = await _resolveServiceForStart(mode);
     final previousService = _activeService;
@@ -1162,6 +1197,7 @@ class _AdaptiveSingboxRuntimeService extends SingboxRuntimeService {
         urlTestUrl: urlTestUrl,
         mode: mode,
         selectedServerTag: selectedServerTag,
+        onExit: onExit,
       );
       _activeService = nextService;
       _rememberLogs(nextService);

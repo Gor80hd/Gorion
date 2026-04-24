@@ -8,6 +8,7 @@ class ConnectionTuningSettings {
     this.forceXudpPacketEncoding = false,
     this.enableMultiplex = false,
     this.enableTlsRecordFragment = false,
+    this.bypassSteamForSystemProxy = true,
     this.splitTunnel = const SplitTunnelSettings(),
   });
 
@@ -17,6 +18,7 @@ class ConnectionTuningSettings {
   final bool forceXudpPacketEncoding;
   final bool enableMultiplex;
   final bool enableTlsRecordFragment;
+  final bool bypassSteamForSystemProxy;
   final SplitTunnelSettings splitTunnel;
 
   String get normalizedSniDonor => sniDonor.trim();
@@ -38,6 +40,7 @@ class ConnectionTuningSettings {
     bool? forceXudpPacketEncoding,
     bool? enableMultiplex,
     bool? enableTlsRecordFragment,
+    bool? bypassSteamForSystemProxy,
     SplitTunnelSettings? splitTunnel,
   }) {
     return ConnectionTuningSettings(
@@ -49,6 +52,8 @@ class ConnectionTuningSettings {
       enableMultiplex: enableMultiplex ?? this.enableMultiplex,
       enableTlsRecordFragment:
           enableTlsRecordFragment ?? this.enableTlsRecordFragment,
+      bypassSteamForSystemProxy:
+          bypassSteamForSystemProxy ?? this.bypassSteamForSystemProxy,
       splitTunnel: splitTunnel ?? this.splitTunnel,
     );
   }
@@ -61,6 +66,7 @@ class ConnectionTuningSettings {
       'forceXudpPacketEncoding': forceXudpPacketEncoding,
       'enableMultiplex': enableMultiplex,
       'enableTlsRecordFragment': enableTlsRecordFragment,
+      'bypassSteamForSystemProxy': bypassSteamForSystemProxy,
       'splitTunnel': splitTunnel.toJson(),
     };
   }
@@ -76,6 +82,8 @@ class ConnectionTuningSettings {
       enableMultiplex: json['enableMultiplex'] as bool? ?? false,
       enableTlsRecordFragment:
           json['enableTlsRecordFragment'] as bool? ?? false,
+      bypassSteamForSystemProxy:
+          json['bypassSteamForSystemProxy'] as bool? ?? true,
       splitTunnel: rawSplitTunnel is Map<String, dynamic>
           ? SplitTunnelSettings.fromJson(rawSplitTunnel)
           : rawSplitTunnel is Map
@@ -95,6 +103,7 @@ class ConnectionTuningSettings {
         other.forceXudpPacketEncoding == forceXudpPacketEncoding &&
         other.enableMultiplex == enableMultiplex &&
         other.enableTlsRecordFragment == enableTlsRecordFragment &&
+        other.bypassSteamForSystemProxy == bypassSteamForSystemProxy &&
         other.splitTunnel == splitTunnel;
   }
 
@@ -106,6 +115,7 @@ class ConnectionTuningSettings {
     forceXudpPacketEncoding,
     enableMultiplex,
     enableTlsRecordFragment,
+    bypassSteamForSystemProxy,
     splitTunnel,
   );
 }

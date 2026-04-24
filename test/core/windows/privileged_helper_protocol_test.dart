@@ -27,6 +27,28 @@ void main() {
   });
 
   test(
+    'PrivilegedHelperConnectionInfo can persist state without auth token',
+    () {
+      const info = PrivilegedHelperConnectionInfo(
+        token: 'secret-token',
+        pid: 4242,
+        launchId: 'launch-123',
+      );
+
+      final json = info.toJson(includeToken: false);
+
+      expect(json, isNot(contains('token')));
+      expect(
+        PrivilegedHelperConnectionInfo.fromJson(json),
+        isA<PrivilegedHelperConnectionInfo>()
+            .having((value) => value.token, 'token', isNull)
+            .having((value) => value.pid, 'pid', 4242)
+            .having((value) => value.launchId, 'launchId', 'launch-123'),
+      );
+    },
+  );
+
+  test(
     'PrivilegedHelperBootstrapRequest round-trips launch bootstrap data',
     () {
       final request = PrivilegedHelperBootstrapRequest(

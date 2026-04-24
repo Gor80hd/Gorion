@@ -80,6 +80,7 @@ class ZapretConfigGenerator {
       expandedCommand: expandedCommand,
       installDirectory: installDirectory,
       profileName: selectedProfile.fileName,
+      ipSetFilterMode: settings.ipSetFilterMode,
     );
     final requiredFiles = <String>{
       ..._collectRequiredFiles(
@@ -341,25 +342,39 @@ class ZapretConfigGenerator {
     required String expandedCommand,
     required String installDirectory,
     required String profileName,
+    required ZapretIpSetFilterMode ipSetFilterMode,
   }) {
     final normalizedCommand = expandedCommand.trimLeft().toLowerCase();
     if (normalizedCommand.startsWith('start ')) {
       final parsedLaunch = _parseLaunchCommand(expandedCommand);
-      final preferredExecutablePath =
-          resolveExecutablePath(installDirectory) ?? parsedLaunch.executablePath;
+      final executablePath = resolveExecutablePath(installDirectory);
+      if (executablePath == null || executablePath.trim().isEmpty) {
+        throw FormatException(
+          'В каталоге zapret не найден winws.exe/winws2.exe для конфига $profileName.',
+        );
+      }
       if (_shouldTranslateLegacyProfile(
-        executablePath: preferredExecutablePath,
+        executablePath: executablePath,
         arguments: parsedLaunch.arguments,
       )) {
         return _ParsedLaunchCommand(
-          executablePath: preferredExecutablePath,
-          arguments: _translateLegacyArgumentsToWinws2(
-            legacyArguments: parsedLaunch.arguments,
-            installDirectory: installDirectory,
+          executablePath: executablePath,
+          arguments: _applyIpSetFilterMode(
+            _translateLegacyArgumentsToWinws2(
+              legacyArguments: parsedLaunch.arguments,
+              installDirectory: installDirectory,
+            ),
+            mode: ipSetFilterMode,
           ),
         );
       }
-      return parsedLaunch;
+      return _ParsedLaunchCommand(
+        executablePath: executablePath,
+        arguments: _applyIpSetFilterMode(
+          parsedLaunch.arguments,
+          mode: ipSetFilterMode,
+        ),
+      );
     }
 
     final executablePath = resolveExecutablePath(installDirectory);
@@ -376,10 +391,11 @@ class ZapretConfigGenerator {
       );
     }
 
-    final arguments = _shouldTranslateLegacyProfile(
-      executablePath: executablePath,
-      arguments: rawArguments,
-    )
+    final arguments =
+        _shouldTranslateLegacyProfile(
+          executablePath: executablePath,
+          arguments: rawArguments,
+        )
         ? _translateLegacyArgumentsToWinws2(
             legacyArguments: rawArguments,
             installDirectory: installDirectory,
@@ -388,8 +404,34 @@ class ZapretConfigGenerator {
 
     return _ParsedLaunchCommand(
       executablePath: executablePath,
-      arguments: arguments,
+      arguments: _applyIpSetFilterMode(arguments, mode: ipSetFilterMode),
     );
+  }
+
+  List<String> _applyIpSetFilterMode(
+    List<String> arguments, {
+    required ZapretIpSetFilterMode mode,
+  }) {
+    if (mode != ZapretIpSetFilterMode.none) {
+      return arguments;
+    }
+
+    return List.unmodifiable([
+      for (final argument in arguments)
+        if (_isIpSetAllArgument(argument))
+          '--ipset-ip=203.0.113.113/32'
+        else
+          argument,
+    ]);
+  }
+
+  bool _isIpSetAllArgument(String argument) {
+    final normalized = argument.trim().replaceAll('"', '').toLowerCase();
+    if (!normalized.startsWith('--ipset=')) {
+      return false;
+    }
+
+    return normalized.endsWith('ipset-all.txt');
   }
 
   List<String> _collectRequiredFiles({
@@ -720,7 +762,9 @@ class ZapretConfigGenerator {
       );
     }
 
-    final followUpStrategies = strategies.where((strategy) => strategy != 'fake');
+    final followUpStrategies = strategies.where(
+      (strategy) => strategy != 'fake',
+    );
     for (final strategy in followUpStrategies) {
       final translatedStrategy = _translateLegacyStrategy(
         legacyStrategy: strategy,
@@ -799,7 +843,11 @@ class ZapretConfigGenerator {
     final calls = <String>[];
     final commonArgs = _buildLegacyCommonDesyncArgs(block);
 
-    void addFakeCall(String payloadFilter, String blobValue, {bool useTlsMod = false}) {
+    void addFakeCall(
+      String payloadFilter,
+      String blobValue, {
+      bool useTlsMod = false,
+    }) {
       final desyncArgs = <String>[
         'fake',
         'blob=${blobRegistry.register(blobValue)}',
@@ -973,7 +1021,9 @@ class ZapretConfigGenerator {
       arguments.add('ip_id=$ipId');
     }
 
-    arguments.addAll(_translateLegacyFooling(block.firstValue('dpi-desync-fooling')));
+    arguments.addAll(
+      _translateLegacyFooling(block.firstValue('dpi-desync-fooling')),
+    );
 
     final autoTtl = block.firstValue('dpi-desync-autottl');
     if (autoTtl != null && autoTtl.isNotEmpty) {
@@ -1110,7 +1160,7 @@ class _TranslatedLegacyStrategy {
 
 class _BlobRegistry {
   _BlobRegistry({required String installDirectory})
-      : fakeDirectory = Directory(p.join(installDirectory, 'files', 'fake'));
+    : fakeDirectory = Directory(p.join(installDirectory, 'files', 'fake'));
 
   final Directory fakeDirectory;
   final Map<String, String> _sourceToName = <String, String>{};

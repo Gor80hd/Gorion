@@ -204,6 +204,7 @@ class _FakeAdaptiveSingboxRuntimeService extends SingboxRuntimeService {
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
+    RuntimeExitCallback? onExit,
   }) async {
     startCalls += 1;
     await beforeStart?.call();

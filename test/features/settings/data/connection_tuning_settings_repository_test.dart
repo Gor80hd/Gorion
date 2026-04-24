@@ -34,6 +34,7 @@ void main() {
         forceXudpPacketEncoding: true,
         enableMultiplex: true,
         enableTlsRecordFragment: true,
+        bypassSteamForSystemProxy: true,
         splitTunnel: SplitTunnelSettings(
           enabled: true,
           direct: SplitTunnelRuleGroup(
@@ -68,4 +69,14 @@ void main() {
       expect(restartedLoaded, savedSettings);
     },
   );
+
+  test('defaults Steam system proxy bypass to enabled', () {
+    expect(const ConnectionTuningSettings().bypassSteamForSystemProxy, isTrue);
+    expect(
+      ConnectionTuningSettings.fromJson(
+        const <String, dynamic>{},
+      ).bypassSteamForSystemProxy,
+      isTrue,
+    );
+  });
 }

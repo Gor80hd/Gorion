@@ -129,10 +129,6 @@ HttpClient _buildHttpClient({required _IpLookupMode mode, int? proxyPort}) {
       };
     };
 
-  if (mode == _IpLookupMode.proxy) {
-    client.badCertificateCallback = (certificate, host, port) => true;
-  }
-
   return client;
 }
 

@@ -92,7 +92,7 @@ void main() {
         expect(find.text('Gorion Boost'), findsOneWidget);
         expect(find.text('Подключение Boost'), findsOneWidget);
         expect(find.text('Выбранный конфиг'), findsOneWidget);
-        expect(find.text('GameFilter'), findsOneWidget);
+        expect(find.text('GameFilter'), findsNothing);
         expect(find.text('Подобрать рекомендуемый'), findsOneWidget);
         expect(find.byTooltip('Обновить конфиги'), findsOneWidget);
         expect(find.byTooltip('Открыть папку конфигов'), findsOneWidget);
@@ -114,7 +114,7 @@ void main() {
     },
   );
 
-  testWidgets('zapret page shows Off block labels for disabled blocks', (
+  testWidgets('zapret page keeps config controls when GameFilter is disabled', (
     WidgetTester tester,
   ) async {
     final zapretController = ZapretController(
@@ -162,7 +162,7 @@ void main() {
     expect(find.text('Gorion Boost'), findsOneWidget);
     expect(find.text('Выбранный конфиг'), findsOneWidget);
     expect(find.text('general'), findsWidgets);
-    expect(find.text('Отключён'), findsWidgets);
+    expect(find.text('GameFilter'), findsNothing);
   });
 
   testWidgets(

@@ -110,8 +110,8 @@ String buildManagedWindowsWinHttpProxyServer(int mixedPort) {
   return buildManagedWindowsSystemProxyServer(mixedPort);
 }
 
-String buildManagedWindowsWinHttpBypassList() {
-  return buildManagedWindowsSystemProxyOverride();
+String buildManagedWindowsWinHttpBypassList({bool bypassSteam = false}) {
+  return buildManagedWindowsSystemProxyOverride(bypassSteam: bypassSteam);
 }
 
 class WindowsWinHttpProxyService {

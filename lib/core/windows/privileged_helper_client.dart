@@ -124,15 +124,29 @@ class WindowsPrivilegedHelperClient {
     return PrivilegedHelperZapretSnapshot.fromJson(response);
   }
 
-  Future<WindowsWinHttpProxySettings> readWinHttpProxySettings() async {
-    final response = await _request('GET', '/windows/winhttp-proxy');
-    return WindowsWinHttpProxySettings.fromJson(response);
+  Future<WindowsWinHttpProxySettings> enableManagedWinHttpProxy({
+    required int mixedPort,
+    bool bypassSteam = false,
+  }) async {
+    final response = await _request(
+      'POST',
+      '/windows/winhttp-proxy/managed-enable',
+      body: {'mixedPort': mixedPort, 'bypassSteam': bypassSteam},
+    );
+    return WindowsWinHttpProxySettings.fromJson(
+      asJsonMap(response['managedSettings']) ?? const <String, dynamic>{},
+    );
   }
 
-  Future<void> applyWinHttpProxySettings(
-    WindowsWinHttpProxySettings settings,
-  ) async {
-    await _request('POST', '/windows/winhttp-proxy', body: settings.toJson());
+  Future<void> restoreManagedWinHttpProxy({
+    required int mixedPort,
+    bool bypassSteam = false,
+  }) async {
+    await _request(
+      'POST',
+      '/windows/winhttp-proxy/managed-restore',
+      body: {'mixedPort': mixedPort, 'bypassSteam': bypassSteam},
+    );
   }
 
   Future<void> ensureAvailable() {
@@ -181,10 +195,6 @@ class WindowsPrivilegedHelperClient {
           )) {
         return;
       }
-      if (await _tryReusePersistedSession()) {
-        return;
-      }
-
       await _stopHelperTaskIfRunning();
       await _deletePersistedConnectionInfo();
       final bootstrap = await _writeBootstrapRequest();
@@ -370,29 +380,7 @@ class WindowsPrivilegedHelperClient {
         )) {
       return true;
     }
-    return _tryReusePersistedSession();
-  }
-
-  Future<bool> _tryReusePersistedSession() async {
-    final info = await _tryLoadConnectionInfo();
-    final token = info?.token;
-    final launchId = info?.launchId;
-    if (token == null ||
-        token.trim().isEmpty ||
-        launchId == null ||
-        launchId.trim().isEmpty) {
-      return false;
-    }
-    if (!await _isHealthy(
-      token: token,
-      expectedLaunchId: launchId,
-      requireAuthenticated: true,
-    )) {
-      return false;
-    }
-    _cachedToken = token;
-    _cachedLaunchId = launchId;
-    return true;
+    return false;
   }
 
   Future<PrivilegedHelperConnectionInfo> _loadConnectionInfo({

@@ -50,16 +50,24 @@ Current WinHTTP proxy settings:
     expect(buildManagedWindowsWinHttpProxyServer(7038), '127.0.0.1:7038');
   });
 
+  test('managed WinHTTP proxy bypass can include Steam', () {
+    final bypassList = buildManagedWindowsWinHttpBypassList(bypassSteam: true);
+
+    expect(bypassList, contains('*.steampowered.com'));
+    expect(bypassList, contains('steamcommunity.com'));
+    expect(bypassList, endsWith('valvesoftware.com'));
+  });
+
   test(
     'WinHTTP managed proxy detection accepts equivalent per-protocol loopback endpoints',
     () {
       final current = WindowsWinHttpProxySettings(
         proxyServer: 'http=localhost:7038;https=127.0.0.1:7038',
-        bypassList: 'localhost;127.*;<local>',
+        bypassList: buildManagedWindowsWinHttpBypassList(),
       );
       final managed = WindowsWinHttpProxySettings(
         proxyServer: '127.0.0.1:7038',
-        bypassList: 'localhost;127.*;<local>',
+        bypassList: buildManagedWindowsWinHttpBypassList(),
       );
 
       expect(current.isManagedBy(managed), isTrue);
@@ -69,24 +77,27 @@ Current WinHTTP proxy settings:
   test('WinHTTP managed proxy detection rejects a different bypass list', () {
     final current = WindowsWinHttpProxySettings(
       proxyServer: 'http=localhost:7038;https=127.0.0.1:7038',
-      bypassList: 'localhost;127.*;<local>;intranet.local',
+      bypassList: '${buildManagedWindowsWinHttpBypassList()};intranet.local',
     );
     final managed = WindowsWinHttpProxySettings(
       proxyServer: '127.0.0.1:7038',
-      bypassList: 'localhost;127.*;<local>',
+      bypassList: buildManagedWindowsWinHttpBypassList(),
     );
 
     expect(current.isManagedBy(managed), isFalse);
   });
 
   test('WinHTTP managed proxy detection accepts reordered bypass entries', () {
+    final reorderedBypassList = [
+      ...buildManagedWindowsWinHttpBypassList().split(';').reversed,
+    ].join(';').replaceFirst('localhost', 'LOCALHOST');
     final current = WindowsWinHttpProxySettings(
       proxyServer: 'http=localhost:7038;https=127.0.0.1:7038',
-      bypassList: '127.*;<local>;LOCALHOST',
+      bypassList: reorderedBypassList,
     );
     final managed = WindowsWinHttpProxySettings(
       proxyServer: '127.0.0.1:7038',
-      bypassList: 'localhost;127.*;<local>',
+      bypassList: buildManagedWindowsWinHttpBypassList(),
     );
 
     expect(current.isManagedBy(managed), isTrue);

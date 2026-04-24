@@ -325,6 +325,52 @@ void main() {
     );
 
     test(
+      'manual server selection is persisted only after runtime switch succeeds',
+      () async {
+        final repository = _FakeProfileRepository(
+          initialStorage: _manualStorage,
+        );
+        final controller = DashboardController(
+          repository: repository,
+          runtimeService: _FakeRuntimeService(),
+          autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
+          autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+          autoSelectorService: _ScriptedAutoSelectorService(),
+          clashApiClientFactory: (_) => _FakeClashApiClient(
+            snapshot: const ClashApiSnapshot(
+              selectedTag: 'server-a',
+              delayByTag: {'server-a': 50},
+            ),
+            delays: const {'server-a': 50},
+            selectProxyError: StateError('switch failed'),
+          ),
+          initialState: DashboardState(
+            bootstrapping: false,
+            runtimeMode: RuntimeMode.mixed,
+            autoSelectSettings: const AutoSelectSettings(enabled: false),
+            storage: _manualStorage,
+            connectionStage: ConnectionStage.connected,
+            runtimeSession: _session,
+            selectedServerTag: 'server-a',
+            activeServerTag: 'server-a',
+          ),
+          loadOnInit: false,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.selectServer('server-b');
+
+        expect(
+          repository.currentStorage.activeProfile?.selectedServerTag,
+          'server-a',
+        );
+        expect(controller.state.selectedServerTag, 'server-a');
+        expect(controller.state.activeServerTag, 'server-a');
+        expect(controller.state.errorMessage, contains('switch failed'));
+      },
+    );
+
+    test(
       'changing the best-server interval re-arms the next automatic pass',
       () async {
         final timerFactory = _ControlledTimerFactory();
@@ -412,6 +458,56 @@ void main() {
 
       expect(runtimeService.stopForAppExitCallCount, 1);
       expect(runtimeService.stopCallCount, 0);
+    });
+
+    test('unexpected runtime exit clears connected state', () async {
+      final runtimeService = _FakeRuntimeService();
+      final controller = DashboardController(
+        repository: _FakeProfileRepository(initialStorage: _manualStorage),
+        runtimeService: runtimeService,
+        autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
+        autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+        autoSelectorService: _ScriptedAutoSelectorService(
+          verifyResponses: [
+            Future<AutoSelectProbeResult>.value(
+              const AutoSelectProbeResult(
+                serverTag: 'server-a',
+                urlTestDelay: 64,
+                domainProbeOk: true,
+                ipProbeOk: true,
+                throughputBytesPerSecond: 64 * 1024,
+              ),
+            ),
+          ],
+        ),
+        clashApiClientFactory: (_) => _FakeClashApiClient(
+          snapshot: const ClashApiSnapshot(
+            selectedTag: 'server-a',
+            delayByTag: {'server-a': 64},
+          ),
+          delays: const {'server-a': 64},
+        ),
+        initialState: DashboardState(
+          bootstrapping: false,
+          runtimeMode: RuntimeMode.mixed,
+          autoSelectSettings: const AutoSelectSettings(enabled: false),
+          storage: _manualStorage,
+          selectedServerTag: 'server-a',
+          activeServerTag: 'server-a',
+        ),
+        loadOnInit: false,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.connect();
+      expect(controller.state.connectionStage, ConnectionStage.connected);
+
+      runtimeService.simulateExit(42);
+
+      expect(controller.state.connectionStage, ConnectionStage.failed);
+      expect(controller.state.runtimeSession, isNull);
+      expect(controller.state.connectedAt, isNull);
+      expect(controller.state.errorMessage, contains('42'));
     });
 
     test(
@@ -1921,6 +2017,8 @@ class _FakeProfileRepository extends ProfileRepository {
   StoredProfilesState _storage;
   final String templateConfig;
 
+  StoredProfilesState get currentStorage => _storage;
+
   @override
   Future<StoredProfilesState> loadState() async => _storage;
 
@@ -2059,6 +2157,8 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   int stopForAppExitCallCount = 0;
   final List<String?> selectedServerTags = <String?>[];
   final List<String> templateConfigs = <String>[];
+  RuntimeSession? _activeSession;
+  RuntimeExitCallback? _onExit;
 
   String? get lastStartedSelectedServerTag =>
       selectedServerTags.isEmpty ? null : selectedServerTags.last;
@@ -2070,6 +2170,9 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   List<String> get logs => const <String>[];
 
   @override
+  RuntimeSession? get session => _activeSession;
+
+  @override
   Future<RuntimeSession> start({
     required String profileId,
     required String templateConfig,
@@ -2079,21 +2182,35 @@ class _FakeRuntimeService extends SingboxRuntimeService {
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
+    RuntimeExitCallback? onExit,
   }) async {
     startCallCount += 1;
     selectedServerTags.add(selectedServerTag);
     templateConfigs.add(templateConfig);
+    _activeSession = _startSession;
+    _onExit = onExit;
     return _startSession;
   }
 
   @override
   Future<void> stop() async {
     stopCallCount += 1;
+    _activeSession = null;
   }
 
   @override
   Future<void> stopForAppExit() async {
     stopForAppExitCallCount += 1;
+    _activeSession = null;
+  }
+
+  void simulateExit(int exitCode) {
+    final session = _activeSession;
+    if (session == null) {
+      return;
+    }
+    _activeSession = null;
+    _onExit?.call(session, exitCode);
   }
 }
 
@@ -2217,11 +2334,28 @@ class _FakeAutoSelectPreconnectService extends AutoSelectPreconnectService {
 }
 
 class _FakeClashApiClient extends ClashApiClient {
-  _FakeClashApiClient({required this.snapshot, required this.delays})
-    : super(baseUrl: 'http://127.0.0.1:9090', secret: 'secret');
+  _FakeClashApiClient({
+    required this.snapshot,
+    required this.delays,
+    this.selectProxyError,
+  }) : super(baseUrl: 'http://127.0.0.1:9090', secret: 'secret');
 
   final ClashApiSnapshot snapshot;
   final Map<String, int> delays;
+  final Object? selectProxyError;
+  final List<String> selectedProxyTags = <String>[];
+
+  @override
+  Future<void> selectProxy({
+    required String selectorTag,
+    required String serverTag,
+  }) async {
+    final error = selectProxyError;
+    if (error != null) {
+      throw error;
+    }
+    selectedProxyTags.add('$selectorTag::$serverTag');
+  }
 
   @override
   Future<ClashApiSnapshot> fetchSnapshot({required String selectorTag}) async {

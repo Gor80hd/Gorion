@@ -13,9 +13,26 @@ void main() {
     expect(override, contains('172.16.*;172.17.*;172.18.*'));
     expect(override, contains('172.29.*;172.30.*;172.31.*'));
     expect(override, endsWith('192.168.*'));
+    expect(override, isNot(contains('steampowered.com')));
     expect(
       override.split(';'),
       orderedEquals(managedWindowsSystemProxyOverrideEntries),
+    );
+  });
+
+  test('managed Windows system proxy override can bypass Steam', () {
+    final override = buildManagedWindowsSystemProxyOverride(bypassSteam: true);
+
+    expect(override, contains('192.168.*;*.steampowered.com'));
+    expect(override, contains('*.steamcommunity.com'));
+    expect(override, contains('steamcontent.com'));
+    expect(override, endsWith('valvesoftware.com'));
+    expect(
+      override.split(';'),
+      orderedEquals([
+        ...managedWindowsSystemProxyOverrideEntries,
+        ...managedWindowsSteamProxyOverrideEntries,
+      ]),
     );
   });
 
@@ -58,16 +75,13 @@ void main() {
     },
   );
 
-  test(
-    'windowsProxyBypassListsMatch rejects a missing bypass entry',
-    () {
-      expect(
-        windowsProxyBypassListsMatch(
-          currentBypassList: 'localhost;127.*',
-          managedBypassList: '<local>;localhost;127.*',
-        ),
-        isFalse,
-      );
-    },
-  );
+  test('windowsProxyBypassListsMatch rejects a missing bypass entry', () {
+    expect(
+      windowsProxyBypassListsMatch(
+        currentBypassList: 'localhost;127.*',
+        managedBypassList: '<local>;localhost;127.*',
+      ),
+      isFalse,
+    );
+  });
 }

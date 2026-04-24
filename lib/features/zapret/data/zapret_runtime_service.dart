@@ -48,17 +48,20 @@ class ZapretRuntimeService {
     ZapretConfigGenerator? generator,
     WindowsRuntimeCleanupWatchdog? windowsRuntimeCleanupWatchdog,
     Future<RunningProcessLookup> Function(int pid)? runningProcessLookupReader,
+    bool forceBundledInstallDirectory = false,
   }) : _generator = generator ?? const ZapretConfigGenerator(),
        _windowsRuntimeCleanupWatchdog =
            windowsRuntimeCleanupWatchdog ??
            const WindowsRuntimeCleanupWatchdog(),
        _runningProcessLookupReader =
-           runningProcessLookupReader ?? _lookupRunningProcess;
+           runningProcessLookupReader ?? _lookupRunningProcess,
+       _forceBundledInstallDirectory = forceBundledInstallDirectory;
 
   final ZapretConfigGenerator _generator;
   final WindowsRuntimeCleanupWatchdog _windowsRuntimeCleanupWatchdog;
   final Future<RunningProcessLookup> Function(int pid)
   _runningProcessLookupReader;
+  final bool _forceBundledInstallDirectory;
   Process? _process;
   ZapretRuntimeSession? _session;
   final List<String> _logs = <String>[];
@@ -103,7 +106,7 @@ class ZapretRuntimeService {
       return settings;
     }
 
-    if (settings.hasInstallDirectory) {
+    if (settings.hasInstallDirectory && !_forceBundledInstallDirectory) {
       await ensureBundledSupportLayout(settings.normalizedInstallDirectory);
       await ensureBundledProfileConfigs(settings.normalizedInstallDirectory);
       return settings;
@@ -113,9 +116,15 @@ class ZapretRuntimeService {
     await ensureBundledSupportLayout(bundleDir.path);
     await ensureBundledProfileConfigs(bundleDir.path);
     if (_generator.listAvailableProfiles(bundleDir.path).isEmpty) {
-      return settings;
+      return settings.copyWith(installDirectory: bundleDir.path);
     }
-    return settings.copyWith(installDirectory: bundleDir.path);
+    return settings.copyWith(
+      installDirectory: bundleDir.path,
+      configFileName: _generator.resolveSelectedConfigFileName(
+        bundleDir.path,
+        settings.effectiveConfigFileName,
+      ),
+    );
   }
 
   Future<ZapretRuntimeSession> start({

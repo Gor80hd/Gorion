@@ -37,8 +37,30 @@ const managedWindowsSystemProxyOverrideEntries = <String>[
   '192.168.*',
 ];
 
-String buildManagedWindowsSystemProxyOverride() {
-  return managedWindowsSystemProxyOverrideEntries.join(';');
+const managedWindowsSteamProxyOverrideEntries = <String>[
+  '*.steampowered.com',
+  '*.steamcommunity.com',
+  '*.steamstatic.com',
+  '*.steamcontent.com',
+  '*.steamserver.net',
+  '*.steamgames.com',
+  '*.steamusercontent.com',
+  '*.valvesoftware.com',
+  'steampowered.com',
+  'steamcommunity.com',
+  'steamstatic.com',
+  'steamcontent.com',
+  'steamserver.net',
+  'steamgames.com',
+  'steamusercontent.com',
+  'valvesoftware.com',
+];
+
+String buildManagedWindowsSystemProxyOverride({bool bypassSteam = false}) {
+  return [
+    ...managedWindowsSystemProxyOverrideEntries,
+    if (bypassSteam) ...managedWindowsSteamProxyOverrideEntries,
+  ].join(';');
 }
 
 bool windowsProxyBypassListsMatch({
@@ -203,6 +225,7 @@ class SystemProxyService {
     required RuntimeMode mode,
     required Directory runtimeDir,
     required int mixedPort,
+    bool bypassSteam = false,
     required ProxyLogSink onLog,
   }) async {
     if (!mode.usesSystemProxy) {
@@ -218,7 +241,9 @@ class SystemProxyService {
     final managed = previous.copyWith(
       proxyEnable: 1,
       proxyServer: buildManagedWindowsSystemProxyServer(mixedPort),
-      proxyOverride: buildManagedWindowsSystemProxyOverride(),
+      proxyOverride: buildManagedWindowsSystemProxyOverride(
+        bypassSteam: bypassSteam,
+      ),
       autoConfigUrl: null,
     );
     final lease = SystemProxyLease._(

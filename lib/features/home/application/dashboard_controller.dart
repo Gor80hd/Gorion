@@ -1043,6 +1043,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         ),
         mode: selectedMode,
         selectedServerTag: startupServerTag,
+        onExit: _handleRuntimeExit,
       );
       _throwIfConnectOperationCancelled(connectOperationId);
       await _waitForSystemProxyStartupSettle(mode: selectedMode);
@@ -1246,6 +1247,36 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
+  void _handleRuntimeExit(RuntimeSession session, int exitCode) {
+    if (!identical(state.runtimeSession, session)) {
+      return;
+    }
+
+    _stopAutoSelectionMonitoring();
+    _autoSelectorService.resetProfileState(session.profileId);
+    final exitedCleanly = exitCode == 0;
+    state = state.copyWith(
+      busy: false,
+      connectionStage: exitedCleanly
+          ? ConnectionStage.disconnected
+          : ConnectionStage.failed,
+      clearRuntimeSession: true,
+      clearConnectedAt: true,
+      delayByTag: const {},
+      activeServerTag: state.activeProfile?.startupServerTag,
+      autoSelectResults: const [],
+      clearAutoSelectActivity: true,
+      clearLastBestServerCheckAt: true,
+      statusMessage: exitedCleanly ? _disconnectedStatus(session) : null,
+      clearStatusMessage: !exitedCleanly,
+      errorMessage: exitedCleanly
+          ? null
+          : 'Локальный runtime sing-box неожиданно завершился с кодом $exitCode.',
+      clearErrorMessage: exitedCleanly,
+      logs: _runtimeService.logs,
+    );
+  }
+
   Future<void> selectServer(String serverTag) async {
     final profile = state.activeProfile;
     if (profile == null) {
@@ -1292,14 +1323,10 @@ class DashboardController extends StateNotifier<DashboardState> {
       }
 
       _stopAutoSelectionMonitoring();
-      StoredProfilesState storage = await _repository.updateSelectedServer(
-        profile.id,
-        serverTag,
-      );
       if (state.connectionStage == ConnectionStage.connected &&
           state.runtimeSession != null) {
         final session = state.runtimeSession!;
-        final client = ClashApiClient.fromSession(session);
+        final client = _createClashApiClient(session);
         await client.selectProxy(
           selectorTag: session.manualSelectorTag,
           serverTag: serverTag,
@@ -1308,18 +1335,17 @@ class DashboardController extends StateNotifier<DashboardState> {
           selectorTag: session.manualSelectorTag,
         );
         final delays = await _safeLoadDelays(client, session);
-        if (snapshot.selectedTag != null) {
-          storage = await _repository.updateSelectedServer(
-            profile.id,
-            snapshot.selectedTag!,
-          );
-        }
+        final persistedServerTag = snapshot.selectedTag ?? serverTag;
+        final storage = await _repository.updateSelectedServer(
+          profile.id,
+          persistedServerTag,
+        );
         state = state.copyWith(
           busy: false,
           storage: storage,
           selectedServerTag:
-              storage.activeProfile?.selectedServerTag ?? serverTag,
-          activeServerTag: snapshot.selectedTag ?? serverTag,
+              storage.activeProfile?.selectedServerTag ?? persistedServerTag,
+          activeServerTag: persistedServerTag,
           delayByTag: delays,
           autoSelectResults: const [],
           clearAutoSelectActivity: true,
@@ -1330,6 +1356,10 @@ class DashboardController extends StateNotifier<DashboardState> {
         return;
       }
 
+      final storage = await _repository.updateSelectedServer(
+        profile.id,
+        serverTag,
+      );
       state = state.copyWith(
         busy: false,
         storage: storage,

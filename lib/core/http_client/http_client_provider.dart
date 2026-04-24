@@ -53,7 +53,6 @@ class DioHttpClient {
           final client = HttpClient();
           final port = _proxyPort;
           client.findProxy = (_) => 'PROXY 127.0.0.1:$port';
-          client.badCertificateCallback = (certificate, host, port) => true;
           return client;
         },
       );

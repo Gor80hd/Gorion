@@ -216,41 +216,6 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
           final stacked = constraints.maxWidth < 820;
           final actionGap = layout.compact ? 6.0 : 8.0;
 
-          final gameFilterBlock = _ControlBlock(
-            title: 'GameFilter',
-            accentColor: const Color(0xFF72A8FF),
-            trailing: _MetaPill(
-              label: state.settings.gameFilterMode.label,
-              color: state.settings.gameFilterEnabled
-                  ? const Color(0xFF72A8FF)
-                  : theme.gorionTokens.onSurfaceMuted,
-              compact: layout.ultraCompact,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    state.settings.gameFilterEnabled
-                        ? 'Фильтр добавится в команду запуска. Текущий режим: ${state.settings.gameFilterMode.label}.'
-                        : 'Boost запустится без дополнительного фильтра. Включи тумблер, если он нужен.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.gorionTokens.onSurfaceMuted,
-                      fontSize: layout.compact ? 13 : 14,
-                      height: 1.42,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Switch.adaptive(
-                  value: state.settings.gameFilterEnabled,
-                  onChanged: state.busy
-                      ? null
-                      : (value) => controller.setGameFilterEnabled(value),
-                ),
-              ],
-            ),
-          );
-
           final configBlock = _ControlBlock(
             title: 'Выбранный конфиг',
             accentColor: theme.brandAccent,
@@ -382,19 +347,14 @@ class _ZapretPageState extends ConsumerState<ZapretPage>
                 ],
               ),
               const SizedBox(height: 30),
-              if (stacked) ...[
-                configBlock,
-                SizedBox(height: layout.sectionGap),
-                gameFilterBlock,
-              ] else
-                IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(flex: 5, child: gameFilterBlock),
-                      SizedBox(width: layout.sectionGap),
-                      Expanded(flex: 7, child: configBlock),
-                    ],
+              if (stacked)
+                configBlock
+              else
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 640),
+                    child: configBlock,
                   ),
                 ),
             ],
