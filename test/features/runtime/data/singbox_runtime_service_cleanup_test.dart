@@ -23,21 +23,58 @@ void main() {
   });
 
   test(
-    'cleanupOrphanedProcessForTesting recovers legacy sing-box markers using inferred runtime paths',
+    'cleanupOrphanedProcessForTesting kills a real orphaned process and removes the marker',
     () async {
-      final markerFile = File(p.join(runtimeDir.path, 'runtime-process.json'));
-      await markerFile.writeAsString(jsonEncode({'pid': 9999999}), flush: true);
-
       final binaryPath = p.join(
         runtimeDir.path,
         resolveSingboxAsset().fileName,
       );
       final configPath = p.join(runtimeDir.path, 'current-config.json');
+      // `tail -f` stays alive with both paths on its command line, like a
+      // real sing-box invocation; the files must exist for tail to run.
+      await File(binaryPath).create();
+      await File(configPath).create();
+
+      final orphan = await Process.start('tail', [
+        '-f',
+        binaryPath,
+        configPath,
+      ]);
+      // Subscribe early so the VM reaps the child after the kill.
+      final exitFuture = orphan.exitCode;
+      addTearDown(() => orphan.kill(ProcessSignal.sigkill));
+
+      final markerFile = File(p.join(runtimeDir.path, 'runtime-process.json'));
+      await markerFile.writeAsString(
+        jsonEncode({
+          'pid': orphan.pid,
+          'binaryPath': binaryPath,
+          'configPath': configPath,
+        }),
+        flush: true,
+      );
+
+      final service = SingboxRuntimeService();
+      await service.cleanupOrphanedProcessForTesting(runtimeDir);
+
+      expect(await markerFile.exists(), isFalse);
+      await expectLater(
+        exitFuture.timeout(const Duration(seconds: 5)),
+        completes,
+      );
+    },
+    testOn: '!windows',
+  );
+
+  test(
+    'cleanupOrphanedProcessForTesting removes the marker when the orphan is already gone',
+    () async {
+      final markerFile = File(p.join(runtimeDir.path, 'runtime-process.json'));
+      await markerFile.writeAsString(jsonEncode({'pid': 9999998}), flush: true);
+
       final service = SingboxRuntimeService(
-        runningProcessLookupReader: (_) async => RunningProcessLookup.found(
-          executablePath: binaryPath,
-          commandLine: '"$binaryPath" run -c "$configPath"',
-        ),
+        runningProcessLookupReader: (_) async =>
+            const RunningProcessLookup.missing(),
       );
 
       await service.cleanupOrphanedProcessForTesting(runtimeDir);

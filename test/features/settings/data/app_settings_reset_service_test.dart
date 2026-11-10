@@ -13,8 +13,6 @@ import 'package:gorion_clean/features/settings/data/desktop_settings_repository.
 import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
 import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
-import 'package:gorion_clean/features/zapret/model/zapret_settings.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
@@ -41,7 +39,6 @@ void main() {
         await AppThemeSettingsRepository(storageRootLoader: loadTempRoot).save(
           const AppThemeSettings(
             mode: AppThemeModePreference.light,
-            palette: AppThemePalette.rose,
           ),
         );
         await DesktopSettingsRepository(storageRootLoader: loadTempRoot).save(
@@ -64,12 +61,6 @@ void main() {
           const AutoSelectSettings(
             enabled: false,
             excludedServerKeys: ['profile-a:server-b'],
-          ),
-        );
-        await ZapretSettingsRepository(storageRootLoader: loadTempRoot).save(
-          const ZapretSettings(
-            installDirectory: 'C:\\zapret',
-            startOnAppLaunch: true,
           ),
         );
         await ServerSortModeSettingsRepository(

@@ -3,13 +3,13 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/app/theme_preferences.dart';
 import 'package:gorion_clean/app/theme.dart';
+import 'package:gorion_clean/app/theme_preferences.dart';
 import 'package:gorion_clean/app/theme_settings.dart';
 import 'package:gorion_clean/core/preferences/general_preferences.dart';
-import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
+import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
@@ -20,8 +20,6 @@ import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart'
 import 'package:gorion_clean/features/settings/widget/split_tunnel_section.dart';
 import 'package:gorion_clean/features/update/application/app_update_controller.dart';
 import 'package:gorion_clean/features/update/model/app_update_state.dart';
-import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
-import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key, this.animateOnMount = true});
@@ -30,86 +28,6 @@ class SettingsPage extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<SettingsPage> createState() => _SettingsPageState();
-}
-
-enum _SettingsGroup {
-  appearance(
-    title: 'Тема приложения',
-    description: 'Режим system/light/dark и выбор цветовой гаммы интерфейса.',
-    detailDescription:
-        'Влияет на весь интерфейс приложения и применяется сразу, без отдельного сохранения.',
-    icon: Icons.palette_outlined,
-    accentColor: Color(0xFF57E3D0),
-  ),
-  tls(
-    title: 'TLS маскировка',
-    description:
-        'uTLS fingerprint, SNI donor и record fragment для TLS outbound.',
-    detailDescription:
-        'Параметры маскировки TLS handshake и anti-DPI override поверх активного профиля.',
-    icon: Icons.shield_outlined,
-    accentColor: Color(0xFF6DD3FF),
-  ),
-  vless(
-    title: 'VLESS transport',
-    description: 'Vision flow, xudp и mux для VLESS / Reality серверов.',
-    detailDescription:
-        'Принудительные transport-поля для VLESS outbound, когда нужен совместимый профиль под Reality и Xray.',
-    icon: Icons.hub_outlined,
-    accentColor: Color(0xFFFFC857),
-  ),
-  autoSelect(
-    title: 'Автовыбор сервера',
-    description: 'Интервал фоновой проверки лучшего сервера и замены текущего.',
-    detailDescription:
-        'Фоновая maintenance-проверка current best server. Изменения сохраняются сразу и не требуют переподключения.',
-    icon: Icons.auto_awesome_outlined,
-    accentColor: Color(0xFF8B9CFF),
-  ),
-  splitTunnel(
-    title: 'Split tunneling',
-    description:
-        'Понятные правила direct, block и proxy с пресетами и ручными доменами.',
-    detailDescription:
-        'Управление route.rule_set для bypass, block и принудительного proxy-маршрута без перегруженного low-level UI.',
-    icon: Icons.alt_route_rounded,
-    accentColor: Color(0xFF1EFFAC),
-  ),
-  desktop(
-    title: 'Запуск и трей',
-    description:
-        'Автостарт Gorion и Gorion Boost, скрытый запуск в трей и автоподключение.',
-    detailDescription:
-        'Параметры поведения приложения при логине в Windows и при обычном запуске на рабочем столе, включая автостарт Gorion Boost.',
-    icon: Icons.desktop_windows_outlined,
-    accentColor: Color(0xFF72A8FF),
-  );
-
-  const _SettingsGroup({
-    required this.title,
-    required this.description,
-    required this.detailDescription,
-    required this.icon,
-    required this.accentColor,
-  });
-
-  final String title;
-  final String description;
-  final String detailDescription;
-  final IconData icon;
-  final Color accentColor;
-}
-
-class _SettingsGroupSnapshot {
-  const _SettingsGroupSnapshot({
-    required this.badgeLabel,
-    required this.supportingLabel,
-    required this.hasPendingChanges,
-  });
-
-  final String badgeLabel;
-  final String supportingLabel;
-  final bool hasPendingChanges;
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
@@ -129,7 +47,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Timer? _liveServerPingAutoSaveTimer;
   bool _autoSaveFlushScheduled = false;
   bool _resetInProgress = false;
-  _SettingsGroup? _selectedGroup;
 
   @override
   void initState() {
@@ -153,7 +70,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final dashboardState = ref.watch(dashboardControllerProvider);
     final appThemeSettings = ref.watch(appThemeSettingsProvider);
     final desktopSettingsState = ref.watch(desktopSettingsControllerProvider);
-    final zapretState = ref.watch(zapretControllerProvider);
     final appUpdateState = ref.watch(appUpdateControllerProvider);
     _syncDraft(dashboardState.connectionTuningSettings);
 
@@ -194,82 +110,54 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final isConnected =
         dashboardState.connectionStage == ConnectionStage.connected;
     final pageBusy =
-        dashboardState.busy ||
-        desktopSettingsState.busy ||
-        zapretState.busy ||
-        _resetInProgress;
+        dashboardState.busy || desktopSettingsState.busy || _resetInProgress;
     final canManualSave = !pageBusy && hasFailedSaves;
 
     if (!dashboardState.busy && !_resetInProgress) {
       _scheduleAutoSaveFlush();
     }
 
-    final content = LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 1080;
-
-        final sectionContent = _selectedGroup == null
-            ? _buildOverview(
-                context,
-                dashboardState: dashboardState,
-                appThemeSettings: appThemeSettings,
-                desktopSettingsState: desktopSettingsState,
-                zapretState: zapretState,
-                isWide: isWide,
-                bestServerCheckIntervalMinutes: bestServerCheckIntervalMinutes,
-                liveServerPingIntervalSeconds: liveServerPingIntervalSeconds,
-              )
-            : _buildGroupPage(
-                context,
-                dashboardState: dashboardState,
-                appThemeSettings: appThemeSettings,
-                desktopSettingsState: desktopSettingsState,
-                zapretState: zapretState,
-                bestServerCheckIntervalMinutes: bestServerCheckIntervalMinutes,
-                liveServerPingIntervalSeconds: liveServerPingIntervalSeconds,
-              );
-
-        return SingleChildScrollView(
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _HeroPanel(
-                busy: pageBusy,
-                activeGroup: _selectedGroup,
-                hasPendingChanges: hasPendingChanges,
-                hasFailedSaves: hasFailedSaves,
-                canManualSave: canManualSave,
-                isConnected: isConnected,
-                appUpdateState: appUpdateState,
-                onSave: canManualSave ? _savePendingChanges : null,
-                onCheckUpdates: _checkForUpdatesManually,
-                onBack: _selectedGroup == null ? null : _closeGroup,
-              ),
-              const SizedBox(height: 10),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                layoutBuilder: (currentChild, previousChildren) {
-                  return Stack(
-                    alignment: Alignment.topLeft,
-                    children: [...previousChildren, ?currentChild],
-                  );
-                },
-                child: sectionContent,
-              ),
-              const SizedBox(height: 18),
-              _buildResetSection(
-                dashboardState: dashboardState,
-                zapretState: zapretState,
-                busy: pageBusy,
-              ),
-            ],
+    final content = SingleChildScrollView(
+      controller: _scrollController,
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _SettingsHeader(
+            busy: pageBusy,
+            hasPendingChanges: hasPendingChanges,
+            hasFailedSaves: hasFailedSaves,
+            canManualSave: canManualSave,
+            isConnected: isConnected,
+            appUpdateState: appUpdateState,
+            onSave: canManualSave ? _savePendingChanges : null,
+            onCheckUpdates: _checkForUpdatesManually,
           ),
-        );
-      },
+          const SizedBox(height: 18),
+          _buildAppearanceSection(appThemeSettings),
+          if (Platform.isWindows) ...[
+            const SizedBox(height: 12),
+            _buildDesktopSection(desktopSettingsState),
+          ],
+          const SizedBox(height: 12),
+          _buildAutoSelectSection(
+            dashboardState,
+            bestServerCheckIntervalMinutes,
+            liveServerPingIntervalSeconds,
+          ),
+          const SizedBox(height: 12),
+          _buildSplitTunnelSection(dashboardState, isConnected),
+          const SizedBox(height: 12),
+          _buildTlsSection(),
+          const SizedBox(height: 12),
+          _buildVlessSection(),
+          const SizedBox(height: 16),
+          _buildResetSection(
+            dashboardState: dashboardState,
+            busy: pageBusy,
+          ),
+        ],
+      ),
     );
 
     if (!widget.animateOnMount) {
@@ -283,188 +171,23 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  Iterable<_SettingsGroup> get _visibleGroups sync* {
-    yield _SettingsGroup.appearance;
-    yield _SettingsGroup.tls;
-    yield _SettingsGroup.vless;
-    yield _SettingsGroup.autoSelect;
-    yield _SettingsGroup.splitTunnel;
-    if (Platform.isWindows) {
-      yield _SettingsGroup.desktop;
-    }
-  }
-
-  Widget _buildOverview(
-    BuildContext context, {
-    required DashboardState dashboardState,
-    required AppThemeSettings appThemeSettings,
-    required DesktopSettingsState desktopSettingsState,
-    required ZapretState zapretState,
-    required bool isWide,
-    required int bestServerCheckIntervalMinutes,
-    required int liveServerPingIntervalSeconds,
-  }) {
-    final groups = _visibleGroups.toList(growable: false);
-
-    Widget buildCard(_SettingsGroup group) {
-      return _SettingsGroupCard(
-        group: group,
-        snapshot: _buildGroupSnapshot(
-          group,
-          dashboardState,
-          appThemeSettings,
-          desktopSettingsState,
-          zapretState,
-          bestServerCheckIntervalMinutes,
-          liveServerPingIntervalSeconds,
-        ),
-        onTap: () => _openGroup(group),
-      );
-    }
-
-    if (!isWide) {
-      return Column(
-        key: const ValueKey('settings-overview'),
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var index = 0; index < groups.length; index += 1) ...[
-            buildCard(groups[index]),
-            if (index != groups.length - 1) const SizedBox(height: 18),
-          ],
-        ],
-      );
-    }
-
-    return GridView.builder(
-      key: const ValueKey('settings-overview'),
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 18,
-        mainAxisSpacing: 18,
-        mainAxisExtent: 320,
-      ),
-      itemCount: groups.length,
-      itemBuilder: (context, index) => buildCard(groups[index]),
-    );
-  }
-
-  Widget _buildGroupPage(
-    BuildContext context, {
-    required DashboardState dashboardState,
-    required AppThemeSettings appThemeSettings,
-    required DesktopSettingsState desktopSettingsState,
-    required ZapretState zapretState,
-    required int bestServerCheckIntervalMinutes,
-    required int liveServerPingIntervalSeconds,
-  }) {
-    final group = _selectedGroup!;
-    final isConnected =
-        dashboardState.connectionStage == ConnectionStage.connected;
-
-    return Column(
-      key: ValueKey('settings-group-${group.name}'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (group == _SettingsGroup.appearance)
-          _buildThemeSection(appThemeSettings),
-        if (group == _SettingsGroup.tls) _buildTlsSection(),
-        if (group == _SettingsGroup.vless) _buildVlessSection(),
-        if (group == _SettingsGroup.autoSelect)
-          _buildAutoSelectSection(
-            dashboardState,
-            bestServerCheckIntervalMinutes,
-            liveServerPingIntervalSeconds,
-          ),
-        if (group == _SettingsGroup.splitTunnel)
-          _buildSplitTunnelSection(dashboardState, isConnected),
-        if (group == _SettingsGroup.desktop)
-          _buildDesktopSection(desktopSettingsState, zapretState),
-      ],
-    );
-  }
-
-  Widget _buildThemeSection(AppThemeSettings appThemeSettings) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final muted = theme.gorionTokens.onSurfaceMuted;
+  Widget _buildAppearanceSection(AppThemeSettings appThemeSettings) {
     final themeNotifier = ref.read(appThemeSettingsProvider.notifier);
 
     return _SettingsSection(
-      title: 'Тема приложения',
+      icon: Icons.contrast_rounded,
+      title: 'Внешний вид',
       description:
-          'Режим интерфейса и акцентная палитра сохраняются отдельно от сетевых настроек и применяются сразу во всём приложении.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Режим',
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: scheme.onSurface,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              for (final mode in AppThemeModePreference.values)
-                SizedBox(
-                  width: 240,
-                  child: _ThemeChoiceCard(
-                    title: mode.title,
-                    subtitle: mode.description,
-                    selected: appThemeSettings.mode == mode,
-                    accentColor: scheme.primary,
-                    onTap: () => themeNotifier.setMode(mode),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Text(
-            'Цветовая гамма',
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: scheme.onSurface,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              for (final palette in AppThemePalette.values)
-                SizedBox(
-                  width: 240,
-                  child: _ThemePaletteCard(
-                    title: palette.title,
-                    subtitle: palette.description,
-                    previewColor: describeAppThemePalette(palette).previewColor,
-                    selected: appThemeSettings.palette == palette,
-                    onTap: () => themeNotifier.setPalette(palette),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Если выбран системный режим, приложение автоматически переключится между светлой и тёмной темой вместе с ОС, но сохранит выбранную палитру акцентов.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: muted,
-              height: 1.45,
-            ),
-          ),
-        ],
+          'Две выверенные темы — светлая и тёмная. Применяются сразу, без перезапуска.',
+      child: _ThemeModeSelector(
+        value: appThemeSettings.mode,
+        onChanged: (mode) => unawaited(themeNotifier.setMode(mode)),
       ),
     );
   }
 
   Widget _buildResetSection({
     required DashboardState dashboardState,
-    required ZapretState zapretState,
     required bool busy,
   }) {
     final theme = Theme.of(context);
@@ -472,9 +195,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final muted = theme.gorionTokens.onSurfaceMuted;
     final runtimeActive =
         dashboardState.connectionStage == ConnectionStage.connected ||
-        dashboardState.connectionStage == ConnectionStage.starting ||
-        zapretState.stage == ZapretStage.running ||
-        zapretState.stage == ZapretStage.starting;
+        dashboardState.connectionStage == ConnectionStage.starting;
     final errorColor = scheme.error;
 
     return Padding(
@@ -523,7 +244,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               if (runtimeActive) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'При активном sing-box или Gorion Boost изменения полностью применятся после переподключения или следующего запуска.',
+                  'При активном подключении изменения полностью применятся после переподключения или следующего запуска.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: errorColor.withValues(alpha: 0.9),
                     height: 1.4,
@@ -540,6 +261,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   Widget _buildTlsSection() {
     return _SettingsSection(
+      icon: Icons.shield_outlined,
       title: 'TLS маскировка',
       description:
           'Применяется только к узлам, где TLS уже включён в профиле. Выключенный тумблер не удаляет существующие параметры из подписки.',
@@ -554,32 +276,35 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               _updateDraft(_draft.copyWith(forceChromeUtls: value));
             },
           ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _sniController,
-            onChanged: (value) {
-              _updateDraft(
-                _draft.copyWith(sniDonor: value),
-                debounce: const Duration(milliseconds: 650),
-              );
-            },
-            decoration: InputDecoration(
-              labelText: 'SNI-донор',
-              hintText: 'cdn.example.com',
-              helperText: 'Если задан, подставляется в tls.server_name.',
-              suffixIcon: _draft.normalizedSniDonor.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'Очистить',
-                      onPressed: () {
-                        _sniController.clear();
-                        _updateDraft(_draft.copyWith(sniDonor: ''));
-                      },
-                      icon: const Icon(Icons.close_rounded),
-                    ),
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: TextField(
+              controller: _sniController,
+              onChanged: (value) {
+                _updateDraft(
+                  _draft.copyWith(sniDonor: value),
+                  debounce: const Duration(milliseconds: 650),
+                );
+              },
+              decoration: InputDecoration(
+                labelText: 'SNI-донор',
+                hintText: 'cdn.example.com',
+                helperText: 'Если задан, подставляется в tls.server_name.',
+                suffixIcon: _draft.normalizedSniDonor.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Очистить',
+                        onPressed: () {
+                          _sniController.clear();
+                          _updateDraft(_draft.copyWith(sniDonor: ''));
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+              ),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           _ToggleTile(
             title: 'TLS record fragment',
             subtitle:
@@ -596,6 +321,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   Widget _buildVlessSection() {
     return _SettingsSection(
+      icon: Icons.hub_outlined,
       title: 'VLESS transport',
       description:
           'Эти override накладываются только на VLESS outbound. Нужны в основном для Reality и Xray-совместимых серверов.',
@@ -609,7 +335,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               _updateDraft(_draft.copyWith(forceVisionFlow: value));
             },
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           _ToggleTile(
             title: 'packet_encoding = xudp',
             subtitle:
@@ -619,7 +345,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               _updateDraft(_draft.copyWith(forceXudpPacketEncoding: value));
             },
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           _ToggleTile(
             title: 'Multiplex (mux)',
             subtitle:
@@ -640,7 +366,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     int liveServerPingIntervalSeconds,
   ) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     final muted = theme.gorionTokens.onSurfaceMuted;
     final draftMinutes =
         _autoSelectIntervalDraftMinutes ?? bestServerCheckIntervalMinutes;
@@ -648,110 +373,49 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         _liveServerPingIntervalDraftSeconds ?? liveServerPingIntervalSeconds;
 
     return _SettingsSection(
+      icon: Icons.auto_awesome_outlined,
       title: 'Автовыбор сервера',
       description:
-          'Частота фоновой проверки best server сохраняется отдельно от transport overrides и начинает действовать сразу, без переподключения.',
+          'Фоновая проверка лучшего сервера. Изменения сохраняются автоматически и не требуют переподключения.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            decoration: BoxDecoration(
-              color: scheme.onSurface.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: scheme.onSurface.withValues(alpha: 0.08),
-              ),
+          _SliderTile(
+            title: 'Частота проверки best server',
+            subtitle:
+                'Maintenance-проверка текущего сервера и поиск замены будут идти с этим интервалом.',
+            valueLabel: _formatBestServerCheckIntervalBadge(draftMinutes),
+            slider: Slider(
+              value: draftMinutes.toDouble(),
+              min: autoSelectBestServerCheckIntervalMinMinutes.toDouble(),
+              max: autoSelectBestServerCheckIntervalMaxMinutes.toDouble(),
+              divisions:
+                  autoSelectBestServerCheckIntervalMaxMinutes -
+                  autoSelectBestServerCheckIntervalMinMinutes,
+              label: _formatBestServerCheckIntervalLabel(draftMinutes),
+              onChanged: dashboardState.busy
+                  ? null
+                  : (value) {
+                      _updateAutoSelectIntervalDraft(value.round());
+                      _scheduleAutoSelectIntervalSave();
+                    },
+              onChangeEnd: dashboardState.busy
+                  ? null
+                  : (value) {
+                      _updateAutoSelectIntervalDraft(value.round());
+                      _scheduleAutoSelectIntervalSave(
+                        debounce: Duration.zero,
+                      );
+                    },
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Частота проверки best server',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              color: scheme.onSurface,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Maintenance-проверка текущего сервера и поиск замены будут идти с этим интервалом.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: muted,
-                              height: 1.45,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    _Badge(
-                      label: _formatBestServerCheckIntervalBadge(draftMinutes),
-                      backgroundColor: const Color(
-                        0xFF6DD3FF,
-                      ).withValues(alpha: 0.14),
-                      foregroundColor: const Color(0xFF6DD3FF),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Slider(
-                  value: draftMinutes.toDouble(),
-                  min: autoSelectBestServerCheckIntervalMinMinutes.toDouble(),
-                  max: autoSelectBestServerCheckIntervalMaxMinutes.toDouble(),
-                  divisions:
-                      autoSelectBestServerCheckIntervalMaxMinutes -
-                      autoSelectBestServerCheckIntervalMinMinutes,
-                  label: _formatBestServerCheckIntervalLabel(draftMinutes),
-                  onChanged: dashboardState.busy
-                      ? null
-                      : (value) {
-                          _updateAutoSelectIntervalDraft(value.round());
-                          _scheduleAutoSelectIntervalSave();
-                        },
-                  onChangeEnd: dashboardState.busy
-                      ? null
-                      : (value) {
-                          _updateAutoSelectIntervalDraft(value.round());
-                          _scheduleAutoSelectIntervalSave(
-                            debounce: Duration.zero,
-                          );
-                        },
-                ),
-                Row(
-                  children: [
-                    Text(
-                      '$autoSelectBestServerCheckIntervalMinMinutes мин',
-                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                    ),
-                    const Spacer(),
-                    Text(
-                      _formatBestServerCheckIntervalLabel(
-                        autoSelectBestServerCheckIntervalMaxMinutes,
-                      ),
-                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Минимум 15 минут, максимум 3 часа. Значение по умолчанию: 40 минут. Сохраняется автоматически.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: muted,
-                    height: 1.45,
-                  ),
-                ),
-              ],
+            rangeStart: '$autoSelectBestServerCheckIntervalMinMinutes мин',
+            rangeEnd: _formatBestServerCheckIntervalLabel(
+              autoSelectBestServerCheckIntervalMaxMinutes,
             ),
+            footnote:
+                'Минимум 15 минут, максимум 3 часа. Значение по умолчанию: 40 минут.',
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           _ToggleTile(
             title: 'Live ping серверов',
             subtitle:
@@ -767,117 +431,49 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     );
                   },
           ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            decoration: BoxDecoration(
-              color: scheme.onSurface.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: scheme.onSurface.withValues(alpha: 0.08),
-              ),
+          const SizedBox(height: 10),
+          _SliderTile(
+            title: 'Интервал Live ping',
+            subtitle:
+                'Как часто обновлять задержку серверов через активный proxy runtime.',
+            valueLabel: _formatLiveServerPingIntervalLabel(
+              draftLivePingSeconds,
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Интервал Live ping',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              color: scheme.onSurface,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Как часто обновлять задержку серверов через активный proxy runtime.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: muted,
-                              height: 1.45,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    _Badge(
-                      label: _formatLiveServerPingIntervalLabel(
-                        draftLivePingSeconds,
-                      ),
-                      backgroundColor: theme.brandAccent.withValues(
-                        alpha: 0.14,
-                      ),
-                      foregroundColor: theme.brandAccent,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Slider(
-                  value: draftLivePingSeconds.toDouble(),
-                  min: liveServerPingIntervalMinSeconds.toDouble(),
-                  max: liveServerPingIntervalMaxSeconds.toDouble(),
-                  divisions:
-                      liveServerPingIntervalMaxSeconds -
-                      liveServerPingIntervalMinSeconds,
-                  label: _formatLiveServerPingIntervalLabel(
-                    draftLivePingSeconds,
-                  ),
-                  onChanged:
-                      dashboardState.busy ||
-                          !dashboardState
-                              .autoSelectSettings
-                              .liveServerPingEnabled
-                      ? null
-                      : (value) {
-                          _updateLiveServerPingIntervalDraft(value.round());
-                          _scheduleLiveServerPingIntervalSave();
-                        },
-                  onChangeEnd:
-                      dashboardState.busy ||
-                          !dashboardState
-                              .autoSelectSettings
-                              .liveServerPingEnabled
-                      ? null
-                      : (value) {
-                          _updateLiveServerPingIntervalDraft(value.round());
-                          _scheduleLiveServerPingIntervalSave(
-                            debounce: Duration.zero,
-                          );
-                        },
-                ),
-                Row(
-                  children: [
-                    Text(
-                      '$liveServerPingIntervalMinSeconds сек',
-                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                    ),
-                    const Spacer(),
-                    Text(
-                      _formatLiveServerPingIntervalLabel(
-                        liveServerPingIntervalMaxSeconds,
-                      ),
-                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Минимум 15 секунд, максимум 15 минут. По умолчанию 15 минут. Чем меньше интервал, тем чаще идут сетевые GET-проверки.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: muted,
-                    height: 1.45,
-                  ),
-                ),
-              ],
+            slider: Slider(
+              value: draftLivePingSeconds.toDouble(),
+              min: liveServerPingIntervalMinSeconds.toDouble(),
+              max: liveServerPingIntervalMaxSeconds.toDouble(),
+              divisions:
+                  liveServerPingIntervalMaxSeconds -
+                  liveServerPingIntervalMinSeconds,
+              label: _formatLiveServerPingIntervalLabel(draftLivePingSeconds),
+              onChanged:
+                  dashboardState.busy ||
+                      !dashboardState.autoSelectSettings.liveServerPingEnabled
+                  ? null
+                  : (value) {
+                      _updateLiveServerPingIntervalDraft(value.round());
+                      _scheduleLiveServerPingIntervalSave();
+                    },
+              onChangeEnd:
+                  dashboardState.busy ||
+                      !dashboardState.autoSelectSettings.liveServerPingEnabled
+                  ? null
+                  : (value) {
+                      _updateLiveServerPingIntervalDraft(value.round());
+                      _scheduleLiveServerPingIntervalSave(
+                        debounce: Duration.zero,
+                      );
+                    },
             ),
+            rangeStart: '$liveServerPingIntervalMinSeconds сек',
+            rangeEnd: _formatLiveServerPingIntervalLabel(
+              liveServerPingIntervalMaxSeconds,
+            ),
+            footnote:
+                'Минимум 15 секунд, максимум 15 минут. Чем меньше интервал, тем чаще идут сетевые GET-проверки.',
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           _ToggleTile(
             title: 'Пинговать при запуске',
             subtitle:
@@ -895,12 +491,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     );
                   },
           ),
-          const SizedBox(height: 14),
-          Text(
-            'Этот параметр не входит в transport overrides. После отпускания ползунка новое значение сохраняется и начинает работать сразу.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: muted,
-              height: 1.45,
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              'После отпускания ползунка новое значение сохраняется и начинает работать сразу.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: muted,
+                height: 1.45,
+              ),
             ),
           ),
         ],
@@ -927,24 +526,20 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 
-  Widget _buildDesktopSection(
-    DesktopSettingsState desktopSettingsState,
-    ZapretState zapretState,
-  ) {
+  Widget _buildDesktopSection(DesktopSettingsState desktopSettingsState) {
     final desktopController = ref.read(
       desktopSettingsControllerProvider.notifier,
     );
-    final zapretController = ref.read(zapretControllerProvider.notifier);
     final settings = desktopSettingsState.settings;
     final desktopBusy = desktopSettingsState.busy;
-    final zapretBusy = zapretState.busy;
     final theme = Theme.of(context);
     final muted = theme.gorionTokens.onSurfaceMuted;
 
     return _SettingsSection(
+      icon: Icons.desktop_windows_outlined,
       title: 'Запуск и трей',
       description:
-          'Настройки применяются сразу. Обычный автостарт Gorion использует стандартную запись Windows Run, а режим повышенного приоритета переключает его на задачу AtLogOn в Планировщике Windows без задержки. Запуск Gorion Boost, скрытый запуск и автоподключение начнут работать на следующем запуске приложения.',
+          'Настройки применяются сразу. Обычный автостарт Gorion использует стандартную запись Windows Run, а режим повышенного приоритета переключает его на задачу AtLogOn в Планировщике Windows без задержки.',
       child: Column(
         children: [
           _ToggleTile(
@@ -960,7 +555,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     );
                   },
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           _ToggleTile(
             title: 'Запускать первым',
             subtitle:
@@ -983,20 +578,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     );
                   },
           ),
-          const SizedBox(height: 14),
-          _ToggleTile(
-            title: 'Автостарт Gorion Boost',
-            subtitle:
-                'После запуска приложения gorion автоматически поднимет отдельный процесс Gorion Boost, если каталог настроен и TUN-режим не активен.',
-            value: zapretState.settings.startOnAppLaunch,
-            onChanged: zapretBusy
-                ? null
-                : (value) {
-                    unawaited(zapretController.setStartOnAppLaunch(value));
-                  },
-          ),
           if (desktopSettingsState.canLaunchMinimized) ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             _ToggleTile(
               title: 'Запускать скрыто в трей',
               subtitle:
@@ -1009,7 +592,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     },
             ),
           ],
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           _ToggleTile(
             title: 'Автоподключение при запуске',
             subtitle:
@@ -1022,208 +605,40 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   },
           ),
           if (desktopSettingsState.errorMessage case final errorMessage?) ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0x22EF4444),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0x55EF4444)),
+                color: theme.colorScheme.error.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: theme.colorScheme.error.withValues(alpha: 0.32),
+                ),
               ),
               child: Text(
                 errorMessage,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFFFFB4B4),
+                  color: theme.colorScheme.error,
                   height: 1.45,
                 ),
               ),
             ),
           ],
-          const SizedBox(height: 14),
-          Text(
-            'Закрытие окна на Windows не завершает приложение: gorion остаётся в трее, а полный выход доступен через меню иконки.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: muted,
-              height: 1.45,
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              'Закрытие окна на Windows не завершает приложение: gorion остаётся в трее, а полный выход доступен через меню иконки.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: muted,
+                height: 1.45,
+              ),
             ),
           ),
         ],
       ),
     );
-  }
-
-  _SettingsGroupSnapshot _buildGroupSnapshot(
-    _SettingsGroup group,
-    DashboardState dashboardState,
-    AppThemeSettings appThemeSettings,
-    DesktopSettingsState desktopSettingsState,
-    ZapretState zapretState,
-    int bestServerCheckIntervalMinutes,
-    int liveServerPingIntervalSeconds,
-  ) {
-    final savedSettings = dashboardState.connectionTuningSettings;
-
-    switch (group) {
-      case _SettingsGroup.appearance:
-        return _SettingsGroupSnapshot(
-          badgeLabel: appThemeSettings.palette.title,
-          supportingLabel:
-              '${appThemeSettings.mode.title} · ${appThemeSettings.palette.description}',
-          hasPendingChanges: false,
-        );
-      case _SettingsGroup.tls:
-        final activeCount = _countTlsOverrides(_draft);
-        return _SettingsGroupSnapshot(
-          badgeLabel: activeCount == 0
-              ? 'Без override'
-              : 'Активно: $activeCount',
-          supportingLabel: _draft.normalizedSniDonor.isNotEmpty
-              ? 'SNI donor задан'
-              : activeCount > 0
-              ? 'Переопределения наложатся поверх профиля'
-              : 'TLS берётся из подписки без изменений',
-          hasPendingChanges: _hasTlsChanges(savedSettings),
-        );
-      case _SettingsGroup.vless:
-        final activeLabels = <String>[
-          if (_draft.forceVisionFlow) 'Vision',
-          if (_draft.forceXudpPacketEncoding) 'xudp',
-          if (_draft.enableMultiplex) 'mux',
-        ];
-        return _SettingsGroupSnapshot(
-          badgeLabel: activeLabels.isEmpty
-              ? 'Без override'
-              : 'Активно: ${activeLabels.length}',
-          supportingLabel: activeLabels.isEmpty
-              ? 'Transport берётся из подписки'
-              : activeLabels.join(' · '),
-          hasPendingChanges: _hasVlessChanges(savedSettings),
-        );
-      case _SettingsGroup.autoSelect:
-        final livePingEnabled =
-            dashboardState.autoSelectSettings.liveServerPingEnabled;
-        final livePingPending =
-            liveServerPingIntervalSeconds !=
-            dashboardState.autoSelectSettings.liveServerPingIntervalSeconds;
-        return _SettingsGroupSnapshot(
-          badgeLabel: _formatBestServerCheckIntervalBadge(
-            bestServerCheckIntervalMinutes,
-          ),
-          supportingLabel:
-              bestServerCheckIntervalMinutes ==
-                      dashboardState
-                          .autoSelectSettings
-                          .bestServerCheckIntervalMinutes &&
-                  !livePingPending
-              ? (livePingEnabled
-                    ? 'Live ping: ${_formatLiveServerPingIntervalLabel(liveServerPingIntervalSeconds)}'
-                    : 'Live ping выключен')
-              : 'Новое значение отправляется автоматически',
-          hasPendingChanges:
-              bestServerCheckIntervalMinutes !=
-                  dashboardState
-                      .autoSelectSettings
-                      .bestServerCheckIntervalMinutes ||
-              livePingPending,
-        );
-      case _SettingsGroup.splitTunnel:
-        final splitTunnel = _draft.splitTunnel;
-        final ruleCount = _countSplitTunnelRules(splitTunnel);
-        final directCount = splitTunnel.direct.ruleCount;
-        final blockCount = splitTunnel.block.ruleCount;
-        final proxyCount = splitTunnel.proxy.ruleCount;
-        return _SettingsGroupSnapshot(
-          badgeLabel: ruleCount == 0 ? 'Правил нет' : 'Правил: $ruleCount',
-          supportingLabel: !splitTunnel.hasRules
-              ? 'Правила маршрутизации не заданы'
-              : splitTunnel.enabled
-              ? 'D $directCount · B $blockCount · P $proxyCount'
-              : 'Правила сохранены, но выключены',
-          hasPendingChanges: splitTunnel != savedSettings.splitTunnel,
-        );
-      case _SettingsGroup.desktop:
-        final desktopSettings = desktopSettingsState.settings;
-        final activeFlags = <String>[
-          if (desktopSettingsState.launchAtStartupEnabled) 'Gorion',
-          if (desktopSettingsState.launchAtStartupEnabled &&
-              desktopSettings.launchAtStartupPriority ==
-                  LaunchAtStartupPriority.first)
-            'Первым',
-          if (zapretState.settings.startOnAppLaunch) 'Gorion Boost',
-          if (desktopSettingsState.effectiveLaunchMinimized) 'Трей',
-          if (desktopSettings.autoConnectOnLaunch) 'Автоподключение',
-        ];
-        return _SettingsGroupSnapshot(
-          badgeLabel:
-              desktopSettingsState.launchAtStartupEnabled ||
-                  zapretState.settings.startOnAppLaunch
-              ? 'Автостарт'
-              : 'Ручной старт',
-          supportingLabel: activeFlags.isEmpty
-              ? 'Обычный запуск без фоновой автоматизации'
-              : activeFlags.join(' · '),
-          hasPendingChanges: false,
-        );
-    }
-  }
-
-  int _countTlsOverrides(ConnectionTuningSettings settings) {
-    var count = 0;
-    if (settings.forceChromeUtls) {
-      count += 1;
-    }
-    if (settings.normalizedSniDonor.isNotEmpty) {
-      count += 1;
-    }
-    if (settings.enableTlsRecordFragment) {
-      count += 1;
-    }
-    return count;
-  }
-
-  int _countSplitTunnelRules(SplitTunnelSettings splitTunnelSettings) {
-    return splitTunnelSettings.ruleCount;
-  }
-
-  bool _hasTlsChanges(ConnectionTuningSettings settings) {
-    return _draft.forceChromeUtls != settings.forceChromeUtls ||
-        _draft.normalizedSniDonor != settings.normalizedSniDonor ||
-        _draft.enableTlsRecordFragment != settings.enableTlsRecordFragment;
-  }
-
-  bool _hasVlessChanges(ConnectionTuningSettings settings) {
-    return _draft.forceVisionFlow != settings.forceVisionFlow ||
-        _draft.forceXudpPacketEncoding != settings.forceXudpPacketEncoding ||
-        _draft.enableMultiplex != settings.enableMultiplex;
-  }
-
-  void _openGroup(_SettingsGroup group) {
-    setState(() {
-      _selectedGroup = group;
-    });
-    _scrollToTop();
-  }
-
-  void _closeGroup() {
-    setState(() {
-      _selectedGroup = null;
-    });
-    _scrollToTop();
-  }
-
-  void _scrollToTop() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) {
-        return;
-      }
-
-      _scrollController.animateTo(
-        0,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-      );
-    });
   }
 
   void _updateDraft(
@@ -1602,7 +1017,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       ref.invalidate(Preferences.serverSortMode);
       await ref.read(dashboardControllerProvider.notifier).load();
       await ref.read(desktopSettingsControllerProvider.notifier).reload();
-      await ref.read(zapretControllerProvider.notifier).reload();
       if (!mounted) {
         return;
       }
@@ -1793,10 +1207,9 @@ String _formatLiveServerPingIntervalLabel(int seconds) {
   return '$minutes мин $remainingSeconds сек';
 }
 
-class _HeroPanel extends StatelessWidget {
-  const _HeroPanel({
+class _SettingsHeader extends StatelessWidget {
+  const _SettingsHeader({
     required this.busy,
-    required this.activeGroup,
     required this.hasPendingChanges,
     required this.hasFailedSaves,
     required this.canManualSave,
@@ -1804,11 +1217,9 @@ class _HeroPanel extends StatelessWidget {
     required this.appUpdateState,
     required this.onSave,
     required this.onCheckUpdates,
-    this.onBack,
   });
 
   final bool busy;
-  final _SettingsGroup? activeGroup;
   final bool hasPendingChanges;
   final bool hasFailedSaves;
   final bool canManualSave;
@@ -1816,279 +1227,157 @@ class _HeroPanel extends StatelessWidget {
   final AppUpdateState appUpdateState;
   final VoidCallback? onSave;
   final VoidCallback onCheckUpdates;
-  final VoidCallback? onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final saveLabel = busy
-        ? 'Сохранение...'
-        : canManualSave
-        ? isConnected
-              ? 'Сохранить и применить'
-              : 'Сохранить'
-        : hasPendingChanges
-        ? 'Применяется...'
-        : 'Сохранено';
-    final saveIcon = busy
-        ? Icons.sync_rounded
-        : canManualSave
-        ? isConnected
-              ? Icons.sync_rounded
-              : Icons.save_outlined
-        : hasPendingChanges
-        ? Icons.schedule_rounded
-        : Icons.check_rounded;
-    final update = appUpdateState.availableUpdate;
-    final updateCheckBusy = appUpdateState.busy;
-    final heroMetaChildren = <Widget>[
-      if (onBack != null)
-        OutlinedButton.icon(
-          onPressed: onBack,
-          icon: const Icon(Icons.arrow_back_rounded),
-          label: const Text('Все группы'),
-        ),
-      if (activeGroup != null)
-        _Badge(
-          label: activeGroup!.title,
-          backgroundColor: activeGroup!.accentColor.withValues(alpha: 0.14),
-          foregroundColor: activeGroup!.accentColor,
-        ),
-      if (update != null)
-        _Badge(
-          label: 'Новая версия ${update.latestVersion}',
-          backgroundColor: const Color(0x22FFC857),
-          foregroundColor: const Color(0xFFFFC857),
-        ),
-      if (hasPendingChanges)
-        _Badge(
-          label: hasFailedSaves ? 'Не сохранено' : 'Применяется',
-          backgroundColor: const Color(0x22FFC857),
-          foregroundColor: const Color(0xFFFFC857),
-        ),
-    ];
-    final hasHeroMeta = heroMetaChildren.isNotEmpty;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final titleBlock = Text(
-              'Настройки',
-              style: theme.textTheme.displaySmall?.copyWith(
-                color: scheme.onSurface,
-                fontWeight: FontWeight.w700,
-                height: 1.0,
-                letterSpacing: -0.6,
-              ),
-            );
-            final saveButton = FilledButton.icon(
-              onPressed: onSave,
-              icon: Icon(saveIcon),
-              label: Text(saveLabel),
-            );
-            final updateCheckButton = OutlinedButton.icon(
-              onPressed: updateCheckBusy ? null : onCheckUpdates,
-              icon: Icon(
-                updateCheckBusy
-                    ? Icons.sync_rounded
-                    : Icons.system_update_alt_rounded,
-              ),
-              label: Text(
-                updateCheckBusy ? 'Проверяем...' : 'Проверить обновления',
-              ),
-            );
-            final actionButtons = <Widget>[saveButton, updateCheckButton];
-
-            if (constraints.maxWidth < 760) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  titleBlock,
-                  if (hasHeroMeta) ...[
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: heroMetaChildren,
-                    ),
-                  ],
-                  const SizedBox(height: 10),
-                  Wrap(spacing: 10, runSpacing: 10, children: actionButtons),
-                ],
-              );
-            }
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: titleBlock),
-                    const SizedBox(width: 16),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      alignment: WrapAlignment.end,
-                      children: actionButtons,
-                    ),
-                  ],
-                ),
-                if (hasHeroMeta) ...[
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: heroMetaChildren,
-                  ),
-                ],
-              ],
-            );
-          },
-        ),
-      ],
-    );
-  }
-}
-
-class _SettingsGroupCard extends StatelessWidget {
-  const _SettingsGroupCard({
-    required this.group,
-    required this.snapshot,
-    required this.onTap,
-  });
-
-  final _SettingsGroup group;
-  final _SettingsGroupSnapshot snapshot;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final muted = theme.gorionTokens.onSurfaceMuted;
+    final update = appUpdateState.availableUpdate;
+    final updateCheckBusy = appUpdateState.busy;
 
-    return GlassPanel(
-      borderRadius: 26,
-      padding: EdgeInsets.zero,
-      opacity: 0.06,
-      backgroundColor: Colors.white,
-      strokeColor: group.accentColor,
-      strokeOpacity: 0.07,
-      strokeWidth: 1,
-      showGlow: false,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(26),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final hasBoundedHeight = constraints.hasBoundedHeight;
-              final isCompact = constraints.maxHeight < 286;
-              final iconSize = isCompact ? 44.0 : 48.0;
-              final cardPadding = isCompact ? 18.0 : 22.0;
-              final titleGap = isCompact ? 14.0 : 18.0;
-              final bodyGap = isCompact ? 6.0 : 8.0;
-              final badgeGap = isCompact ? 12.0 : 16.0;
-              final supportingGap = isCompact ? 8.0 : 10.0;
-              final footerGap = isCompact ? 12.0 : 16.0;
+    final statusIcon = busy
+        ? Icons.sync_rounded
+        : hasFailedSaves
+        ? Icons.error_outline_rounded
+        : hasPendingChanges
+        ? Icons.schedule_rounded
+        : Icons.check_rounded;
+    final statusLabel = busy
+        ? 'Сохранение…'
+        : hasFailedSaves
+        ? 'Не сохранено'
+        : hasPendingChanges
+        ? 'Применяется…'
+        : 'Все изменения сохранены';
+    final statusColor = hasFailedSaves
+        ? scheme.error
+        : busy || hasPendingChanges
+        ? const Color(0xFFFFB457)
+        : scheme.primary;
 
-              return Padding(
-                padding: EdgeInsets.all(cardPadding),
-                child: Column(
-                  mainAxisSize: hasBoundedHeight
-                      ? MainAxisSize.max
-                      : MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: iconSize,
-                          height: iconSize,
-                          decoration: BoxDecoration(
-                            color: group.accentColor.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Icon(group.icon, color: group.accentColor),
-                        ),
-                        const Spacer(),
-                        if (snapshot.hasPendingChanges)
-                          const _Badge(
-                            label: 'Не сохранено',
-                            backgroundColor: Color(0x22FFC857),
-                            foregroundColor: Color(0xFFFFC857),
-                          ),
-                      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 640;
+
+        final titleBlock = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Настройки',
+              style: theme.textTheme.headlineLarge?.copyWith(
+                color: scheme.onSurface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Внешний вид, сеть и поведение приложения. Изменения сохраняются автоматически.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: muted,
+                height: 1.45,
+              ),
+            ),
+          ],
+        );
+
+        final actions = <Widget>[
+          if (update != null)
+            _StatusPill(
+              icon: Icons.system_update_alt_rounded,
+              label: 'Новая версия ${update.latestVersion}',
+              color: const Color(0xFFFFB457),
+            ),
+          _StatusPill(icon: statusIcon, label: statusLabel, color: statusColor),
+          if (canManualSave)
+            FilledButton.icon(
+              onPressed: onSave,
+              icon: const Icon(Icons.save_outlined, size: 18),
+              label: Text(isConnected ? 'Сохранить и применить' : 'Сохранить'),
+            ),
+          OutlinedButton.icon(
+            onPressed: updateCheckBusy ? null : onCheckUpdates,
+            icon: updateCheckBusy
+                ? SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: scheme.primary,
                     ),
-                    SizedBox(height: titleGap),
-                    Text(
-                      group.title,
-                      maxLines: isCompact ? 2 : 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        color: scheme.onSurface,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    SizedBox(height: bodyGap),
-                    Text(
-                      group.description,
-                      maxLines: isCompact ? 2 : 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: muted,
-                        height: 1.45,
-                      ),
-                    ),
-                    SizedBox(height: badgeGap),
-                    _Badge(
-                      label: snapshot.badgeLabel,
-                      backgroundColor: group.accentColor.withValues(
-                        alpha: 0.14,
-                      ),
-                      foregroundColor: group.accentColor,
-                    ),
-                    SizedBox(height: supportingGap),
-                    Text(
-                      snapshot.supportingLabel,
-                      maxLines: isCompact ? 2 : 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurface,
-                        height: 1.45,
-                      ),
-                    ),
-                    if (hasBoundedHeight) const Spacer(),
-                    SizedBox(height: footerGap),
-                    Row(
-                      children: [
-                        Text(
-                          'Открыть группу',
-                          style: theme.textTheme.labelLarge?.copyWith(
-                            color: group.accentColor,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const Spacer(),
-                        Icon(
-                          Icons.arrow_forward_rounded,
-                          color: group.accentColor,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            },
+                  )
+                : const Icon(Icons.refresh_rounded, size: 16),
+            label: Text(updateCheckBusy ? 'Проверяем…' : 'Проверить обновления'),
           ),
-        ),
+        ];
+
+        if (isNarrow) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              titleBlock,
+              const SizedBox(height: 12),
+              Wrap(spacing: 8, runSpacing: 8, children: actions),
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: titleBlock),
+            const SizedBox(width: 16),
+            Flexible(
+              flex: 2,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: actions,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.24), width: 0.8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2096,11 +1385,13 @@ class _SettingsGroupCard extends StatelessWidget {
 
 class _SettingsSection extends StatelessWidget {
   const _SettingsSection({
+    required this.icon,
     required this.title,
     required this.description,
     required this.child,
   });
 
+  final IconData icon;
   final String title;
   final String description;
   final Widget child;
@@ -2112,35 +1403,160 @@ class _SettingsSection extends StatelessWidget {
     final muted = theme.gorionTokens.onSurfaceMuted;
 
     return GlassPanel(
-      borderRadius: 26,
-      padding: const EdgeInsets.all(22),
+      borderRadius: 20,
+      padding: const EdgeInsets.all(20),
       opacity: 0.06,
       backgroundColor: Colors.white,
       strokeColor: Colors.white,
-      strokeOpacity: 0.04,
+      strokeOpacity: 0.05,
       strokeWidth: 1,
       showGlow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: theme.textTheme.titleLarge?.copyWith(
-              color: scheme.onSurface,
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 18, color: scheme.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      description,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: muted,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            description,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: muted,
-              height: 1.45,
-            ),
-          ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           child,
         ],
+      ),
+    );
+  }
+}
+
+class _ThemeModeSelector extends StatelessWidget {
+  const _ThemeModeSelector({required this.value, required this.onChanged});
+
+  final AppThemeModePreference value;
+  final ValueChanged<AppThemeModePreference> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final muted = theme.gorionTokens.onSurfaceMuted;
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: scheme.onSurface.withValues(alpha: isDark ? 0.05 : 0.045),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.onSurface.withValues(alpha: 0.07)),
+      ),
+      child: Row(
+        children: [
+          for (final mode in AppThemeModePreference.values) ...[
+            Expanded(
+              child: _ThemeModeOption(
+                mode: mode,
+                selected: mode == value,
+                accent: scheme.primary,
+                mutedColor: muted,
+                onPrimary: scheme.onPrimary,
+                onTap: () => onChanged(mode),
+              ),
+            ),
+            if (mode != AppThemeModePreference.values.last)
+              const SizedBox(width: 4),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ThemeModeOption extends StatelessWidget {
+  const _ThemeModeOption({
+    required this.mode,
+    required this.selected,
+    required this.accent,
+    required this.mutedColor,
+    required this.onPrimary,
+    required this.onTap,
+  });
+
+  final AppThemeModePreference mode;
+  final bool selected;
+  final Color accent;
+  final Color mutedColor;
+  final Color onPrimary;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(11),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(11),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? accent : Colors.transparent,
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                mode.icon,
+                size: 16,
+                color: selected ? onPrimary : mutedColor,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  mode.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected ? onPrimary : mutedColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2164,20 +1580,22 @@ class _ToggleTile extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final muted = theme.gorionTokens.onSurfaceMuted;
+    final enabled = onChanged != null;
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
       decoration: BoxDecoration(
-        color: scheme.onSurface.withValues(alpha: value ? 0.08 : 0.04),
-        borderRadius: BorderRadius.circular(20),
+        color: scheme.onSurface.withValues(alpha: value ? 0.055 : 0.03),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: value
-              ? scheme.primary.withValues(alpha: 0.24)
-              : scheme.onSurface.withValues(alpha: 0.08),
+              ? scheme.primary.withValues(alpha: 0.30)
+              : scheme.onSurface.withValues(alpha: 0.06),
         ),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Column(
@@ -2185,12 +1603,14 @@ class _ToggleTile extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: scheme.onSurface,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: enabled
+                        ? scheme.onSurface
+                        : scheme.onSurface.withValues(alpha: 0.5),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 3),
                 Text(
                   subtitle,
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -2209,20 +1629,24 @@ class _ToggleTile extends StatelessWidget {
   }
 }
 
-class _ThemeChoiceCard extends StatelessWidget {
-  const _ThemeChoiceCard({
+class _SliderTile extends StatelessWidget {
+  const _SliderTile({
     required this.title,
     required this.subtitle,
-    required this.selected,
-    required this.accentColor,
-    required this.onTap,
+    required this.valueLabel,
+    required this.slider,
+    required this.rangeStart,
+    required this.rangeEnd,
+    this.footnote,
   });
 
   final String title;
   final String subtitle;
-  final bool selected;
-  final Color accentColor;
-  final VoidCallback onTap;
+  final String valueLabel;
+  final Widget slider;
+  final String rangeStart;
+  final String rangeEnd;
+  final String? footnote;
 
   @override
   Widget build(BuildContext context) {
@@ -2230,195 +1654,86 @@ class _ThemeChoiceCard extends StatelessWidget {
     final scheme = theme.colorScheme;
     final muted = theme.gorionTokens.onSurfaceMuted;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: scheme.onSurface.withValues(alpha: selected ? 0.08 : 0.04),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: selected
-                  ? accentColor.withValues(alpha: 0.34)
-                  : scheme.onSurface.withValues(alpha: 0.08),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: scheme.onSurface,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  Icon(
-                    selected
-                        ? Icons.check_circle_rounded
-                        : Icons.radio_button_unchecked_rounded,
-                    size: 18,
-                    color: selected ? accentColor : muted,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                subtitle,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: muted,
-                  height: 1.45,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ThemePaletteCard extends StatelessWidget {
-  const _ThemePaletteCard({
-    required this.title,
-    required this.subtitle,
-    required this.previewColor,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String title;
-  final String subtitle;
-  final Color previewColor;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final muted = theme.gorionTokens.onSurfaceMuted;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: scheme.onSurface.withValues(alpha: selected ? 0.08 : 0.04),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: selected
-                  ? previewColor.withValues(alpha: 0.38)
-                  : scheme.onSurface.withValues(alpha: 0.08),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 16,
-                    height: 16,
-                    decoration: BoxDecoration(
-                      color: previewColor,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: scheme.onSurface,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  Icon(
-                    selected
-                        ? Icons.check_circle_rounded
-                        : Icons.radio_button_unchecked_rounded,
-                    size: 18,
-                    color: selected ? previewColor : muted,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: previewColor.withValues(alpha: 0.22),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    width: 32,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: previewColor.withValues(alpha: 0.48),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                subtitle,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: muted,
-                  height: 1.45,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({
-    required this.label,
-    required this.backgroundColor,
-    required this.foregroundColor,
-  });
-
-  final String label;
-  final Color backgroundColor;
-  final Color foregroundColor;
-
-  @override
-  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(999),
+        color: scheme.onSurface.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.onSurface.withValues(alpha: 0.06)),
       ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: foregroundColor,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.2,
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: muted,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  valueLabel,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: scheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          slider,
+          Row(
+            children: [
+              Text(
+                rangeStart,
+                style: theme.textTheme.bodySmall?.copyWith(color: muted),
+              ),
+              const Spacer(),
+              Text(
+                rangeEnd,
+                style: theme.textTheme.bodySmall?.copyWith(color: muted),
+              ),
+            ],
+          ),
+          if (footnote case final footnote?) ...[
+            const SizedBox(height: 6),
+            Text(
+              footnote,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: muted,
+                height: 1.45,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

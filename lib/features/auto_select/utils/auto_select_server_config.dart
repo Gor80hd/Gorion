@@ -9,6 +9,7 @@ typedef AutoSelectConfigCandidate = ({
 });
 
 const selectableOutboundTypes = {
+  'anytls',
   'http',
   'hysteria',
   'hysteria2',

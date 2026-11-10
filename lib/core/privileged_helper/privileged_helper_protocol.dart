@@ -2,8 +2,9 @@ import 'dart:io';
 
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
-import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
 import 'package:path/path.dart' as p;
+
+const gorionPrivilegedHelperProtocolVersion = 2;
 
 const gorionPrivilegedHelperArg = '--gorion-privileged-helper';
 const gorionPrivilegedHelperTaskName = 'Gorion Privileged Helper';
@@ -18,6 +19,24 @@ const gorionPrivilegedHelperLoopbackHost = '127.0.0.1';
 const gorionPrivilegedHelperLoopbackPort = 47653;
 const gorionPrivilegedHelperAuthHeader = 'x-gorion-helper-token';
 const gorionPrivilegedHelperBootstrapMaxAge = Duration(seconds: 30);
+
+/// macOS runs the helper as a root launchd daemon. The daemon and the
+/// unprivileged GUI meet in this shared directory: the daemon writes its
+/// connection state (including the auth token) here with root:admin 0640, so
+/// only admin users can drive the root helper.
+const gorionPrivilegedHelperMacosLabel = 'com.gorion.privileged-helper';
+const gorionPrivilegedHelperMacosPlistPath =
+    '/Library/LaunchDaemons/$gorionPrivilegedHelperMacosLabel.plist';
+const gorionPrivilegedHelperMacosSupportDir =
+    '/Library/Application Support/Gorion';
+const gorionPrivilegedHelperMacosStatePath =
+    '$gorionPrivilegedHelperMacosSupportDir/privileged-helper.json';
+const gorionPrivilegedHelperMacosRuntimeDir =
+    '$gorionPrivilegedHelperMacosSupportDir/runtime';
+
+bool isPrivilegedHelperSupported() {
+  return Platform.isWindows || Platform.isMacOS;
+}
 
 bool isPrivilegedHelperLaunch(List<String> args) {
   return args.any(
@@ -220,40 +239,6 @@ RuntimeSession? runtimeSessionFromJson(dynamic value) {
   );
 }
 
-Map<String, dynamic>? zapretRuntimeSessionToJson(
-  ZapretRuntimeSession? session,
-) {
-  if (session == null) {
-    return null;
-  }
-
-  return {
-    'executablePath': session.executablePath,
-    'workingDirectory': session.workingDirectory,
-    'processId': session.processId,
-    'startedAt': session.startedAt.toIso8601String(),
-    'arguments': session.arguments,
-    'commandPreview': session.commandPreview,
-  };
-}
-
-ZapretRuntimeSession? zapretRuntimeSessionFromJson(dynamic value) {
-  final json = asJsonMap(value);
-  if (json == null) {
-    return null;
-  }
-
-  final startedAtRaw = normalizedJsonString(json['startedAt']);
-  return ZapretRuntimeSession(
-    executablePath: normalizedJsonString(json['executablePath']) ?? '',
-    workingDirectory: normalizedJsonString(json['workingDirectory']) ?? '',
-    processId: (json['processId'] as num?)?.toInt() ?? 0,
-    startedAt: DateTime.tryParse(startedAtRaw ?? '') ?? DateTime.now(),
-    arguments: jsonStringList(json['arguments']),
-    commandPreview: normalizedJsonString(json['commandPreview']) ?? '',
-  );
-}
-
 class PrivilegedHelperRuntimeSnapshot {
   const PrivilegedHelperRuntimeSnapshot({required this.logs, this.session});
 
@@ -268,34 +253,6 @@ class PrivilegedHelperRuntimeSnapshot {
     return PrivilegedHelperRuntimeSnapshot(
       session: runtimeSessionFromJson(json['session']),
       logs: jsonStringList(json['logs']),
-    );
-  }
-}
-
-class PrivilegedHelperZapretSnapshot {
-  const PrivilegedHelperZapretSnapshot({
-    required this.logs,
-    this.session,
-    this.lastExitCode,
-  });
-
-  final ZapretRuntimeSession? session;
-  final List<String> logs;
-  final int? lastExitCode;
-
-  Map<String, dynamic> toJson() {
-    return {
-      'session': zapretRuntimeSessionToJson(session),
-      'logs': logs,
-      'lastExitCode': lastExitCode,
-    };
-  }
-
-  factory PrivilegedHelperZapretSnapshot.fromJson(Map<String, dynamic> json) {
-    return PrivilegedHelperZapretSnapshot(
-      session: zapretRuntimeSessionFromJson(json['session']),
-      logs: jsonStringList(json['logs']),
-      lastExitCode: (json['lastExitCode'] as num?)?.toInt(),
     );
   }
 }

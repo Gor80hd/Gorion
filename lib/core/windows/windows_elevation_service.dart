@@ -7,9 +7,7 @@ const _pendingActionArgPrefix = '--gorion-pending-action=';
 const gorionLaunchAtStartupArg = '--gorion-launched-at-startup';
 
 enum PendingElevatedLaunchAction {
-  connectTun('connect-tun'),
-  startZapret('start-zapret'),
-  testZapretConfigs('test-zapret-configs');
+  connectTun('connect-tun');
 
   const PendingElevatedLaunchAction(this.cliValue);
 

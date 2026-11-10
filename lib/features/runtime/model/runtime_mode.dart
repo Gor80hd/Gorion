@@ -13,7 +13,7 @@ enum RuntimeMode {
     RuntimeMode.mixed =>
       'Expose a local mixed inbound only. Browsers and apps must be pointed at the proxy manually after you connect.',
     RuntimeMode.systemProxy =>
-      'Route traffic from apps that honor the Windows system proxy through the local mixed inbound automatically.',
+      'Route traffic from apps that honor the system proxy through the local mixed inbound automatically.',
     RuntimeMode.tun =>
       'Capture system traffic through a TUN interface. This also covers apps that ignore proxy settings, but may require elevated privileges.',
   };

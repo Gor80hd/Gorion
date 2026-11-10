@@ -3,16 +3,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:gorion_clean/core/process/running_process_lookup.dart';
-import 'package:gorion_clean/core/windows/privileged_helper_protocol.dart';
+import 'package:gorion_clean/core/privileged_helper/privileged_helper_protocol.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
 import 'package:gorion_clean/features/runtime/data/windows_winhttp_proxy_service.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
-import 'package:gorion_clean/features/zapret/model/zapret_settings.dart';
 import 'package:uuid/uuid.dart';
 
-class WindowsPrivilegedHelperClient {
-  WindowsPrivilegedHelperClient({
+class PrivilegedHelperClient {
+  PrivilegedHelperClient({
     Duration startupTimeout = const Duration(seconds: 8),
     Duration pollInterval = const Duration(milliseconds: 250),
     Duration requestTimeout = const Duration(seconds: 10),
@@ -28,14 +27,16 @@ class WindowsPrivilegedHelperClient {
   static Future<void>? _ensureAvailableInFlight;
 
   static bool isProvisionedSync({String? executablePath}) {
-    if (!Platform.isWindows) {
-      return false;
+    if (Platform.isWindows) {
+      final resolvedExecutable = executablePath ?? Platform.resolvedExecutable;
+      return privilegedHelperProvisionMarkerForExecutable(
+        resolvedExecutable,
+      ).existsSync();
     }
-
-    final resolvedExecutable = executablePath ?? Platform.resolvedExecutable;
-    return privilegedHelperProvisionMarkerForExecutable(
-      resolvedExecutable,
-    ).existsSync();
+    if (Platform.isMacOS) {
+      return File(gorionPrivilegedHelperMacosPlistPath).existsSync();
+    }
+    return false;
   }
 
   Future<PrivilegedHelperRuntimeSnapshot> fetchRuntimeState() async {
@@ -57,6 +58,7 @@ class WindowsPrivilegedHelperClient {
       'POST',
       '/runtime/start',
       body: {
+        'ownerPid': pid,
         'profileId': profileId,
         'templateConfig': templateConfig,
         'originalTemplateConfig': originalTemplateConfig,
@@ -80,48 +82,6 @@ class WindowsPrivilegedHelperClient {
       return null;
     }
     return PrivilegedHelperRuntimeSnapshot.fromJson(response);
-  }
-
-  Future<PrivilegedHelperZapretSnapshot> fetchZapretState() async {
-    final response = await _request('GET', '/zapret/state');
-    return PrivilegedHelperZapretSnapshot.fromJson(response);
-  }
-
-  Future<PrivilegedHelperZapretSnapshot> startZapret({
-    required ZapretSettings settings,
-    bool preserveLogs = false,
-  }) async {
-    final response = await _request(
-      'POST',
-      '/zapret/start',
-      body: {'settings': settings.toJson(), 'preserveLogs': preserveLogs},
-    );
-    return PrivilegedHelperZapretSnapshot.fromJson(response);
-  }
-
-  Future<PrivilegedHelperZapretSnapshot> stopZapret() async {
-    final response = await _request('POST', '/zapret/stop');
-    return PrivilegedHelperZapretSnapshot.fromJson(response);
-  }
-
-  Future<PrivilegedHelperZapretSnapshot?> stopZapretIfAvailable() async {
-    final response = await _requestIfAvailable('POST', '/zapret/stop');
-    if (response == null) {
-      return null;
-    }
-    return PrivilegedHelperZapretSnapshot.fromJson(response);
-  }
-
-  Future<PrivilegedHelperZapretSnapshot> recordZapretDiagnostic({
-    required String line,
-    bool isError = false,
-  }) async {
-    final response = await _request(
-      'POST',
-      '/zapret/record-diagnostic',
-      body: {'line': line, 'isError': isError},
-    );
-    return PrivilegedHelperZapretSnapshot.fromJson(response);
   }
 
   Future<WindowsWinHttpProxySettings> enableManagedWinHttpProxy({
@@ -173,9 +133,12 @@ class WindowsPrivilegedHelperClient {
   }
 
   Future<void> _ensureAvailableInternal() async {
+    if (Platform.isMacOS) {
+      return _ensureMacosAvailable();
+    }
     if (!Platform.isWindows) {
       throw UnsupportedError(
-        'The privileged helper is supported only on Windows.',
+        'The privileged helper is supported only on Windows and macOS.',
       );
     }
     if (!isProvisionedSync()) {
@@ -255,7 +218,7 @@ class WindowsPrivilegedHelperClient {
     String path, {
     Map<String, dynamic>? body,
   }) async {
-    if (!Platform.isWindows || !isProvisionedSync()) {
+    if (!isPrivilegedHelperSupported() || !isProvisionedSync()) {
       return null;
     }
     if (!await _tryReuseCachedSession()) {
@@ -269,11 +232,52 @@ class WindowsPrivilegedHelperClient {
     }
   }
 
+  /// macOS flow: the root daemon publishes its token in the shared state
+  /// file, so availability means "state file readable + health check with
+  /// that token passes". No bootstrap handshake needed.
+  Future<void> _ensureMacosAvailable() async {
+    if (!isProvisionedSync()) {
+      throw StateError(
+        'Системный компонент Gorion для режима TUN не установлен.',
+      );
+    }
+
+    final info = await _tryLoadConnectionInfo();
+    final token = info?.token;
+    if (info == null || token == null || token.isEmpty) {
+      throw StateError(
+        'Системный компонент Gorion установлен, но ещё не опубликовал состояние. Подождите пару секунд и повторите.',
+      );
+    }
+
+    if (await _isHealthy(
+      token: token,
+      expectedLaunchId: info.launchId,
+      requireAuthenticated: true,
+    )) {
+      _cachedToken = token;
+      _cachedLaunchId = info.launchId;
+      return;
+    }
+
+    throw StateError(
+      'Системный компонент Gorion не отвечает. Попробуйте переустановить его из диалога подключения TUN.',
+    );
+  }
+
   Future<Map<String, dynamic>> _sendRequest(
     String method,
     String path, {
     Map<String, dynamic>? body,
   }) async {
+    if (Platform.isMacOS && (_cachedToken == null || _cachedLaunchId == null)) {
+      final info = await _tryLoadConnectionInfo();
+      final token = info?.token;
+      if (info != null && token != null && token.isNotEmpty) {
+        _cachedToken = token;
+        _cachedLaunchId = info.launchId;
+      }
+    }
     final info = await _loadConnectionInfo(expectedLaunchId: _cachedLaunchId);
     final token = _cachedToken;
     if (token == null || token.trim().isEmpty) {
@@ -295,7 +299,10 @@ class WindowsPrivilegedHelperClient {
       }
 
       final response = await request.close().timeout(_requestTimeout);
-      final payload = await utf8.decoder.bind(response).join();
+      final payload = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(_requestTimeout);
       final parsed = payload.trim().isEmpty ? null : jsonDecode(payload);
       final json = asJsonMap(parsed);
       if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -345,10 +352,17 @@ class WindowsPrivilegedHelperClient {
         if (response.statusCode != HttpStatus.ok) {
           return false;
         }
-        final payload = await utf8.decoder.bind(response).join();
+        final payload = await utf8.decoder
+            .bind(response)
+            .join()
+            .timeout(_requestTimeout);
         final json = asJsonMap(
           payload.trim().isEmpty ? null : jsonDecode(payload),
         );
+        if (Platform.isMacOS &&
+            json?['protocolVersion'] != gorionPrivilegedHelperProtocolVersion) {
+          return false;
+        }
         if (json?['ok'] != true) {
           return false;
         }
@@ -369,6 +383,26 @@ class WindowsPrivilegedHelperClient {
   }
 
   Future<bool> _tryReuseCachedSession() async {
+    if (Platform.isMacOS) {
+      // The daemon owns the token on macOS: re-read the shared state file so
+      // app restarts (and token rotation on daemon restart) just work.
+      final info = await _tryLoadConnectionInfo();
+      final token = info?.token;
+      if (info == null || token == null || token.isEmpty) {
+        return false;
+      }
+      if (await _isHealthy(
+        token: token,
+        expectedLaunchId: info.launchId,
+        requireAuthenticated: true,
+      )) {
+        _cachedToken = token;
+        _cachedLaunchId = info.launchId;
+        return true;
+      }
+      return false;
+    }
+
     final cachedToken = _cachedToken;
     final cachedLaunchId = _cachedLaunchId;
     if (cachedToken != null &&
@@ -404,10 +438,15 @@ class WindowsPrivilegedHelperClient {
   Future<PrivilegedHelperConnectionInfo?> _tryLoadConnectionInfo({
     String? expectedLaunchId,
   }) async {
-    final runtimeDir = await ensureGorionRuntimeDirectory(
-      subdirectory: 'privileged-helper',
-    );
-    final stateFile = privilegedHelperStateFileForRuntimeDir(runtimeDir);
+    final File stateFile;
+    if (Platform.isMacOS) {
+      stateFile = File(gorionPrivilegedHelperMacosStatePath);
+    } else {
+      final runtimeDir = await ensureGorionRuntimeDirectory(
+        subdirectory: 'privileged-helper',
+      );
+      stateFile = privilegedHelperStateFileForRuntimeDir(runtimeDir);
+    }
     if (!await stateFile.exists()) {
       return null;
     }

@@ -20,10 +20,24 @@ const _detachedRuntimeMarkerFiles = {
 
 DateTime? _lastDetachedRuntimeCleanupAt;
 Future<void>? _detachedRuntimeCleanupInFlight;
+String? _runtimeRootOverride;
+
+/// Pins the runtime root to a fixed filesystem location. Used by the
+/// privileged helper on macOS, which runs as root and must not depend on the
+/// per-user Application Support directory (or on path_provider at all).
+void overrideGorionRuntimeRoot(String? path) {
+  _runtimeRootOverride = path;
+}
 
 Future<Directory> ensureGorionRuntimeDirectory({String? subdirectory}) async {
-  final supportDir = await getApplicationSupportDirectory();
-  final runtimeRoot = Directory(p.join(supportDir.path, 'gorion', 'runtime'));
+  final override = _runtimeRootOverride;
+  final Directory runtimeRoot;
+  if (override != null) {
+    runtimeRoot = Directory(override);
+  } else {
+    final supportDir = await getApplicationSupportDirectory();
+    runtimeRoot = Directory(p.join(supportDir.path, 'gorion', 'runtime'));
+  }
   if (!await runtimeRoot.exists()) {
     await runtimeRoot.create(recursive: true);
   }

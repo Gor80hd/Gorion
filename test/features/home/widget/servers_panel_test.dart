@@ -16,11 +16,6 @@ import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
-import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
-import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
-import 'package:gorion_clean/features/zapret/model/zapret_settings.dart';
 
 void main() {
   testWidgets('selecting batch benchmark enters and exits the running state', (
@@ -49,9 +44,6 @@ void main() {
       overrides: [
         dashboardControllerProvider.overrideWith((ref) => controller),
         profileRepositoryProvider.overrideWithValue(repository),
-        zapretControllerProvider.overrideWith(
-          (ref) => _buildZapretController(),
-        ),
       ],
     );
     addTearDown(container.dispose);
@@ -119,9 +111,6 @@ void main() {
       overrides: [
         dashboardControllerProvider.overrideWith((ref) => controller),
         profileRepositoryProvider.overrideWithValue(repository),
-        zapretControllerProvider.overrideWith(
-          (ref) => _buildZapretController(),
-        ),
       ],
     );
     addTearDown(container.dispose);
@@ -178,9 +167,6 @@ void main() {
         overrides: [
           dashboardControllerProvider.overrideWith((ref) => controller),
           profileRepositoryProvider.overrideWithValue(repository),
-          zapretControllerProvider.overrideWith(
-            (ref) => _buildZapretController(),
-          ),
         ],
       );
       addTearDown(container.dispose);
@@ -221,55 +207,6 @@ void main() {
       expect(resetButton.onPressed, isNull);
     },
   );
-
-  testWidgets('home panel shows GameFilter as a single game and Steam toggle', (
-    tester,
-  ) async {
-    final repository = _FakeProfileRepository(
-      responses: [const _TemplateLoadResponse.immediate('')],
-    );
-    final settingsRepository = _FakeAutoSelectSettingsRepository();
-    final controller = DashboardController(
-      repository: repository,
-      runtimeService: _FakeRuntimeService(),
-      autoSelectSettingsRepository: settingsRepository,
-      autoSelectPreconnectService: AutoSelectPreconnectService(
-        settingsRepository: settingsRepository,
-      ),
-      autoSelectorService: AutoSelectorService(),
-      initialState: _dashboardState(),
-      loadOnInit: false,
-    );
-    final container = ProviderContainer(
-      overrides: [
-        dashboardControllerProvider.overrideWith((ref) => controller),
-        profileRepositoryProvider.overrideWithValue(repository),
-        zapretControllerProvider.overrideWith(
-          (ref) => _buildZapretController(mode: ZapretGameFilterMode.tcp),
-        ),
-      ],
-    );
-    addTearDown(container.dispose);
-
-    tester.view.physicalSize = const Size(1600, 1200);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const MaterialApp(home: Scaffold(body: ServersPanelWidget())),
-      ),
-    );
-    await tester.pump(const Duration(seconds: 1));
-
-    expect(find.text('GameFilter'), findsOneWidget);
-    expect(find.text('Игры и Steam'), findsOneWidget);
-    expect(find.text('Steam bypass'), findsNothing);
-    expect(find.text('TCP+UDP'), findsNothing);
-    expect(find.text('UDP'), findsNothing);
-  });
 }
 
 DashboardState _dashboardState({
@@ -292,30 +229,6 @@ DashboardState _dashboardState({
     ),
     recentSuccessfulAutoConnect: recentSuccessfulAutoConnect,
     connectionTuningSettings: connectionTuningSettings,
-  );
-}
-
-ZapretController _buildZapretController({
-  ZapretGameFilterMode mode = ZapretGameFilterMode.all,
-}) {
-  return ZapretController(
-    repository: _FakeZapretSettingsRepository(),
-    runtimeService: _FakeZapretRuntimeService(),
-    initialState: ZapretState(
-      bootstrapping: false,
-      settings: ZapretSettings(
-        installDirectory: r'E:\Tools\zapret2',
-        configFileName: 'general.conf',
-        gameFilterMode: mode,
-      ),
-      availableConfigs: const [
-        ZapretConfigOption(
-          fileName: 'general.conf',
-          path: r'E:\Tools\zapret2\profiles\general.conf',
-        ),
-      ],
-    ),
-    loadOnInit: false,
   );
 }
 
@@ -396,7 +309,3 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   @override
   List<String> get logs => const <String>[];
 }
-
-class _FakeZapretSettingsRepository extends ZapretSettingsRepository {}
-
-class _FakeZapretRuntimeService extends ZapretRuntimeService {}

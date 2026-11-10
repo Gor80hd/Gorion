@@ -5,7 +5,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gap/gap.dart';
 import 'package:gorion_clean/app/theme.dart';
 import 'package:gorion_clean/core/preferences/general_preferences.dart';
@@ -34,7 +33,6 @@ import 'package:gorion_clean/features/proxy/data/proxy_data_providers.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
 import 'package:gorion_clean/features/runtime/notifier/core_restart_signal.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
-import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 import 'package:gorion_clean/utils/link_parsers.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -198,12 +196,6 @@ class ServersPanelWidget extends HookConsumerWidget {
     final dashboardBusy = ref.watch(
       dashboardControllerProvider.select((state) => state.busy),
     );
-    final connectionTuningSettings = ref.watch(
-      dashboardControllerProvider.select(
-        (state) => state.connectionTuningSettings,
-      ),
-    );
-    final zapretState = ref.watch(zapretControllerProvider);
     final autoSelectBestServerCheckIntervalMinutes = ref.watch(
       dashboardControllerProvider.select(
         (state) => state.autoSelectSettings.bestServerCheckIntervalMinutes,
@@ -622,25 +614,6 @@ class ServersPanelWidget extends HookConsumerWidget {
               ),
             ),
             const Gap(8),
-            _HomeGameFilterPanel(
-              enabled:
-                  zapretState.settings.gameFilterEnabled &&
-                  connectionTuningSettings.bypassSteamForSystemProxy,
-              busy: zapretState.busy || dashboardBusy,
-              onChanged: (value) async {
-                await ref
-                    .read(zapretControllerProvider.notifier)
-                    .setGameFilterEnabled(value);
-                await ref
-                    .read(dashboardControllerProvider.notifier)
-                    .saveConnectionTuningSettings(
-                      connectionTuningSettings.copyWith(
-                        bypassSteamForSystemProxy: value,
-                      ),
-                    );
-              },
-            ),
-            const Gap(6),
             Expanded(
               child: _ServerListWindow(
                 child: () {
@@ -1768,8 +1741,8 @@ class _EmptyServersCard extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          FaIcon(
-            FontAwesomeIcons.satellite,
+          Icon(
+            Icons.satellite_alt_rounded,
             size: 16,
             color: theme.gorionTokens.onSurfaceMuted.withValues(alpha: 0.48),
           ),
@@ -1824,6 +1797,7 @@ class _ServerPingChip extends StatelessWidget {
               ),
         fontSize: 11.5,
         fontWeight: FontWeight.w800,
+        fontFeatures: const [FontFeature.tabularFigures()],
       ),
     );
   }
@@ -2394,87 +2368,6 @@ class _ServerCard extends HookConsumerWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _HomeGameFilterPanel extends StatelessWidget {
-  const _HomeGameFilterPanel({
-    required this.enabled,
-    required this.busy,
-    required this.onChanged,
-  });
-
-  final bool enabled;
-  final bool busy;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final muted = theme.gorionTokens.onSurfaceMuted;
-    const accent = Color(0xFF72A8FF);
-
-    return GlassPanel(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      borderRadius: 18,
-      backgroundColor: _softAccentSurface(theme, emphasis: 0.72),
-      opacity: 0.07,
-      strokeOpacity: 0.12,
-      strokeColor: accent,
-      showGlow: false,
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: enabled ? 0.16 : 0.08),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: accent.withValues(alpha: enabled ? 0.28 : 0.12),
-                width: 0.8,
-              ),
-            ),
-            child: Icon(
-              Icons.sports_esports_rounded,
-              size: 18,
-              color: enabled
-                  ? accent.withValues(alpha: 0.96)
-                  : muted.withValues(alpha: 0.72),
-            ),
-          ),
-          const Gap(10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'GameFilter',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: scheme.onSurface,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                Text(
-                  'Игры и Steam',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: muted.withValues(alpha: 0.86),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Gap(8),
-          Switch.adaptive(value: enabled, onChanged: busy ? null : onChanged),
-        ],
       ),
     );
   }

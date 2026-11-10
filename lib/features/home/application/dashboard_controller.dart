@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gorion_clean/core/privileged_helper/macos_helper_installer.dart';
 import 'package:gorion_clean/core/process/process_exception_utils.dart';
 import 'package:gorion_clean/core/state/update_value.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
@@ -24,7 +26,6 @@ import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart'
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 
-const systemProxyStartupSettleDelay = Duration(milliseconds: 1500);
 const _preConnectAutoSelectLabel = 'Автовыбор перед подключением';
 const _manualAutoSelectLabel = 'Ручной автовыбор';
 const _automaticMaintenanceLabel = 'Фоновая проверка';
@@ -63,7 +64,9 @@ final autoSelectorServiceProvider = Provider<AutoSelectorService>(
 typedef ClashApiClientFactory = ClashApiClient Function(RuntimeSession session);
 
 RuntimeMode _defaultRuntimeMode() {
-  if (Platform.isWindows) {
+  // The system proxy is the best default where Gorion can manage it; Linux
+  // stays on the explicit local proxy (desktop environments differ too much).
+  if (Platform.isWindows || Platform.isMacOS) {
     return RuntimeMode.systemProxy;
   }
   return RuntimeMode.mixed;
@@ -136,9 +139,6 @@ final dashboardControllerProvider =
         elevationPromptService: ref.read(
           elevationRelaunchPromptServiceProvider,
         ),
-        systemProxyStartupSettleDelay: Platform.isWindows
-            ? systemProxyStartupSettleDelay
-            : Duration.zero,
       );
     });
 
@@ -327,10 +327,9 @@ class DashboardController extends StateNotifier<DashboardState> {
     required AutoSelectorService autoSelectorService,
     WindowsElevationService? elevationService,
     ElevationRelaunchPromptService? elevationPromptService,
+    MacosPrivilegedHelperInstaller? macosHelperInstaller,
     ClashApiClientFactory? clashApiClientFactory,
-    Duration systemProxyStartupSettleDelay = Duration.zero,
     Timer Function(Duration duration, void Function() callback)? createTimer,
-    Future<void> Function(Duration duration)? pause,
     DashboardState? initialState,
     bool loadOnInit = true,
   }) : _repository = repository,
@@ -345,11 +344,11 @@ class DashboardController extends StateNotifier<DashboardState> {
            elevationService ?? const NoopWindowsElevationService(),
        _elevationPromptService =
            elevationPromptService ?? const NoopElevationRelaunchPromptService(),
-       _createClashApiClient =
-           clashApiClientFactory ?? ClashApiClient.fromSession,
-       _systemProxyStartupSettleDelay = systemProxyStartupSettleDelay,
-       _createTimer = createTimer ?? _defaultCreateTimer,
-       _pause = pause ?? _defaultPause,
+       _macosHelperInstaller =
+           macosHelperInstaller ?? const MacosPrivilegedHelperInstaller(),
+        _createClashApiClient =
+            clashApiClientFactory ?? ClashApiClient.fromSession,
+        _createTimer = createTimer ?? _defaultCreateTimer,
        super(
          _normalizeDashboardState(
            initialState ?? DashboardState(runtimeMode: _defaultRuntimeMode()),
@@ -377,11 +376,10 @@ class DashboardController extends StateNotifier<DashboardState> {
   final AutoSelectorService _autoSelectorService;
   final WindowsElevationService _elevationService;
   final ElevationRelaunchPromptService _elevationPromptService;
+  final MacosPrivilegedHelperInstaller _macosHelperInstaller;
   final ClashApiClientFactory _createClashApiClient;
-  final Duration _systemProxyStartupSettleDelay;
   final Timer Function(Duration duration, void Function() callback)
   _createTimer;
-  final Future<void> Function(Duration duration) _pause;
   Timer? _autoSelectionTimer;
   bool _autoSelectionInFlight = false;
   int _connectOperationId = 0;
@@ -393,7 +391,9 @@ class DashboardController extends StateNotifier<DashboardState> {
       state.autoSelectSettings.bestServerCheckInterval;
 
   String _effectiveTemplateConfigCacheKey(String profileId) {
-    return '$profileId::${state.connectionTuningSettings.hashCode}';
+    // A full JSON key: hashCode collisions would silently hand a profile the
+    // wrong effective config.
+    return '$profileId::${jsonEncode(state.connectionTuningSettings.toJson())}';
   }
 
   void _invalidateAutoSelectCaches([String? profileId]) {
@@ -552,6 +552,12 @@ class DashboardController extends StateNotifier<DashboardState> {
       clearLastBestServerCheckAt: true,
     );
     try {
+      // Recover first: stop orphaned cores and restore a stale system proxy
+      // left by a crashed session, and re-attach to a privileged-helper
+      // runtime that survived an app restart. Serialized behind the service
+      // lifecycle, so a queued auto-connect waits for it.
+      await _runtimeService.recoverFromPreviousSession();
+
       final storageFuture = _repository.loadState();
       final autoSelectStateFuture = _autoSelectSettingsRepository
           .clearExpiredCaches();
@@ -561,6 +567,10 @@ class DashboardController extends StateNotifier<DashboardState> {
       final autoSelectState = await autoSelectStateFuture;
       final connectionTuningSettings = await connectionTuningSettingsFuture;
       _invalidateAutoSelectCaches();
+
+      // A live helper-side session means the tunnel is still up: reflect it
+      // instead of showing a lying "disconnected" state.
+      final adoptedSession = _runtimeService.session;
       state = state.copyWith(
         bootstrapping: false,
         autoSelectSettings: autoSelectState.settings,
@@ -572,9 +582,18 @@ class DashboardController extends StateNotifier<DashboardState> {
             autoSelectState.recentSuccessfulAutoConnect,
         autoSelectResults: const [],
         clearAutoSelectActivity: true,
-        clearConnectedAt: true,
         clearLastBestServerCheckAt: true,
+        connectionStage: adoptedSession != null
+            ? ConnectionStage.connected
+            : ConnectionStage.disconnected,
+        runtimeSession: adoptedSession,
+        clearRuntimeSession: adoptedSession == null,
+        connectedAt: adoptedSession != null ? DateTime.now() : null,
+        clearConnectedAt: adoptedSession == null,
       );
+      if (adoptedSession != null) {
+        unawaited(refreshDelays(silent: true));
+      }
     } on Object catch (error) {
       state = state.copyWith(
         bootstrapping: false,
@@ -1132,8 +1151,6 @@ class DashboardController extends StateNotifier<DashboardState> {
         onExit: _handleRuntimeExit,
       );
       _throwIfConnectOperationCancelled(connectOperationId);
-      await _waitForSystemProxyStartupSettle(mode: selectedMode);
-      _throwIfConnectOperationCancelled(connectOperationId);
       final client = _createClashApiClient(session);
       final snapshot = await client.fetchSnapshot(
         selectorTag: session.manualSelectorTag,
@@ -1262,6 +1279,10 @@ class DashboardController extends StateNotifier<DashboardState> {
           !_isConnectOperationCurrent(connectOperationId)) {
         return;
       }
+      // A failure after the core started (snapshot, persistence,
+      // verification) must still bring the core down — the UI is about to
+      // show "failed", so nothing may keep routing traffic behind its back.
+      await _runtimeService.stop();
       if (state.autoSelectActivity.active &&
           state.autoSelectActivity.label == _preConnectAutoSelectLabel) {
         _finishAutoSelectActivity(
@@ -1478,7 +1499,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       clearStatusMessage: !silent,
     );
     try {
-      final client = ClashApiClient.fromSession(session);
+      final client = _createClashApiClient(session);
       final snapshot = await client.fetchSnapshot(
         selectorTag: session.manualSelectorTag,
       );
@@ -1727,6 +1748,9 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
     try {
       final storage = await _repository.refreshRemoteSubscription(profile.id);
+      // The refreshed template can change the server inventory, so cached
+      // effective configs and auto-select fingerprints are no longer valid.
+      _invalidateAutoSelectCaches(profile.id);
       final activeProfile = storage.activeProfile;
       state = state.copyWith(
         busy: false,
@@ -2125,10 +2149,6 @@ class DashboardController extends StateNotifier<DashboardState> {
     return Timer(duration, callback);
   }
 
-  static Future<void> _defaultPause(Duration duration) {
-    return Future<void>.delayed(duration);
-  }
-
   bool _isCurrentConnectedSession(RuntimeSession session, String profileId) {
     return state.connectionStage == ConnectionStage.connected &&
         identical(state.runtimeSession, session) &&
@@ -2160,20 +2180,6 @@ class DashboardController extends StateNotifier<DashboardState> {
     if (reason != null) {
       throw _CancelledConnectOperation(reason);
     }
-  }
-
-  Future<void> _waitForSystemProxyStartupSettle({
-    required RuntimeMode mode,
-  }) async {
-    if (!mode.usesSystemProxy ||
-        _systemProxyStartupSettleDelay <= Duration.zero) {
-      return;
-    }
-
-    // The local mixed inbound is ready before Windows finishes propagating the
-    // updated system proxy settings to other apps, so gate "connected" until
-    // that handoff has had a short chance to settle.
-    await _pause(_systemProxyStartupSettleDelay);
   }
 
   Future<Map<String, int>> _safeLoadDelays(
@@ -2563,19 +2569,24 @@ class DashboardController extends StateNotifier<DashboardState> {
     return switch (_normalizeRuntimeMode(mode)) {
       RuntimeMode.tun =>
         '$message Режим TUN может требовать повышенных прав на этой платформе.',
-      RuntimeMode.systemProxy when !Platform.isWindows =>
-        '$message Режим системного прокси сейчас реализован только для Windows.',
       _ => message,
     };
   }
 
   Future<bool> _maybeRelaunchForTunElevation() async {
-    if (!Platform.isWindows || state.runtimeMode != RuntimeMode.tun) {
+    if (state.runtimeMode != RuntimeMode.tun) {
       return false;
     }
     if (await _runtimeService.canLaunchWithEmbeddedPrivilegeBroker(
       mode: state.runtimeMode,
     )) {
+      return false;
+    }
+
+    if (Platform.isMacOS) {
+      return _installMacosTunHelper();
+    }
+    if (!Platform.isWindows) {
       return false;
     }
 
@@ -2624,6 +2635,45 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
 
     return true;
+  }
+
+  /// macOS TUN path: install the root launchd helper once (native password
+  /// prompt) instead of relaunching the whole app as root. Returns true when
+  /// the connect attempt should stop here (user cancelled or install failed).
+  Future<bool> _installMacosTunHelper() async {
+    final confirmed = await _elevationPromptService
+        .confirmPrivilegedHelperInstall();
+    if (!confirmed) {
+      state = state.copyWith(
+        statusMessage: 'Запуск TUN отменён.',
+        clearErrorMessage: true,
+      );
+      return true;
+    }
+
+    try {
+      await _macosHelperInstaller.install();
+    } on HelperInstallCancelledException {
+      state = state.copyWith(
+        statusMessage:
+            'Установка системного компонента отменена. TUN не запущен.',
+        clearErrorMessage: true,
+      );
+      return true;
+    } on Object catch (error) {
+      state = state.copyWith(
+        errorMessage:
+            'Не удалось установить системный компонент для TUN: $error',
+        clearStatusMessage: true,
+      );
+      return true;
+    }
+
+    state = state.copyWith(
+      statusMessage: 'Системный компонент установлен. Подключаемся…',
+      clearErrorMessage: true,
+    );
+    return false;
   }
 }
 

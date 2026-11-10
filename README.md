@@ -48,8 +48,16 @@ It then extracts the runtime binary into `assets/singbox/` and writes `assets/si
 flutter pub get
 flutter analyze
 flutter test
-flutter run -d windows
+flutter build macos --debug
+flutter run -d macos
 ```
+
+## macOS runtime verification
+
+See [the runtime audit](docs/runtime-audit.md) for fixes, verified cases, and outstanding live checks.
+The bundled sing-box 1.13.5 does not support XHTTP; those links require an Xray backend and are rejected explicitly.
+The local mixed-mode lifecycle tests do not change system routes or proxy settings.
+Do not enable TUN while another VPN is required for the current development session.
 
 ## Windows Installer
 
@@ -60,7 +68,8 @@ desktop shortcut does not show the UAC shield overlay.
 
 The Windows installer provisions a privileged background helper through an
 elevated Scheduled Task. The regular GUI talks to that helper over localhost
-for Windows-only elevated flows such as TUN and Gorion Boost, so day-to-day
+for Windows-only elevated flows such as TUN mode and the managed WinHTTP
+proxy, so day-to-day
 manual launches no longer need a fresh UAC prompt.
 
 The existing Windows autostart option still uses an elevated Scheduled Task,

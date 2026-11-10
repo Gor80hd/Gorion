@@ -17,6 +17,7 @@ import 'package:gorion_clean/features/home/utils/map_location_resolver.dart';
 import 'package:gorion_clean/features/runtime/model/connection_status.dart';
 import 'package:gorion_clean/features/runtime/notifier/connection_notifier.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
+import 'package:gorion_clean/features/home/utils/globe_country_codes.dart';
 import 'package:gorion_clean/features/home/widget/cobe_style_globe.dart';
 import 'package:gorion_clean/features/home/notifier/home_status_card_provider.dart';
 import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
@@ -30,20 +31,28 @@ import 'package:gorion_clean/features/settings/model/singbox_config_enum.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 (double, double) _resolveLocalFallbackLatLon() {
+  final code = _resolveLocalFallbackCountryCode();
+  if (code != null) {
+    return lookupCountryLatLon(code);
+  }
+  return defaultMapFallbackLatLon;
+}
+
+String? _resolveLocalFallbackCountryCode() {
   final locales = WidgetsBinding.instance.platformDispatcher.locales;
   for (final locale in locales) {
     final code = locale.countryCode;
     if (hasCountryLatLon(code)) {
-      return lookupCountryLatLon(code);
+      return code;
     }
   }
 
   final detectedCountry = RegionDetector.detect();
   if (hasCountryLatLon(detectedCountry)) {
-    return lookupCountryLatLon(detectedCountry);
+    return detectedCountry;
   }
 
-  return defaultMapFallbackLatLon;
+  return null;
 }
 
 bool _sameIpInfo(IpInfo? left, IpInfo? right) {
@@ -136,6 +145,19 @@ class MapView extends HookConsumerWidget {
         ? _resolveLocalFallbackLatLon()
         : resolveSourceLatLon(sourceInfo ?? sourceAnchor.value);
     final dstLatLon = resolveDestinationLatLon(selectedProxy, destCountry);
+    final sourceCountryCode = shouldUseLocalSource
+        ? _resolveLocalFallbackCountryCode()
+        : sourceInfo?.countryCode ?? sourceAnchor.value?.countryCode;
+    final selectedProxyName = selectedProxy == null
+        ? ''
+        : (selectedProxy.tagDisplay.isNotEmpty
+              ? selectedProxy.tagDisplay
+              : selectedProxy.tag);
+    final destinationCountryCode =
+        (selectedProxyName.isNotEmpty
+            ? extractMappableCountryCode(selectedProxyName)
+            : null) ??
+        (keepSourceAnchored ? destCountry : null);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -165,6 +187,10 @@ class MapView extends HookConsumerWidget {
                 isConnected: isConnected,
                 sourceColor: const Color(0xFF60A5FA),
                 destinationColor: theme.brandAccent,
+                sourceCountryIndex: globeCountryIndexFor(sourceCountryCode),
+                destinationCountryIndex: globeCountryIndexFor(
+                  destinationCountryCode,
+                ),
               ),
               Positioned(
                 left: 0,
@@ -219,12 +245,19 @@ List<ServiceMode> _visibleServiceModes() {
   if (defaultTargetPlatform == TargetPlatform.windows) {
     return const [ServiceMode.systemProxy, ServiceMode.tun];
   }
+  if (defaultTargetPlatform == TargetPlatform.macOS) {
+    return const [
+      ServiceMode.mixed,
+      ServiceMode.systemProxy,
+      ServiceMode.tun,
+    ];
+  }
   return const [ServiceMode.mixed, ServiceMode.tun];
 }
 
 String _serviceModeLabel(ServiceMode mode) {
   return switch (mode) {
-    ServiceMode.mixed => 'Proxy',
+    ServiceMode.mixed => 'Proxy (local)',
     ServiceMode.systemProxy => 'Proxy',
     ServiceMode.tun => 'TUN',
   };
@@ -1142,6 +1175,7 @@ class _TrafficValue extends StatelessWidget {
                       fontSize: valueFontSize,
                       fontWeight: FontWeight.w800,
                       height: 1,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
                 ),
@@ -1513,6 +1547,7 @@ class _ConnectionTimerPill extends StatelessWidget {
               fontWeight: FontWeight.w800,
               height: 1,
               letterSpacing: 0.2,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ],

@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/app/shell.dart';
 import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/app/theme_settings.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
@@ -14,9 +13,6 @@ import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart'
 import 'package:gorion_clean/features/update/application/app_update_controller.dart';
 import 'package:gorion_clean/features/update/data/github_release_repository.dart';
 import 'package:gorion_clean/features/update/model/app_update_state.dart';
-import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
 
 void main() {
   testWidgets('app shell shows update popup and settings badge', (
@@ -31,12 +27,6 @@ void main() {
       ),
       autoSelectorService: AutoSelectorService(),
       initialState: const DashboardState(bootstrapping: false),
-      loadOnInit: false,
-    );
-    final zapretController = ZapretController(
-      repository: _FakeZapretSettingsRepository(),
-      runtimeService: _FakeZapretRuntimeService(),
-      initialState: const ZapretState(bootstrapping: false),
       loadOnInit: false,
     );
     final updateController = _TestAppUpdateController(
@@ -54,7 +44,6 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         dashboardControllerProvider.overrideWith((ref) => dashboardController),
-        zapretControllerProvider.overrideWith((ref) => zapretController),
         appUpdateControllerProvider.overrideWith((ref) => updateController),
       ],
     );
@@ -66,10 +55,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildGorionTheme(
-            brightness: Brightness.dark,
-            palette: AppThemePalette.emerald,
-          ),
+          theme: buildGorionTheme(brightness: Brightness.dark),
           home: const AppShell(child: HomePage(animateOnMount: false)),
         ),
       ),
@@ -128,7 +114,3 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   @override
   List<String> get logs => const <String>[];
 }
-
-class _FakeZapretSettingsRepository extends ZapretSettingsRepository {}
-
-class _FakeZapretRuntimeService extends ZapretRuntimeService {}

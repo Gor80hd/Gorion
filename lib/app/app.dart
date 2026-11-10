@@ -17,14 +17,8 @@ class GorionApp extends ConsumerWidget {
       routerConfig: router,
       title: 'gorion',
       debugShowCheckedModeBanner: false,
-      theme: buildGorionTheme(
-        brightness: Brightness.light,
-        palette: themeSettings.palette,
-      ),
-      darkTheme: buildGorionTheme(
-        brightness: Brightness.dark,
-        palette: themeSettings.palette,
-      ),
+      theme: buildGorionTheme(brightness: Brightness.light),
+      darkTheme: buildGorionTheme(brightness: Brightness.dark),
       themeMode: themeSettings.mode.materialThemeMode,
     );
   }

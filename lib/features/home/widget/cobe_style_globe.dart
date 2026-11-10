@@ -6,12 +6,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:gorion_clean/features/home/utils/map_location_resolver.dart';
 
-const Color _cobeMarkerColor = Color(0xFF33CCDD);
 const Color _cobeArcColor = Color(0xFF4CD8F2);
 const Color _cobeLandColor = Color(0xFFDCE1E5);
 const Color _cobeLightSphereColor = Colors.white;
 const Color _cobeLightLandColor = Colors.black;
-const int _cobeMapSamples = 16000;
+const int _cobeMapSamples = 34000;
 const double _maxTiltAngle = 0.86;
 const double _connectedYawSwingNear = 0.085;
 const double _connectedYawSwingFar = 0.032;
@@ -32,6 +31,8 @@ class CobeStyleGlobe extends HookWidget {
     required this.isConnected,
     required this.sourceColor,
     required this.destinationColor,
+    this.sourceCountryIndex = 0,
+    this.destinationCountryIndex = 0,
   });
 
   final EdgeInsets contentPadding;
@@ -44,6 +45,10 @@ class CobeStyleGlobe extends HookWidget {
   final bool isConnected;
   final Color sourceColor;
   final Color destinationColor;
+
+  /// 1-based indices into the country map (0 — страна неизвестна).
+  final int sourceCountryIndex;
+  final int destinationCountryIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -201,6 +206,8 @@ class CobeStyleGlobe extends HookWidget {
                 isLightTheme: isLightTheme,
                 sourceColor: sourceColor,
                 destinationColor: destinationColor,
+                sourceCountryIndex: sourceCountryIndex,
+                destinationCountryIndex: destinationCountryIndex,
               ),
               child: const SizedBox.expand(),
             ),
@@ -228,6 +235,8 @@ class _CobeStyleGlobePainter extends CustomPainter {
     required this.isLightTheme,
     required this.sourceColor,
     required this.destinationColor,
+    required this.sourceCountryIndex,
+    required this.destinationCountryIndex,
   });
 
   final List<_GlobeLandDot> landDots;
@@ -245,6 +254,8 @@ class _CobeStyleGlobePainter extends CustomPainter {
   final bool isLightTheme;
   final Color sourceColor;
   final Color destinationColor;
+  final int sourceCountryIndex;
+  final int destinationCountryIndex;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -307,21 +318,6 @@ class _CobeStyleGlobePainter extends CustomPainter {
 
     _paintSphereRim(canvas, center, radius, arcColor);
 
-    final sourceProjection = _projectVector(
-      sourceVector,
-      center: center,
-      radius: radius,
-      phi: phi,
-      theta: theta,
-    );
-    final destinationProjection = _projectVector(
-      destinationVector,
-      center: center,
-      radius: radius,
-      phi: phi,
-      theta: theta,
-    );
-
     if (showConnection && revealProgress > 0.02) {
       _paintConnectionArc(
         canvas,
@@ -330,26 +326,6 @@ class _CobeStyleGlobePainter extends CustomPainter {
         sourceVector: sourceVector,
         destinationVector: destinationVector,
         arcColor: arcColor,
-      );
-    }
-
-    if (sourceProjection != null) {
-      _paintMarker(
-        canvas,
-        projection: sourceProjection,
-        color: sourceColor,
-        pulseSeed: 0.0,
-        opacity: ui.lerpDouble(0.92, 1.0, focusProgress) ?? 1.0,
-      );
-    }
-
-    if (destinationProjection != null) {
-      _paintMarker(
-        canvas,
-        projection: destinationProjection,
-        color: isConnected ? destinationColor : _cobeMarkerColor,
-        pulseSeed: 0.45,
-        opacity: ui.lerpDouble(0.84, 1.0, revealProgress) ?? 1.0,
       );
     }
   }
@@ -387,7 +363,9 @@ class _CobeStyleGlobePainter extends CustomPainter {
       return;
     }
 
-    final surfaceDots = <Offset>[];
+    final baseDots = <Offset>[];
+    final sourceDots = <Offset>[];
+    final destinationDots = <Offset>[];
 
     for (final dot in landDots) {
       final projection = _projectVector(
@@ -400,35 +378,79 @@ class _CobeStyleGlobePainter extends CustomPainter {
       if (projection == null) {
         continue;
       }
-      surfaceDots.add(projection.offset);
+      if (dot.countryIndex != 0 && dot.countryIndex == destinationCountryIndex) {
+        destinationDots.add(projection.offset);
+      } else if (dot.countryIndex != 0 &&
+          dot.countryIndex == sourceCountryIndex) {
+        sourceDots.add(projection.offset);
+      } else {
+        baseDots.add(projection.offset);
+      }
     }
 
-    if (surfaceDots.isNotEmpty) {
-      final landColor = isLightTheme
-          ? _cobeLightLandColor
-          : isConnected
-          ? Color.lerp(_cobeLandColor, destinationColor, 0.72) ??
-                destinationColor
-          : _cobeLandColor;
+    final baseLandColor = isLightTheme ? _cobeLightLandColor : _cobeLandColor;
+    final baseDotWidth = math.max(0.95, radius * 0.0052);
 
-      if (isConnected && !isLightTheme) {
-        canvas.drawPoints(
-          ui.PointMode.points,
-          surfaceDots,
-          Paint()
-            ..color = destinationColor.withValues(alpha: 0.18)
-            ..strokeCap = StrokeCap.round
-            ..strokeWidth = math.max(2.2, radius * 0.012),
-        );
-      }
+    if (baseDots.isNotEmpty) {
+      canvas.drawPoints(
+        ui.PointMode.points,
+        baseDots,
+        Paint()
+          ..color = baseLandColor.withValues(
+            alpha: isLightTheme ? 0.42 : 0.66,
+          )
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = baseDotWidth,
+      );
+    }
+
+    if (sourceDots.isNotEmpty) {
+      final sourceStrength = isLightTheme ? 0.85 : 0.9;
+      canvas.drawPoints(
+        ui.PointMode.points,
+        sourceDots,
+        Paint()
+          ..color = sourceColor.withValues(alpha: 0.22 * sourceStrength)
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = baseDotWidth * 2.6,
+      );
+      canvas.drawPoints(
+        ui.PointMode.points,
+        sourceDots,
+        Paint()
+          ..color = sourceColor.withValues(alpha: 0.88 * sourceStrength)
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = baseDotWidth * 1.45,
+      );
+    }
+
+    if (destinationDots.isNotEmpty) {
+      // Страна назначения подсвечивается самими точками карты: цвет набирает
+      // силу по мере подключения и мягко пульсирует на активном соединении.
+      final reveal = Curves.easeOutCubic.transform(
+        revealProgress.clamp(0.0, 1.0),
+      );
+      final pulse = isConnected
+          ? 0.82 + 0.18 * math.sin(pulseProgress * math.pi * 2)
+          : 1.0;
+      final strength = ui.lerpDouble(0.55, 1.0, reveal)! * pulse;
+      final highlightWidth = baseDotWidth * 1.5;
 
       canvas.drawPoints(
         ui.PointMode.points,
-        surfaceDots,
+        destinationDots,
         Paint()
-          ..color = landColor.withValues(alpha: isConnected ? 0.94 : 0.78)
+          ..color = destinationColor.withValues(alpha: 0.20 * strength)
           ..strokeCap = StrokeCap.round
-          ..strokeWidth = math.max(0.95, radius * 0.0048),
+          ..strokeWidth = highlightWidth * 2.8,
+      );
+      canvas.drawPoints(
+        ui.PointMode.points,
+        destinationDots,
+        Paint()
+          ..color = destinationColor.withValues(alpha: 0.95 * strength)
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = highlightWidth,
       );
     }
   }
@@ -550,69 +572,6 @@ class _CobeStyleGlobePainter extends CustomPainter {
     }
   }
 
-  void _paintMarker(
-    Canvas canvas, {
-    required _Projection projection,
-    required Color color,
-    required double pulseSeed,
-    required double opacity,
-  }) {
-    final frontness = ((projection.visibility - 0.14) / 0.86).clamp(0.0, 1.0);
-    if (frontness <= 0.01) {
-      return;
-    }
-
-    final center = projection.offset;
-    final visibleOpacity = opacity.clamp(0.0, 1.0);
-    final depthScale = ui.lerpDouble(0.92, 1.04, frontness) ?? 1.0;
-    final baseRadius =
-        (math.max(4.2, projection.visualRadius * 0.023) * depthScale);
-    final auraRadius =
-        (math.max(10.5, projection.visualRadius * 0.058) * depthScale);
-
-    for (final extraSeed in [pulseSeed, pulseSeed + 0.5]) {
-      final progress = (pulseProgress + extraSeed) % 1.0;
-      final ringRadius = ui.lerpDouble(
-        baseRadius * 1.1,
-        auraRadius * 1.8,
-        progress,
-      )!;
-      final ringOpacity = (1 - progress) * 0.72 * visibleOpacity * frontness;
-      canvas.drawCircle(
-        center,
-        ringRadius,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = math.max(1.0, projection.visualRadius * 0.008)
-          ..color = color.withValues(alpha: ringOpacity),
-      );
-    }
-
-    canvas.drawCircle(
-      center,
-      auraRadius * 0.82,
-      Paint()..color = color.withValues(alpha: 0.10 * visibleOpacity),
-    );
-    canvas.drawCircle(
-      center,
-      baseRadius + 2.6,
-      Paint()..color = Colors.black.withValues(alpha: 0.98 * visibleOpacity),
-    );
-    canvas.drawCircle(
-      center,
-      baseRadius + 0.9,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(1.1, projection.visualRadius * 0.007)
-        ..color = color.withValues(alpha: 1.0 * visibleOpacity),
-    );
-    canvas.drawCircle(
-      center,
-      baseRadius,
-      Paint()..color = color.withValues(alpha: 1.0 * visibleOpacity),
-    );
-  }
-
   @override
   bool shouldRepaint(covariant _CobeStyleGlobePainter oldDelegate) {
     return oldDelegate.landDots != landDots ||
@@ -629,14 +588,17 @@ class _CobeStyleGlobePainter extends CustomPainter {
         oldDelegate.isConnected != isConnected ||
         oldDelegate.isLightTheme != isLightTheme ||
         oldDelegate.sourceColor != sourceColor ||
-        oldDelegate.destinationColor != destinationColor;
+        oldDelegate.destinationColor != destinationColor ||
+        oldDelegate.sourceCountryIndex != sourceCountryIndex ||
+        oldDelegate.destinationCountryIndex != destinationCountryIndex;
   }
 }
 
 class _GlobeLandDot {
-  const _GlobeLandDot({required this.vector});
+  const _GlobeLandDot({required this.vector, required this.countryIndex});
 
   final _Vector3 vector;
+  final int countryIndex;
 }
 
 class _Projection {
@@ -683,7 +645,7 @@ Future<List<_GlobeLandDot>> _loadGlobeLandDots() {
 }
 
 Future<List<_GlobeLandDot>> _parseGlobeLandDots() async {
-  final data = await rootBundle.load('assets/images/cobe_map.png');
+  final data = await rootBundle.load('assets/images/world_map_countries.png');
   final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
   final frame = await codec.getNextFrame();
   final image = frame.image;
@@ -717,14 +679,12 @@ Future<List<_GlobeLandDot>> _parseGlobeLandDots() async {
       continue;
     }
 
-    final luminance =
-        (bytes[pixelIndex] + bytes[pixelIndex + 1] + bytes[pixelIndex + 2]) /
-        (255 * 3);
-    if (luminance < 0.45) {
+    final countryIndex = bytes[pixelIndex];
+    if (countryIndex == 0) {
       continue;
     }
 
-    dots.add(_GlobeLandDot(vector: _Vector3(x, y, z)));
+    dots.add(_GlobeLandDot(vector: _Vector3(x, y, z), countryIndex: countryIndex));
   }
 
   image.dispose();

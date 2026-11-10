@@ -50,3 +50,4 @@ app.*.map.json
 
 # Local debug dumps
 overflow_debug.txt
+tool/globe/*.geojson

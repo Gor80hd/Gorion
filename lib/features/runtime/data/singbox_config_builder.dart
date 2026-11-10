@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
@@ -9,7 +10,7 @@ const managedManualSelectorTag = 'gorion-manual';
 const managedAutoUrlTestTag = 'gorion-auto';
 const managedMixedInboundTag = 'gorion-mixed';
 const managedTunInboundTag = 'gorion-tun';
-const managedTunInterfaceName = 'gorion-tun';
+final managedTunInterfaceName = Platform.isMacOS ? '' : 'gorion-tun';
 const _managedSplitTunnelRuleSetPrefix = 'gorion-split';
 const _managedSplitTunnelInlineBaseTag = 'gorion-split-inline';
 
@@ -79,9 +80,6 @@ class SingboxConfigBuilder {
     if (!_containsTag(outbounds, 'direct')) {
       outbounds.add({'type': 'direct', 'tag': 'direct'});
     }
-    if (!_containsTag(outbounds, 'block')) {
-      outbounds.add({'type': 'block', 'tag': 'block'});
-    }
 
     outbounds.add({
       'type': 'selector',
@@ -107,6 +105,35 @@ class SingboxConfigBuilder {
     route['auto_detect_interface'] = true;
     route['final'] = managedManualSelectorTag;
     _applySplitTunnel(route: route, settings: splitTunnelSettings);
+    if (mode.usesTun) {
+      route['rules'] = [
+        {'inbound': managedTunInboundTag, 'action': 'sniff'},
+        {
+          'inbound': managedTunInboundTag,
+          'protocol': 'dns',
+          'action': 'hijack-dns',
+        },
+        ..._cloneList(route['rules']),
+      ];
+      if (_cloneMap(config['dns']).isEmpty) {
+        // Resolve VPN hostnames outside the tunnel to avoid a bootstrap
+        // cycle; client DNS goes through the selected VPN outbound.
+        config['dns'] = {
+          'servers': [
+            {'type': 'local', 'tag': 'gorion-bootstrap'},
+            {
+              'type': 'https',
+              'tag': 'gorion-dns',
+              'server': '1.1.1.1',
+              'tls': {'enabled': true, 'server_name': 'cloudflare-dns.com'},
+              'detour': managedManualSelectorTag,
+            },
+          ],
+          'final': 'gorion-dns',
+        };
+        route.putIfAbsent('default_domain_resolver', () => 'gorion-bootstrap');
+      }
+    }
     config['route'] = route;
 
     final log = _cloneMap(config['log']);
@@ -197,8 +224,9 @@ class SingboxConfigBuilder {
       }
       managedRules.add({
         'rule_set': managedRuleSetTags,
-        'action': 'route',
-        'outbound': _outboundForSplitTunnelAction(action),
+        'action': action == SplitTunnelAction.block ? 'reject' : 'route',
+        if (action != SplitTunnelAction.block)
+          'outbound': _outboundForSplitTunnelAction(action),
       });
     }
 

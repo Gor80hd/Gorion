@@ -4,6 +4,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/features/profiles/data/profile_parser.dart';
 
 void main() {
+  test('rejects XHTTP instead of silently importing it as TCP', () {
+    expect(
+      () => ProfileParser().parseContent(
+        rawContent:
+            'vless://00000000-0000-4000-8000-000000000001@example.com:443?type=xhttp',
+        source: Uri.parse('https://example.com/sub'),
+      ),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
   group('ProfileParser', () {
     test('parseContent extracts profile name and servers from JSON config', () {
       final parser = ProfileParser();

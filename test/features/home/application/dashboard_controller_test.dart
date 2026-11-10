@@ -831,42 +831,23 @@ void main() {
     );
 
     test(
-      'connect waits for the system proxy startup settle gate before finalizing the session',
+      'connect stops the runtime when a post-start step fails',
       () async {
         final runtimeService = _FakeRuntimeService(startSession: _session);
-        final autoSelectorService = _ScriptedAutoSelectorService(
-          verifyResponses: [
-            Future<AutoSelectProbeResult>.value(
-              const AutoSelectProbeResult(
-                serverTag: 'server-a',
-                urlTestDelay: 48,
-                domainProbeOk: true,
-                ipProbeOk: true,
-                throughputBytesPerSecond: 64 * 1024,
-              ),
-            ),
-          ],
-        );
-        final pauseCompleter = Completer<void>();
-        final pauseDurations = <Duration>[];
         final controller = DashboardController(
           repository: _FakeProfileRepository(initialStorage: _manualStorage),
           runtimeService: runtimeService,
           autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
           autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
-          autoSelectorService: autoSelectorService,
+          autoSelectorService: _ScriptedAutoSelectorService(),
           clashApiClientFactory: (_) => _FakeClashApiClient(
             snapshot: const ClashApiSnapshot(
               selectedTag: 'server-a',
               delayByTag: {'server-a': 48},
             ),
             delays: const {'server-a': 48},
+            snapshotError: StateError('snapshot failed'),
           ),
-          systemProxyStartupSettleDelay: const Duration(milliseconds: 1500),
-          pause: (duration) {
-            pauseDurations.add(duration);
-            return pauseCompleter.future;
-          },
           initialState: DashboardState(
             bootstrapping: false,
             runtimeMode: RuntimeMode.systemProxy,
@@ -879,21 +860,13 @@ void main() {
         );
         addTearDown(controller.dispose);
 
-        final connectFuture = controller.connect();
-        await _flushAsync();
+        await controller.connect();
 
         expect(runtimeService.startCallCount, 1);
-        expect(pauseDurations, [const Duration(milliseconds: 1500)]);
-        expect(autoSelectorService.verifyCallCount, 0);
-        expect(controller.state.connectionStage, ConnectionStage.starting);
+        expect(runtimeService.stopCallCount, 1);
+        expect(controller.state.connectionStage, ConnectionStage.failed);
         expect(controller.state.runtimeSession, isNull);
-
-        pauseCompleter.complete();
-        await connectFuture;
-
-        expect(autoSelectorService.verifyCallCount, 1);
-        expect(controller.state.connectionStage, ConnectionStage.connected);
-        expect(controller.state.runtimeSession, same(_session));
+        expect(controller.state.errorMessage, isNotNull);
       },
     );
 
@@ -2247,6 +2220,11 @@ class _FakeElevationRelaunchPromptService
   }) async {
     return confirmed;
   }
+
+  @override
+  Future<bool> confirmPrivilegedHelperInstall() async {
+    return confirmed;
+  }
 }
 
 class _ScriptedAutoSelectorService extends AutoSelectorService {
@@ -2338,11 +2316,13 @@ class _FakeClashApiClient extends ClashApiClient {
     required this.snapshot,
     required this.delays,
     this.selectProxyError,
+    this.snapshotError,
   }) : super(baseUrl: 'http://127.0.0.1:9090', secret: 'secret');
 
   final ClashApiSnapshot snapshot;
   final Map<String, int> delays;
   final Object? selectProxyError;
+  final Object? snapshotError;
   final List<String> selectedProxyTags = <String>[];
 
   @override
@@ -2359,6 +2339,10 @@ class _FakeClashApiClient extends ClashApiClient {
 
   @override
   Future<ClashApiSnapshot> fetchSnapshot({required String selectorTag}) async {
+    final error = snapshotError;
+    if (error != null) {
+      throw error;
+    }
     return snapshot;
   }
 

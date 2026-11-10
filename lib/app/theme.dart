@@ -1,21 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:gorion_clean/app/theme_settings.dart';
 
-const gorionDefaultWindowBackground = Color(0xFF06110B);
+const gorionDefaultWindowBackground = Color(0xFF050D0A);
 const _fontFamily = 'IBMPlexSans';
 
-const gorionBackgroundStart = Color(0xFF000000);
-const gorionBackgroundEnd = Color(0xFF00140C);
-const gorionCanvas = Color(0xFF06110B);
-const gorionSurface = Color(0xFF101B16);
-const gorionSurfaceVariant = Color(0xFF172721);
-const gorionOnSurface = Color(0xFFE7F6EF);
-const gorionOnSurfaceMuted = Color(0xFF7FA395);
+// Единая фирменная палитра Gorion: два выверенных режима (светлый и тёмный)
+// без выбора цветовых гамм.
 const gorionAccent = Color(0xFF1EFFAC);
-const gorionAccentDim = Color(0xFF0E865E);
-const gorionMonochromeLightAccent = Color(0xFF111111);
-const gorionMonochromeLightSecondary = Color(0xFF3E3E3E);
-const gorionMonochromeLightTertiary = Color(0xFF6E6E6E);
+const gorionAccentLight = Color(0xFF0B7A57);
+const gorionOnSurface = Color(0xFFE9F6EF);
+const gorionOnSurfaceMuted = Color(0xFF8AA897);
 
 @immutable
 class GorionThemeTokens extends ThemeExtension<GorionThemeTokens> {
@@ -44,31 +37,24 @@ class GorionThemeTokens extends ThemeExtension<GorionThemeTokens> {
         radius: 1.22,
         colors: [
           Colors.black,
-          Color.lerp(backgroundStart, Colors.black, 0.90)!,
-          Color.lerp(backgroundStart, Colors.black, 0.58)!,
-          Color.lerp(backgroundEnd, Colors.black, 0.50)!,
+          Color.lerp(backgroundStart, Colors.black, 0.88)!,
+          Color.lerp(backgroundStart, Colors.black, 0.52)!,
+          Color.lerp(backgroundEnd, Colors.black, 0.42)!,
         ],
         stops: const [0.0, 0.10, 0.38, 1.0],
       );
     }
-
-    final lightBackgroundAccent = Color.lerp(
-      backgroundAccent,
-      Colors.white,
-      0.60,
-    )!;
 
     return RadialGradient(
       center: const Alignment(0, -0.12),
       radius: 1.10,
       colors: [
         Colors.white,
-        Color.lerp(Colors.white, lightBackgroundAccent, 0.06)!,
-        Color.lerp(Colors.white, lightBackgroundAccent, 0.16)!,
-        Color.lerp(backgroundEnd, lightBackgroundAccent, 0.58)!,
-        Color.lerp(lightBackgroundAccent, backgroundEnd, 0.18)!,
+        Color.lerp(Colors.white, backgroundStart, 0.55)!,
+        backgroundStart,
+        backgroundEnd,
       ],
-      stops: const [0.0, 0.42, 0.74, 0.91, 1.0],
+      stops: const [0.0, 0.45, 0.78, 1.0],
     );
   }
 
@@ -139,17 +125,7 @@ extension GorionThemeDataX on ThemeData {
     return extension<GorionThemeTokens>() ?? _fallbackGorionTokens(this);
   }
 
-  bool get isMonochromeLightGorion {
-    return brightness == Brightness.light &&
-        colorScheme.primary.toARGB32() ==
-            gorionMonochromeLightAccent.toARGB32() &&
-        colorScheme.secondary.toARGB32() ==
-            gorionMonochromeLightSecondary.toARGB32();
-  }
-
-  Color get brandAccent {
-    return isMonochromeLightGorion ? gorionAccent : colorScheme.primary;
-  }
+  Color get brandAccent => colorScheme.primary;
 
   Color surfaceTextColor({double darkAlpha = 1.0, double lightAlpha = 1.0}) {
     return colorScheme.onSurface.withValues(
@@ -179,171 +155,60 @@ extension GorionThemeDataX on ThemeData {
 GorionThemeTokens _fallbackGorionTokens(ThemeData theme) {
   final scheme = theme.colorScheme;
   final isDark = theme.brightness == Brightness.dark;
-  final scaffold = theme.scaffoldBackgroundColor;
-  final surface = scheme.surface;
 
   return GorionThemeTokens(
-    backgroundStart: isDark
-        ? _mix(scaffold, Colors.black, 0.10)
-        : _mix(scaffold, scheme.primary, 0.045),
-    backgroundEnd: isDark
-        ? _mix(surface, scheme.primary, 0.18)
-        : _mix(surface, scheme.primary, 0.13),
+    backgroundStart: isDark ? const Color(0xFF030807) : const Color(0xFFFBFDFC),
+    backgroundEnd: isDark ? const Color(0xFF0A1A12) : const Color(0xFFE7F0EB),
     backgroundAccent: scheme.primary,
-    onSurfaceMuted: isDark
-        ? _mix(scheme.onSurface, surface, 0.35)
-        : _mix(scheme.onSurface, scheme.surface, 0.30),
-    atmospherePrimary: scheme.primary.withValues(alpha: isDark ? 0.14 : 0.032),
+    onSurfaceMuted: isDark ? gorionOnSurfaceMuted : const Color(0xFF55675E),
+    atmospherePrimary: scheme.primary.withValues(alpha: isDark ? 0.14 : 0.05),
     atmosphereSecondary: scheme.secondary.withValues(
-      alpha: isDark ? 0.10 : 0.022,
+      alpha: isDark ? 0.10 : 0.04,
     ),
     atmosphereTertiary: scheme.tertiary.withValues(
-      alpha: isDark ? 0.08 : 0.018,
+      alpha: isDark ? 0.08 : 0.03,
     ),
   );
 }
 
-class AppThemePalettePresentation {
-  const AppThemePalettePresentation({
-    required this.title,
-    required this.description,
-    required this.previewColor,
-  });
-
-  final String title;
-  final String description;
-  final Color previewColor;
-}
-
-class _PaletteAccentSet {
-  const _PaletteAccentSet({
-    required this.accent,
-    required this.secondary,
-    required this.tertiary,
-  });
-
-  final Color accent;
-  final Color secondary;
-  final Color tertiary;
-}
-
-AppThemePalettePresentation describeAppThemePalette(AppThemePalette palette) {
-  final accents = _paletteAccents(palette);
-  return AppThemePalettePresentation(
-    title: palette.title,
-    description: palette.description,
-    previewColor: accents.accent,
-  );
-}
-
-ThemeData buildGorionTheme({
-  required Brightness brightness,
-  required AppThemePalette palette,
-}) {
-  final isMonochromeLight =
-      brightness == Brightness.light && palette == AppThemePalette.emerald;
-  final baseAccents = isMonochromeLight
-      ? const _PaletteAccentSet(
-          accent: gorionMonochromeLightAccent,
-          secondary: gorionMonochromeLightSecondary,
-          tertiary: gorionMonochromeLightTertiary,
-        )
-      : _paletteAccents(palette);
-  final accents = _resolvedPaletteAccents(palette, brightness);
+ThemeData buildGorionTheme({required Brightness brightness}) {
   final isDark = brightness == Brightness.dark;
 
-  final canvas = isDark
-      ? _mix(const Color(0xFF07110D), accents.accent, 0.10)
-      : isMonochromeLight
-      ? const Color(0xFFFFFFFF)
-      : _mix(const Color(0xFFF7FBF9), baseAccents.accent, 0.07);
-  final surface = isDark
-      ? _mix(const Color(0xFF111B17), accents.accent, 0.08)
-      : isMonochromeLight
-      ? const Color(0xFFFFFFFF)
-      : _mix(const Color(0xFFFFFFFF), baseAccents.accent, 0.11);
+  final accent = isDark ? gorionAccent : gorionAccentLight;
+  final secondary = isDark ? const Color(0xFF57E3D0) : const Color(0xFF0E865E);
+  final tertiary = isDark ? const Color(0xFF72A8FF) : const Color(0xFF3D6FB4);
+
+  final canvas = isDark ? const Color(0xFF060F0B) : const Color(0xFFF5F8F6);
+  final surface = isDark ? const Color(0xFF0C1811) : const Color(0xFFFFFFFF);
   final surfaceVariant = isDark
-      ? _mix(const Color(0xFF172520), accents.accent, 0.14)
-      : isMonochromeLight
-      ? const Color(0xFFF3F3F3)
-      : _mix(
-          _mix(const Color(0xFFF5FAF7), baseAccents.secondary, 0.10),
-          baseAccents.accent,
-          0.18,
-        );
+      ? const Color(0xFF12241B)
+      : const Color(0xFFEDF2EF);
   final backgroundStart = isDark
-      ? _mix(const Color(0xFF020303), accents.accent, 0.10)
-      : isMonochromeLight
-      ? const Color(0xFFFFFFFF)
-      : _mix(const Color(0xFFF9FCFA), baseAccents.accent, 0.09);
+      ? const Color(0xFF030807)
+      : const Color(0xFFFBFDFC);
   final backgroundEnd = isDark
-      ? _mix(const Color(0xFF081711), accents.accent, 0.22)
-      : isMonochromeLight
-      ? Color.lerp(const Color(0xFFE8ECE8), gorionAccent, 0.08)!
-      : _mix(const Color(0xFFE8F2EC), baseAccents.secondary, 0.24);
-  final onSurface = isDark
-      ? const Color(0xFFE8F5EF)
-      : isMonochromeLight
-      ? const Color(0xFF050505)
-      : _mix(const Color(0xFF1B2520), baseAccents.secondary, 0.38);
+      ? const Color(0xFF0A1A12)
+      : const Color(0xFFE7F0EB);
+  final onSurface = isDark ? gorionOnSurface : const Color(0xFF12201A);
   final onSurfaceMuted = isDark
-      ? _mix(const Color(0xFF7FA395), accents.accent, 0.22)
-      : isMonochromeLight
-      ? const Color(0xFF626262)
-      : _mix(const Color(0xFF607067), baseAccents.secondary, 0.34);
-  final outline = isDark
-      ? _mix(const Color(0xFF274439), accents.accent, 0.18)
-      : isMonochromeLight
-      ? const Color(0xFFBDBDBD)
-      : _mix(const Color(0xFFAAC2B6), baseAccents.secondary, 0.32);
+      ? gorionOnSurfaceMuted
+      : const Color(0xFF55675E);
+  final outline = isDark ? const Color(0xFF25453A) : const Color(0xFFB7C7BE);
   final outlineVariant = isDark
-      ? _mix(const Color(0xFF1A3128), accents.accent, 0.14)
-      : isMonochromeLight
-      ? const Color(0xFFE5E5E5)
-      : _mix(const Color(0xFFD6E4DD), baseAccents.accent, 0.18);
-  final error = isDark
-      ? const Color(0xFFFF7373)
-      : isMonochromeLight
-      ? const Color(0xFF1F1F1F)
-      : const Color(0xFFB42318);
-  final onPrimary =
-      ThemeData.estimateBrightnessForColor(accents.accent) == Brightness.dark
-      ? Colors.white
-      : const Color(0xFF05110B);
-  final onSecondary =
-      ThemeData.estimateBrightnessForColor(accents.secondary) == Brightness.dark
-      ? Colors.white
-      : onSurface;
-  final onTertiary =
-      ThemeData.estimateBrightnessForColor(accents.tertiary) == Brightness.dark
-      ? Colors.white
-      : const Color(0xFF09101A);
-  final bodyMediumColor = isDark
-      ? onSurfaceMuted
-      : onSurface.withValues(alpha: 0.94);
-  final bodySmallColor = isDark
-      ? onSurfaceMuted
-      : onSurfaceMuted.withValues(alpha: 0.96);
-  final hintColor = isDark
-      ? onSurfaceMuted
-      : onSurfaceMuted.withValues(alpha: 0.86);
-  final iconColor = isDark
-      ? onSurfaceMuted
-      : onSurfaceMuted.withValues(alpha: 0.96);
-  final shadowColor = isDark
-      ? Colors.black
-      : isMonochromeLight
-      ? const Color(0xFF6A6A6A)
-      : _mix(const Color(0xFF6D8378), baseAccents.secondary, 0.18);
+      ? const Color(0xFF183026)
+      : const Color(0xFFDCE5DF);
+  final error = isDark ? const Color(0xFFFF7373) : const Color(0xFFB42318);
+  final onPrimary = isDark ? const Color(0xFF04120B) : const Color(0xFFFFFFFF);
+  final shadowColor = isDark ? Colors.black : const Color(0xFF44564D);
 
   final scheme = ColorScheme(
     brightness: brightness,
-    primary: accents.accent,
+    primary: accent,
     onPrimary: onPrimary,
-    secondary: accents.secondary,
-    onSecondary: onSecondary,
-    tertiary: accents.tertiary,
-    onTertiary: onTertiary,
+    secondary: secondary,
+    onSecondary: isDark ? const Color(0xFF04120B) : Colors.white,
+    tertiary: tertiary,
+    onTertiary: isDark ? const Color(0xFF04120B) : Colors.white,
     error: error,
     onError: const Color(0xFFFFFFFF),
     surface: surface,
@@ -356,34 +221,11 @@ ThemeData buildGorionTheme({
   final tokens = GorionThemeTokens(
     backgroundStart: backgroundStart,
     backgroundEnd: backgroundEnd,
-    backgroundAccent: isDark
-        ? accents.accent
-        : isMonochromeLight
-        ? gorionAccent
-        : baseAccents.accent,
+    backgroundAccent: accent,
     onSurfaceMuted: onSurfaceMuted,
-    atmospherePrimary: (isDark ? accents.accent : baseAccents.accent)
-        .withValues(
-          alpha: isDark
-              ? 0.14
-              : isMonochromeLight
-              ? 0.028
-              : 0.032,
-        ),
-    atmosphereSecondary: accents.secondary.withValues(
-      alpha: isDark
-          ? 0.10
-          : isMonochromeLight
-          ? 0.018
-          : 0.022,
-    ),
-    atmosphereTertiary: accents.tertiary.withValues(
-      alpha: isDark
-          ? 0.08
-          : isMonochromeLight
-          ? 0.014
-          : 0.018,
-    ),
+    atmospherePrimary: accent.withValues(alpha: isDark ? 0.14 : 0.05),
+    atmosphereSecondary: secondary.withValues(alpha: isDark ? 0.10 : 0.04),
+    atmosphereTertiary: tertiary.withValues(alpha: isDark ? 0.08 : 0.03),
   );
 
   final baseTextStyle = TextStyle(fontFamily: _fontFamily, color: onSurface);
@@ -402,22 +244,25 @@ ThemeData buildGorionTheme({
     displaySmall: baseTextStyle.copyWith(
       fontSize: 36,
       fontWeight: FontWeight.w600,
+      letterSpacing: -0.6,
     ),
     headlineLarge: baseTextStyle.copyWith(
       fontSize: 32,
       fontWeight: FontWeight.w700,
-      letterSpacing: -1.0,
+      letterSpacing: -0.8,
     ),
     headlineMedium: baseTextStyle.copyWith(
       fontSize: 28,
       fontWeight: FontWeight.w600,
+      letterSpacing: -0.4,
     ),
     headlineSmall: baseTextStyle.copyWith(
       fontSize: 24,
       fontWeight: FontWeight.w600,
+      letterSpacing: -0.2,
     ),
     titleLarge: baseTextStyle.copyWith(
-      fontSize: 22,
+      fontSize: 20,
       fontWeight: FontWeight.w600,
     ),
     titleMedium: baseTextStyle.copyWith(
@@ -431,16 +276,19 @@ ThemeData buildGorionTheme({
     bodyLarge: baseTextStyle.copyWith(
       fontSize: 16,
       fontWeight: FontWeight.w400,
+      height: 1.55,
     ),
     bodyMedium: baseTextStyle.copyWith(
       fontSize: 14,
       fontWeight: FontWeight.w400,
-      color: bodyMediumColor,
+      color: isDark ? onSurfaceMuted : onSurface.withValues(alpha: 0.80),
+      height: 1.5,
     ),
     bodySmall: baseTextStyle.copyWith(
       fontSize: 12,
       fontWeight: FontWeight.w400,
-      color: bodySmallColor,
+      color: onSurfaceMuted,
+      height: 1.45,
     ),
     labelLarge: baseTextStyle.copyWith(
       fontSize: 14,
@@ -453,8 +301,12 @@ ThemeData buildGorionTheme({
     labelSmall: baseTextStyle.copyWith(
       fontSize: 11,
       fontWeight: FontWeight.w500,
-      letterSpacing: 0.5,
+      letterSpacing: 0.4,
     ),
+  );
+
+  final buttonShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(12),
   );
 
   return ThemeData(
@@ -480,83 +332,96 @@ ThemeData buildGorionTheme({
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: surfaceVariant,
+      fillColor: isDark
+          ? onSurface.withValues(alpha: 0.05)
+          : onSurface.withValues(alpha: 0.04),
       hintStyle: TextStyle(
         fontFamily: _fontFamily,
-        color: hintColor,
+        color: onSurfaceMuted,
         fontSize: 14,
       ),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: outline),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: outlineVariant),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: accents.accent, width: 1.4),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: accent, width: 1.4),
       ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     ),
     cardTheme: CardThemeData(
       color: surface,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         side: BorderSide(color: outlineVariant),
       ),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: accents.accent,
+        backgroundColor: accent,
         foregroundColor: onPrimary,
+        elevation: 0,
         textStyle: const TextStyle(
           fontFamily: _fontFamily,
+          fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+        shape: buttonShape,
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: accents.accent,
+        backgroundColor: accent,
         foregroundColor: onPrimary,
         textStyle: const TextStyle(
           fontFamily: _fontFamily,
+          fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+        shape: buttonShape,
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        foregroundColor: accents.accent,
-        side: BorderSide(color: accents.secondary),
+        foregroundColor: onSurface,
+        side: BorderSide(color: outline, width: 1),
         textStyle: const TextStyle(
           fontFamily: _fontFamily,
+          fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+        shape: buttonShape,
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: accents.accent,
+        foregroundColor: accent,
         textStyle: const TextStyle(
           fontFamily: _fontFamily,
+          fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
+        shape: buttonShape,
       ),
     ),
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(foregroundColor: onSurfaceMuted),
+    ),
     chipTheme: ChipThemeData(
-      side: BorderSide(color: outline),
-      selectedColor: accents.accent.withValues(alpha: isDark ? 0.18 : 0.12),
-      backgroundColor: surfaceVariant,
+      side: BorderSide(color: outlineVariant),
+      selectedColor: accent.withValues(alpha: isDark ? 0.20 : 0.14),
+      backgroundColor: isDark
+          ? onSurface.withValues(alpha: 0.05)
+          : onSurface.withValues(alpha: 0.04),
       labelStyle: TextStyle(
         fontFamily: _fontFamily,
         fontSize: 12,
@@ -565,99 +430,86 @@ ThemeData buildGorionTheme({
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
     ),
+    sliderTheme: SliderThemeData(
+      activeTrackColor: accent,
+      thumbColor: accent,
+      inactiveTrackColor: onSurface.withValues(alpha: isDark ? 0.12 : 0.10),
+      overlayColor: accent.withValues(alpha: 0.12),
+      trackHeight: 3,
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return isDark ? const Color(0xFF04120B) : Colors.white;
+        }
+        return onSurfaceMuted;
+      }),
+      trackColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return accent;
+        }
+        return onSurface.withValues(alpha: isDark ? 0.14 : 0.10);
+      }),
+      trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return Colors.transparent;
+        }
+        return onSurface.withValues(alpha: isDark ? 0.16 : 0.14);
+      }),
+    ),
     dividerTheme: DividerThemeData(color: outlineVariant, thickness: 1),
-    iconTheme: IconThemeData(color: iconColor),
+    iconTheme: IconThemeData(color: onSurfaceMuted),
     popupMenuTheme: PopupMenuThemeData(
-      color: surface,
+      color: isDark ? const Color(0xFF101D15) : Colors.white,
+      elevation: 16,
+      shadowColor: shadowColor.withValues(alpha: 0.4),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: outline),
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: outlineVariant),
       ),
       textStyle: TextStyle(
         fontFamily: _fontFamily,
         fontSize: 13,
+        fontWeight: FontWeight.w500,
         color: onSurface,
       ),
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      backgroundColor: isDark ? const Color(0xFF0E1A13) : Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: isDark ? const Color(0xFF16281E) : const Color(0xFF12201A),
+      contentTextStyle: TextStyle(
+        fontFamily: _fontFamily,
+        fontSize: 13,
+        color: isDark ? onSurface : Colors.white,
+      ),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ),
     tooltipTheme: TooltipThemeData(
       decoration: BoxDecoration(
-        color: surfaceVariant,
+        color: isDark ? const Color(0xFF16281E) : const Color(0xFF12201A),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: outline),
+        border: Border.all(
+          color: isDark ? outline : Colors.transparent,
+        ),
       ),
-      textStyle: TextStyle(
+      textStyle: const TextStyle(
         fontFamily: _fontFamily,
         fontSize: 12,
-        color: onSurface,
+        color: Colors.white,
       ),
     ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      color: accent,
+      linearTrackColor: onSurface.withValues(alpha: isDark ? 0.10 : 0.08),
+    ),
     scrollbarTheme: ScrollbarThemeData(
-      thumbColor: WidgetStateProperty.all(outline),
+      thumbColor: WidgetStateProperty.all(
+        onSurface.withValues(alpha: isDark ? 0.18 : 0.22),
+      ),
     ),
   );
-}
-
-_PaletteAccentSet _paletteAccents(AppThemePalette palette) {
-  return switch (palette) {
-    AppThemePalette.emerald => const _PaletteAccentSet(
-      accent: Color(0xFF1EFFAC),
-      secondary: Color(0xFF0E865E),
-      tertiary: Color(0xFF72A8FF),
-    ),
-    AppThemePalette.ocean => const _PaletteAccentSet(
-      accent: Color(0xFF3EC6FF),
-      secondary: Color(0xFF1D7EA3),
-      tertiary: Color(0xFF57E3D0),
-    ),
-    AppThemePalette.amber => const _PaletteAccentSet(
-      accent: Color(0xFFFFC857),
-      secondary: Color(0xFFB87818),
-      tertiary: Color(0xFFFF8A5B),
-    ),
-    AppThemePalette.rose => const _PaletteAccentSet(
-      accent: Color(0xFFFF7A90),
-      secondary: Color(0xFFB54968),
-      tertiary: Color(0xFFFFB86C),
-    ),
-  };
-}
-
-_PaletteAccentSet _resolvedPaletteAccents(
-  AppThemePalette palette,
-  Brightness brightness,
-) {
-  if (brightness == Brightness.light && palette == AppThemePalette.emerald) {
-    return const _PaletteAccentSet(
-      accent: gorionMonochromeLightAccent,
-      secondary: gorionMonochromeLightSecondary,
-      tertiary: gorionMonochromeLightTertiary,
-    );
-  }
-
-  final base = _paletteAccents(palette);
-  if (brightness == Brightness.dark) {
-    return base;
-  }
-
-  return _PaletteAccentSet(
-    accent: _accentOnLightSurface(base.accent, amount: 0.28),
-    secondary: _accentOnLightSurface(base.secondary, amount: 0.10),
-    tertiary: _accentOnLightSurface(base.tertiary, amount: 0.16),
-  );
-}
-
-Color _accentOnLightSurface(Color color, {required double amount}) {
-  if (ThemeData.estimateBrightnessForColor(color) == Brightness.dark) {
-    return color;
-  }
-
-  return _mix(color, Colors.black, amount);
-}
-
-Color _mix(Color base, Color tint, double amount) {
-  return Color.lerp(base, tint, amount.clamp(0.0, 1.0))!;
 }

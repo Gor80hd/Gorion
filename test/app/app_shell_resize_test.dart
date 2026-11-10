@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/app/shell.dart';
 import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/app/theme_settings.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
@@ -11,9 +10,6 @@ import 'package:gorion_clean/features/home/application/dashboard_controller.dart
 import 'package:gorion_clean/features/home/widget/home_page.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
-import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
 
 void main() {
   testWidgets('app shell remains stable across window resize', (
@@ -24,10 +20,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           child: MaterialApp(
-            theme: buildGorionTheme(
-              brightness: Brightness.dark,
-              palette: AppThemePalette.emerald,
-            ),
+            theme: buildGorionTheme(brightness: Brightness.dark),
             home: const AppShell(child: HomePage(animateOnMount: false)),
           ),
         ),
@@ -47,7 +40,7 @@ void main() {
   });
 
   testWidgets(
-    'settings and zapret pages stay stable inside app shell during resize',
+    'settings page stays stable inside app shell during resize',
     (WidgetTester tester) async {
       final controller = DashboardController(
         repository: _FakeProfileRepository(),
@@ -60,16 +53,9 @@ void main() {
         initialState: const DashboardState(bootstrapping: false),
         loadOnInit: false,
       );
-      final zapretController = ZapretController(
-        repository: _FakeZapretSettingsRepository(),
-        runtimeService: _FakeZapretRuntimeService(),
-        initialState: const ZapretState(bootstrapping: false),
-        loadOnInit: false,
-      );
       final container = ProviderContainer(
         overrides: [
           dashboardControllerProvider.overrideWith((ref) => controller),
-          zapretControllerProvider.overrideWith((ref) => zapretController),
         ],
       );
       addTearDown(container.dispose);
@@ -81,10 +67,7 @@ void main() {
           UncontrolledProviderScope(
             container: container,
             child: MaterialApp(
-              theme: buildGorionTheme(
-                brightness: Brightness.dark,
-                palette: AppThemePalette.emerald,
-              ),
+              theme: buildGorionTheme(brightness: Brightness.dark),
               home: const AppShell(child: HomePage(animateOnMount: false)),
             ),
           ),
@@ -99,11 +82,6 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 250));
       expect(find.text('Настройки'), findsOneWidget);
-
-      await tester.tap(find.byTooltip('Gorion Boost'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 250));
-      expect(find.text('Gorion Boost'), findsOneWidget);
 
       await pumpAtSize(const Size(1100, 760));
       await pumpAtSize(const Size(900, 560));
@@ -121,7 +99,3 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   @override
   List<String> get logs => const <String>[];
 }
-
-class _FakeZapretSettingsRepository extends ZapretSettingsRepository {}
-
-class _FakeZapretRuntimeService extends ZapretRuntimeService {}

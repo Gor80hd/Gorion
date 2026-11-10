@@ -2,42 +2,85 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:gorion_clean/core/windows/privileged_helper_protocol.dart';
+import 'package:gorion_clean/core/privileged_helper/privileged_helper_protocol.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
 import 'package:gorion_clean/features/runtime/data/windows_winhttp_proxy_service.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
-import 'package:gorion_clean/features/zapret/model/zapret_settings.dart';
+import 'package:uuid/uuid.dart';
+import 'package:gorion_clean/core/process/process_runner.dart';
 
+/// Entry point of the privileged helper process (`--gorion-privileged-helper`).
+///
+/// Windows: the GUI starts the helper on demand through an elevated Scheduled
+/// Task and hands over a one-time bootstrap file with the auth token.
+///
+/// macOS: the helper is a root launchd daemon installed once by the user. It
+/// generates a token per launch and publishes it in a root:admin-readable
+/// state file; the GUI reads it from the shared support directory.
 Future<void> runPrivilegedHelperServer() async {
-  final server = _WindowsPrivilegedHelperServer();
+  if (!isPrivilegedHelperSupported()) {
+    return;
+  }
+  if (Platform.isMacOS) {
+    // The daemon runs as root: keep every runtime artifact in the shared
+    // root-owned location instead of /var/root's Application Support.
+    overrideGorionRuntimeRoot(gorionPrivilegedHelperMacosRuntimeDir);
+  }
+  final server = PrivilegedHelperServer();
   await server.run();
 }
 
-class _WindowsPrivilegedHelperServer {
-  _WindowsPrivilegedHelperServer()
+class PrivilegedHelperServer {
+  PrivilegedHelperServer()
     : _runtimeService = SingboxRuntimeService(),
-      _zapretRuntimeService = ZapretRuntimeService(
-        forceBundledInstallDirectory: true,
-      ),
       _winHttpProxyService = const WindowsWinHttpProxyService();
 
   final SingboxRuntimeService _runtimeService;
-  final ZapretRuntimeService _zapretRuntimeService;
   final WindowsWinHttpProxyService _winHttpProxyService;
   HttpServer? _server;
-  int? _lastZapretExitCode;
+  Timer? _ownerTimer;
+  bool _checkingOwner = false;
+  Future<void> _mutations = Future<void>.value();
+  int _ownerGeneration = 0;
   String? _authToken;
   PrivilegedHelperConnectionInfo? _connectionInfo;
   WindowsWinHttpProxySettings? _previousWinHttpSettings;
   WindowsWinHttpProxySettings? _managedWinHttpSettings;
 
   Future<void> run() async {
-    if (!Platform.isWindows) {
+    if (Platform.isMacOS) {
+      await _runMacosDaemon();
+      return;
+    }
+    if (Platform.isWindows) {
+      await _runWindowsHelper();
+      return;
+    }
+  }
+
+  Future<void> _runMacosDaemon() async {
+    // Ensures the shared runtime directory exists before the core starts.
+    await ensureGorionRuntimeDirectory();
+    _authToken = const Uuid().v4();
+    _connectionInfo = PrivilegedHelperConnectionInfo(
+      token: _authToken,
+      launchId: const Uuid().v4(),
+    );
+
+    if (!await _bindServer()) {
       return;
     }
 
+    await _writeMacosStateFile();
+
+    // A previous daemon instance may have left a sing-box core behind.
+    await _runtimeService.recoverFromPreviousSession();
+
+    await _serve();
+  }
+
+  Future<void> _runWindowsHelper() async {
     final runtimeDir = await ensureGorionRuntimeDirectory(
       subdirectory: 'privileged-helper',
     );
@@ -61,21 +104,13 @@ class _WindowsPrivilegedHelperServer {
       launchId: bootstrap.launchId,
     );
 
-    try {
-      _server = await HttpServer.bind(
-        InternetAddress.loopbackIPv4,
-        _connectionInfo!.port,
-      );
-    } on SocketException catch (error) {
+    if (!await _bindServer()) {
       await _writeFailureState(
         runtimeDir,
         _connectionInfo!.copyWith(
           lastError:
-              'Failed to bind the privileged helper to ${_connectionInfo!.host}:${_connectionInfo!.port}: $error',
+              'Failed to bind the privileged helper to ${_connectionInfo!.host}:${_connectionInfo!.port}.',
         ),
-      );
-      stderr.writeln(
-        'Gorion privileged helper failed to bind to ${_connectionInfo!.host}:${_connectionInfo!.port}: $error',
       );
       return;
     }
@@ -85,8 +120,39 @@ class _WindowsPrivilegedHelperServer {
       _connectionInfo!.copyWith(pid: pid, clearLastError: true),
     );
 
+    await _serve();
+  }
+
+  Future<bool> _bindServer() async {
+    try {
+      _server = await HttpServer.bind(
+        InternetAddress.loopbackIPv4,
+        _connectionInfo!.port,
+      );
+      return true;
+    } on SocketException catch (error) {
+      stderr.writeln(
+        'Gorion privileged helper failed to bind to ${_connectionInfo!.host}:${_connectionInfo!.port}: $error',
+      );
+      return false;
+    }
+  }
+
+  Future<void> _serve() async {
     await for (final request in _server!) {
-      unawaited(_handleRequest(request));
+      if (request.method == 'POST') {
+        _mutations = _mutations.then((_) => _handleRequest(request)).catchError(
+          (Object error) {
+            stderr.writeln('Helper request failed: $error');
+          },
+        );
+      } else {
+        unawaited(
+          _handleRequest(request).catchError((Object error) {
+            stderr.writeln('Helper request failed: $error');
+          }),
+        );
+      }
     }
   }
 
@@ -99,6 +165,7 @@ class _WindowsPrivilegedHelperServer {
       if (method == 'GET' && path == '/health') {
         await _writeJson(request.response, HttpStatus.ok, {
           'ok': true,
+          'protocolVersion': gorionPrivilegedHelperProtocolVersion,
           'authenticated': authenticated,
           'launchId': _connectionInfo?.launchId,
           'pid': pid,
@@ -126,6 +193,15 @@ class _WindowsPrivilegedHelperServer {
         if (!mode.usesTun) {
           throw StateError('Privileged helper can only start the TUN runtime.');
         }
+        final ownerPid = (body['ownerPid'] as num?)?.toInt();
+        if (Platform.isMacOS) {
+          if (ownerPid == null || ownerPid <= 1) {
+            throw const FormatException('Missing runtime owner PID.');
+          }
+          final identity = await _ownerIdentity(ownerPid);
+          if (identity.isEmpty) throw StateError('Runtime owner has exited.');
+          _watchOwner(ownerPid, identity);
+        }
         await _runtimeService.start(
           profileId: normalizedJsonString(body['profileId']) ?? '',
           templateConfig: normalizedJsonString(body['templateConfig']) ?? '',
@@ -148,6 +224,8 @@ class _WindowsPrivilegedHelperServer {
         return;
       }
       if (method == 'POST' && path == '/runtime/stop') {
+        _ownerTimer?.cancel();
+        _ownerGeneration++;
         await _runtimeService.stop();
         await _writeJson(
           request.response,
@@ -156,56 +234,9 @@ class _WindowsPrivilegedHelperServer {
         );
         return;
       }
-      if (method == 'GET' && path == '/zapret/state') {
-        await _writeJson(
-          request.response,
-          HttpStatus.ok,
-          _zapretStateSnapshot().toJson(),
-        );
-        return;
-      }
-      if (method == 'POST' && path == '/zapret/start') {
-        final body = await _readJsonBody(request);
-        final settingsJson =
-            asJsonMap(body['settings']) ?? const <String, dynamic>{};
-        _lastZapretExitCode = null;
-        await _zapretRuntimeService.start(
-          settings: ZapretSettings.fromJson(settingsJson),
-          preserveLogs: body['preserveLogs'] == true,
-          onExit: (exitCode) {
-            _lastZapretExitCode = exitCode;
-          },
-        );
-        await _writeJson(
-          request.response,
-          HttpStatus.ok,
-          _zapretStateSnapshot().toJson(),
-        );
-        return;
-      }
-      if (method == 'POST' && path == '/zapret/stop') {
-        await _zapretRuntimeService.stop();
-        await _writeJson(
-          request.response,
-          HttpStatus.ok,
-          _zapretStateSnapshot().toJson(),
-        );
-        return;
-      }
-      if (method == 'POST' && path == '/zapret/record-diagnostic') {
-        final body = await _readJsonBody(request);
-        _zapretRuntimeService.recordDiagnostic(
-          normalizedJsonString(body['line']) ?? '',
-          isError: body['isError'] == true,
-        );
-        await _writeJson(
-          request.response,
-          HttpStatus.ok,
-          _zapretStateSnapshot().toJson(),
-        );
-        return;
-      }
-      if (method == 'POST' && path == '/windows/winhttp-proxy/managed-enable') {
+      if (Platform.isWindows &&
+          method == 'POST' &&
+          path == '/windows/winhttp-proxy/managed-enable') {
         final body = await _readJsonBody(request);
         final mixedPort = _parseManagedProxyPort(body['mixedPort']);
         final managedSettings = await _enableManagedWinHttpProxy(
@@ -218,7 +249,8 @@ class _WindowsPrivilegedHelperServer {
         });
         return;
       }
-      if (method == 'POST' &&
+      if (Platform.isWindows &&
+          method == 'POST' &&
           path == '/windows/winhttp-proxy/managed-restore') {
         final body = await _readJsonBody(request);
         final mixedPort = _parseManagedProxyPort(body['mixedPort']);
@@ -240,18 +272,41 @@ class _WindowsPrivilegedHelperServer {
     }
   }
 
+  Future<String> _ownerIdentity(int ownerPid) async {
+    final result = await runProcessWithTimeout('/bin/ps', [
+      '-p',
+      '$ownerPid',
+      '-o',
+      'lstart=',
+      '-o',
+      'comm=',
+    ], timeout: const Duration(seconds: 2));
+    return result.exitCode == 0 ? result.stdout.toString().trim() : '';
+  }
+
+  void _watchOwner(int ownerPid, String identity) {
+    _ownerTimer?.cancel();
+    final generation = ++_ownerGeneration;
+    _ownerTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (_checkingOwner) return;
+      _checkingOwner = true;
+      try {
+        final current = await _ownerIdentity(ownerPid);
+        if (generation != _ownerGeneration || current == identity) return;
+        _ownerTimer?.cancel();
+        await _runtimeService.stop();
+      } on Object catch (error) {
+        stderr.writeln('Runtime owner check failed: $error');
+      } finally {
+        _checkingOwner = false;
+      }
+    });
+  }
+
   PrivilegedHelperRuntimeSnapshot _runtimeStateSnapshot() {
     return PrivilegedHelperRuntimeSnapshot(
       session: _runtimeService.session,
       logs: _runtimeService.logs,
-    );
-  }
-
-  PrivilegedHelperZapretSnapshot _zapretStateSnapshot() {
-    return PrivilegedHelperZapretSnapshot(
-      session: _zapretRuntimeService.session,
-      logs: _zapretRuntimeService.logs,
-      lastExitCode: _lastZapretExitCode,
     );
   }
 
@@ -318,7 +373,10 @@ class _WindowsPrivilegedHelperServer {
   }
 
   Future<Map<String, dynamic>> _readJsonBody(HttpRequest request) async {
-    final payload = await utf8.decoder.bind(request).join();
+    final payload = await utf8.decoder
+        .bind(request)
+        .join()
+        .timeout(const Duration(seconds: 15));
     if (payload.trim().isEmpty) {
       return const <String, dynamic>{};
     }
@@ -336,6 +394,36 @@ class _WindowsPrivilegedHelperServer {
     response.headers.contentType = ContentType.json;
     response.write(jsonEncode(payload));
     await response.close();
+  }
+
+  /// macOS: publishes the connection state (token included) into the shared
+  /// support directory. The file is root:admin 0640 — only admin users (the
+  /// ones allowed to install the daemon) can read the token.
+  Future<void> _writeMacosStateFile() async {
+    final stateFile = File(gorionPrivilegedHelperMacosStatePath);
+    await stateFile.parent.create(recursive: true);
+    final pending = File('${stateFile.path}.tmp');
+    await pending.writeAsString(
+      jsonEncode(
+        _connectionInfo!
+            .copyWith(pid: pid, clearLastError: true)
+            .toJson(includeToken: true),
+      ),
+      flush: true,
+    );
+    for (final command in [
+      ['/usr/sbin/chown', 'root:admin', pending.path],
+      ['/bin/chmod', '640', pending.path],
+    ]) {
+      final result = await runProcessWithTimeout(
+        command.first,
+        command.sublist(1),
+      );
+      if (result.exitCode != 0) {
+        throw StateError('Cannot secure helper state file.');
+      }
+    }
+    await pending.rename(stateFile.path);
   }
 
   Future<PrivilegedHelperBootstrapRequest?> _consumeBootstrapRequest(

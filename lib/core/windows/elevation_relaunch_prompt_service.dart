@@ -18,6 +18,10 @@ final elevationRelaunchPromptServiceProvider =
 
 abstract class ElevationRelaunchPromptService {
   Future<bool> confirmRelaunch({required PendingElevatedLaunchAction action});
+
+  /// macOS: installing the privileged helper is a one-time admin action,
+  /// separate from the Windows relaunch-as-admin flow.
+  Future<bool> confirmPrivilegedHelperInstall();
 }
 
 class DialogElevationRelaunchPromptService
@@ -79,17 +83,59 @@ class DialogElevationRelaunchPromptService
     return result == true;
   }
 
+  @override
+  Future<bool> confirmPrivilegedHelperInstall() async {
+    await _ensureWindowVisible();
+
+    final context = navigatorKey.currentContext;
+    if (context == null || !context.mounted) {
+      return false;
+    }
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final scheme = theme.colorScheme;
+        final muted =
+            theme.textTheme.bodyMedium?.color ??
+            scheme.onSurface.withValues(alpha: 0.72);
+
+        return AlertDialog(
+          backgroundColor: scheme.surface,
+          title: Text(
+            'Установить системный компонент?',
+            style: TextStyle(color: scheme.onSurface),
+          ),
+          content: Text(
+            'Режим TUN на macOS требует небольшого системного компонента Gorion, который работает от root и управляет VPN-туннелем. '
+            'Он устанавливается один раз; macOS попросит пароль администратора. '
+            'Без него доступны режимы «Proxy (local)» и «Proxy».',
+            style: TextStyle(color: muted, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Установить'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result == true;
+  }
+
   String _messageForAction(PendingElevatedLaunchAction action) {
     return switch (action) {
       PendingElevatedLaunchAction.connectTun =>
         'Для запуска режима TUN нужны права администратора. '
             'После подтверждения UAC приложение Gorion будет перезапущено и автоматически продолжит подключение.',
-      PendingElevatedLaunchAction.startZapret =>
-        'Для запуска Gorion Boost нужны права администратора. '
-            'После подтверждения UAC приложение Gorion будет перезапущено и автоматически продолжит запуск.',
-      PendingElevatedLaunchAction.testZapretConfigs =>
-        'Для тестирования конфигов Boost нужны права администратора. '
-            'После подтверждения UAC приложение Gorion будет перезапущено и автоматически продолжит тестирование.',
     };
   }
 
@@ -121,5 +167,10 @@ class NoopElevationRelaunchPromptService
     required PendingElevatedLaunchAction action,
   }) async {
     return true;
+  }
+
+  @override
+  Future<bool> confirmPrivilegedHelperInstall() async {
+    return false;
   }
 }

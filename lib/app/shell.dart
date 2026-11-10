@@ -20,9 +20,6 @@ import 'package:gorion_clean/features/settings/application/desktop_settings_cont
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
 import 'package:gorion_clean/features/update/application/app_update_controller.dart';
 import 'package:gorion_clean/features/update/model/app_update_state.dart';
-import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
-import 'package:gorion_clean/features/zapret/model/zapret_models.dart';
-import 'package:gorion_clean/features/zapret/widget/zapret_page.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 import 'package:window_manager/window_manager.dart';
@@ -58,11 +55,9 @@ class AppShell extends ConsumerStatefulWidget {
 class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   AppLifecycleListener? _appLifecycleListener;
   ProviderSubscription<DashboardState>? _dashboardSubscription;
-  ProviderSubscription<ZapretState>? _zapretSubscription;
   Future<void>? _shutdownFuture;
   WindowsTrayController? _trayController;
   bool _startupAutoConnectHandled = false;
-  bool _startupZapretHandled = false;
   bool _windowDestroyInProgress = false;
   String _appVersionLabel = '...';
   late _DockPage _manualCurrentPage;
@@ -83,13 +78,6 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
       dashboardControllerProvider,
       (previous, next) {
         unawaited(_handleDashboardStateChanged(next));
-      },
-      fireImmediately: true,
-    );
-    _zapretSubscription = ref.listenManual<ZapretState>(
-      zapretControllerProvider,
-      (previous, next) {
-        unawaited(_handleZapretStateChanged(next));
       },
       fireImmediately: true,
     );
@@ -118,7 +106,6 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   @override
   void dispose() {
     _dashboardSubscription?.close();
-    _zapretSubscription?.close();
     if (_isDesktop) {
       windowManager.removeListener(this);
     }
@@ -228,16 +215,6 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   Future<void> _handleDashboardStateChanged(DashboardState state) async {
     await _syncTrayState(state: state);
     await _maybeAutoConnectOnStartup(state);
-    await _syncZapretTunConflict(ref.read(dashboardControllerProvider));
-    await _maybeAutoStartZapretOnStartup();
-  }
-
-  Future<void> _handleZapretStateChanged(ZapretState _) async {
-    if (!mounted) {
-      return;
-    }
-    await _syncZapretTunConflict(ref.read(dashboardControllerProvider));
-    await _maybeAutoStartZapretOnStartup();
   }
 
   Future<void> _maybeAutoConnectOnStartup(DashboardState state) async {
@@ -284,111 +261,6 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
 
     _startupAutoConnectHandled = true;
     await ref.read(dashboardControllerProvider.notifier).connect();
-  }
-
-  Future<void> _maybeAutoStartZapretOnStartup() async {
-    if (_startupZapretHandled) {
-      return;
-    }
-
-    final launchRequest = ref.read(appLaunchRequestProvider);
-    final pendingZapretStart =
-        launchRequest.pendingElevatedAction ==
-        PendingElevatedLaunchAction.startZapret;
-    final pendingZapretTest =
-        launchRequest.pendingElevatedAction ==
-        PendingElevatedLaunchAction.testZapretConfigs;
-    final dashboardState = ref.read(dashboardControllerProvider);
-    final zapretState = ref.read(zapretControllerProvider);
-    if (dashboardState.bootstrapping || zapretState.bootstrapping) {
-      return;
-    }
-
-    if (!Platform.isWindows ||
-        (!pendingZapretStart &&
-            !pendingZapretTest &&
-            !zapretState.settings.startOnAppLaunch)) {
-      _startupZapretHandled = true;
-      return;
-    }
-
-    if (!pendingZapretStart &&
-        !pendingZapretTest &&
-        !zapretState.settings.hasInstallDirectory) {
-      _startupZapretHandled = true;
-      return;
-    }
-
-    if (_isTunActive(dashboardState) || zapretState.tunConflictActive) {
-      _startupZapretHandled = true;
-      return;
-    }
-
-    if (dashboardState.connectionStage == ConnectionStage.starting) {
-      return;
-    }
-
-    if (zapretState.stage == ZapretStage.running || zapretState.busy) {
-      _startupZapretHandled = true;
-      return;
-    }
-
-    final controller = ref.read(zapretControllerProvider.notifier);
-    if (pendingZapretTest) {
-      _startupZapretHandled = true;
-      await controller.runHttpConfigTests();
-      return;
-    }
-
-    _startupZapretHandled = true;
-    if (launchRequest.launchedAtStartup &&
-        !await _prepareZapretAutoStartAfterWindowsLaunch(controller)) {
-      _startupZapretHandled = false;
-      return;
-    }
-
-    await controller.start();
-  }
-
-  Future<bool> _prepareZapretAutoStartAfterWindowsLaunch(
-    ZapretController controller,
-  ) async {
-    // A blind delay used to paper over a cold-start bug where Boost launched
-    // before its runtime layout and selected profile had fully settled. A
-    // second bootstrap pass reproduces the part of a manual app restart that
-    // actually fixed the issue, without delaying startup itself.
-    await controller.reload();
-    if (!mounted) {
-      return false;
-    }
-
-    final dashboardState = ref.read(dashboardControllerProvider);
-    final zapretState = ref.read(zapretControllerProvider);
-    if (dashboardState.bootstrapping ||
-        zapretState.bootstrapping ||
-        _isTunActive(dashboardState) ||
-        zapretState.tunConflictActive ||
-        dashboardState.connectionStage == ConnectionStage.starting ||
-        zapretState.stage == ZapretStage.running ||
-        zapretState.busy) {
-      return false;
-    }
-
-    return true;
-  }
-
-  Future<void> _syncZapretTunConflict(DashboardState state) {
-    return ref
-        .read(zapretControllerProvider.notifier)
-        .syncTunConflict(active: _isTunActive(state));
-  }
-
-  bool _isTunActive(DashboardState state) {
-    if (state.runtimeSession?.mode.usesTun ?? false) {
-      return true;
-    }
-    return state.connectionStage == ConnectionStage.starting &&
-        state.runtimeMode.usesTun;
   }
 
   Future<void> _syncTrayState({DashboardState? state}) async {
@@ -502,12 +374,6 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
 
   Future<void> _performShutdown() async {
     try {
-      await ref.read(zapretControllerProvider.notifier).shutdownForAppExit();
-    } on Object {
-      // Keep app exit best-effort: do not block the main runtime shutdown.
-    }
-
-    try {
       await ref.read(dashboardControllerProvider.notifier).shutdownForAppExit();
     } on Object {
       return;
@@ -549,12 +415,10 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
     final contentTopInset = currentPage == _DockPage.home
         ? topInset + 8
         : topInset + _titleBarHeight + _dockTopGap;
-    final isZapretPage = currentPage == _DockPage.zapret;
     final pageChild = switch (currentPage) {
       _DockPage.home => widget.child,
       _DockPage.settings =>
         hasRouter ? widget.child : const SettingsPage(animateOnMount: false),
-      _DockPage.zapret => const SizedBox.shrink(),
     };
 
     return Scaffold(
@@ -567,32 +431,18 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
           fit: StackFit.expand,
           children: [
             _BackgroundAtmosphere(),
-            if (isZapretPage)
-              KeyedSubtree(
-                key: const ValueKey(_DockPage.zapret),
-                child: ZapretPage(
-                  animateOnMount: false,
-                  contentPadding: EdgeInsets.fromLTRB(
-                    leftInset + _dockWidth + _dockGap,
-                    contentTopInset,
-                    viewPadding.right,
-                    bottomInset,
-                  ),
-                ),
-              )
-            else
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  leftInset + _dockWidth + _dockGap,
-                  contentTopInset,
-                  rightInset,
-                  bottomInset,
-                ),
-                child: KeyedSubtree(
-                  key: ValueKey(currentPage),
-                  child: pageChild,
-                ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                leftInset + _dockWidth + _dockGap,
+                contentTopInset,
+                rightInset,
+                bottomInset,
               ),
+              child: KeyedSubtree(
+                key: ValueKey(currentPage),
+                child: pageChild,
+              ),
+            ),
             Positioned(
               top: 0,
               left: 0,
@@ -635,7 +485,6 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
   void _handleDockNavigation(BuildContext context, _DockPage page) {
     final target = switch (page) {
       _DockPage.home => AppRoutePaths.home,
-      _DockPage.zapret => AppRoutePaths.zapret,
       _DockPage.settings => AppRoutePaths.settings,
     };
     final currentLocation = _maybeRouterLocation(context);
@@ -1187,7 +1036,7 @@ class _RestorePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-enum _DockPage { home, zapret, settings }
+enum _DockPage { home, settings }
 
 class _Dock extends StatelessWidget {
   const _Dock({
@@ -1232,16 +1081,6 @@ class _Dock extends StatelessWidget {
               selected: current == _DockPage.home,
               onTap: () => onSelect(_DockPage.home),
             ),
-            const SizedBox(height: 12),
-            const _DockDivider(),
-            const SizedBox(height: 12),
-            _DockBtn(
-              icon: Icons.rocket_launch_outlined,
-              label: 'Gorion Boost',
-              selected: current == _DockPage.zapret,
-              onTap: () => onSelect(_DockPage.zapret),
-            ),
-            const SizedBox(height: 12),
             const Spacer(),
             _DockBtn(
               icon: Icons.settings_outlined,
@@ -1259,27 +1098,10 @@ class _Dock extends StatelessWidget {
 }
 
 _DockPage _dockPageForLocation(String location) {
-  if (location.startsWith(AppRoutePaths.zapret)) {
-    return _DockPage.zapret;
-  }
   if (location.startsWith(AppRoutePaths.settings)) {
     return _DockPage.settings;
   }
   return _DockPage.home;
-}
-
-class _DockDivider extends StatelessWidget {
-  const _DockDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: 18,
-      height: 1,
-      color: scheme.onSurface.withValues(alpha: 0.1),
-    );
-  }
 }
 
 class _DockBtn extends StatefulWidget {
@@ -1309,19 +1131,12 @@ class _DockBtnState extends State<_DockBtn> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final muted = theme.gorionTokens.onSurfaceMuted;
-    final brandAccent = theme.brandAccent;
-    final color = theme.isMonochromeLightGorion
-        ? scheme.onSurface
-        : widget.selected
-        ? brandAccent
+    final accent = theme.brandAccent;
+    final color = widget.selected
+        ? accent
         : _hover
         ? scheme.onSurface
         : muted;
-    final borderColor = widget.selected
-        ? brandAccent.withValues(alpha: 0.28)
-        : theme.isMonochromeLightGorion
-        ? brandAccent.withValues(alpha: _hover ? 0.14 : 0.08)
-        : scheme.onSurface.withValues(alpha: _hover ? 0.12 : 0.06);
 
     return Tooltip(
       message: widget.label,
@@ -1338,33 +1153,18 @@ class _DockBtnState extends State<_DockBtn> {
             height: 44,
             decoration: BoxDecoration(
               color: widget.selected
-                  ? null
-                  : _hover
-                  ? theme.isMonochromeLightGorion
-                        ? brandAccent.withValues(alpha: 0.08)
-                        : scheme.onSurface.withValues(alpha: 0.06)
-                  : Colors.transparent,
-              gradient: widget.selected
-                  ? LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        brandAccent.withValues(alpha: 0.2),
-                        brandAccent.withValues(alpha: 0.08),
-                      ],
+                  ? accent.withValues(
+                      alpha: theme.brightness == Brightness.dark ? 0.14 : 0.10,
                     )
-                  : null,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: borderColor),
-              boxShadow: widget.selected
-                  ? [
-                      BoxShadow(
-                        color: brandAccent.withValues(alpha: 0.18),
-                        blurRadius: 20,
-                        spreadRadius: -6,
-                      ),
-                    ]
-                  : null,
+                  : _hover
+                  ? scheme.onSurface.withValues(alpha: 0.06)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: widget.selected
+                    ? accent.withValues(alpha: 0.30)
+                    : Colors.transparent,
+              ),
             ),
             alignment: Alignment.center,
             child: Stack(

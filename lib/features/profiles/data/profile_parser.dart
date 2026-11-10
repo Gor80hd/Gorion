@@ -221,6 +221,13 @@ class ProfileParser {
     }
 
     switch (match.group(1)?.toLowerCase()) {
+      case 'hysteria2':
+      case 'hy2':
+        return _parseModernTlsOutbound(line, 'hysteria2');
+      case 'tuic':
+        return _parseModernTlsOutbound(line, 'tuic');
+      case 'anytls':
+        return _parseModernTlsOutbound(line, 'anytls');
       case 'vless':
         return _parseVlessOutbound(line);
       case 'vmess':
@@ -233,6 +240,84 @@ class ProfileParser {
     }
 
     return null;
+  }
+
+  static Map<String, dynamic>? _parseModernTlsOutbound(
+    String line,
+    String type,
+  ) {
+    var uri = _tryParseShareUri(line);
+    if (uri == null || uri.host.isEmpty) return null;
+    if (!uri.hasPort) uri = uri.replace(port: 443);
+    if (uri.port <= 0 || uri.port > 65535) return null;
+    final outbound = _buildCredentialOutbound(
+      type: type,
+      uri: uri,
+      credentialKey: 'password',
+    );
+    if (outbound == null) return null;
+    final query = _queryParameters(uri);
+    final tls = _buildTlsConfig(query, forceEnabled: true);
+    if (tls == null) throw FormatException('Invalid TLS settings for $type.');
+    // QUIC protocols do not use the TCP uTLS handshake implementation.
+    if (type != 'anytls') tls.remove('utls');
+    if (tls.containsKey('reality')) {
+      throw FormatException('REALITY is not supported for $type.');
+    }
+    outbound['tls'] = tls;
+
+    if (type == 'hysteria2') {
+      final obfs = query['obfs'];
+      if (obfs != null) {
+        if (obfs != 'salamander' || query['obfs-password'] == null) {
+          throw const FormatException(
+            'Hysteria2 requires salamander obfuscation with a password.',
+          );
+        }
+        outbound['obfs'] = {'type': obfs, 'password': query['obfs-password']};
+      }
+      final ports = query['mport'];
+      if (ports != null) {
+        outbound['server_ports'] = ports.split(',').map((range) {
+          final normalized = range.trim().replaceAll('-', ':');
+          final bounds = normalized.split(':');
+          final numbers = bounds.map(int.tryParse).toList();
+          if (bounds.length > 2 ||
+              numbers.any((port) => port == null || port < 1 || port > 65535) ||
+              (numbers.length == 2 && numbers.first! > numbers.last!)) {
+            throw const FormatException('Invalid Hysteria2 port range.');
+          }
+          return bounds.length == 1 ? '$normalized:$normalized' : normalized;
+        }).toList();
+        outbound.remove('server_port');
+      }
+      // Certificate pinning needs explicit conversion; never silently discard it.
+      if (query.containsKey('pinsha256')) {
+        throw const FormatException(
+          'Hysteria2 certificate pin import is not supported yet.',
+        );
+      }
+    } else if (type == 'tuic') {
+      final separator = uri.userInfo.indexOf(':');
+      if (separator <= 0) return null;
+      outbound['uuid'] = Uri.decodeComponent(
+        uri.userInfo.substring(0, separator),
+      );
+      outbound['password'] = Uri.decodeComponent(
+        uri.userInfo.substring(separator + 1),
+      );
+      for (final key in ['congestion_control', 'udp_relay_mode']) {
+        if (query[key] != null) outbound[key] = query[key];
+      }
+      for (final key in ['udp_over_stream', 'zero_rtt_handshake']) {
+        if (query[key] != null) {
+          final value = _parseBoolFlag(query[key]);
+          if (value == null) throw FormatException('Invalid TUIC $key.');
+          outbound[key] = value;
+        }
+      }
+    }
+    return outbound;
   }
 
   static Map<String, dynamic>? _parseVlessOutbound(String line) {
@@ -744,7 +829,7 @@ class ProfileParser {
         return {'type': 'quic'};
     }
 
-    return null;
+    throw FormatException('Unsupported transport: $transportType');
   }
 
   static String _resolveOutboundTag(Uri uri) {

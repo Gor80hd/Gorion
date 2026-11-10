@@ -4,16 +4,18 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:gorion_clean/core/process/current_process.dart';
+import 'package:gorion_clean/core/process/process_runner.dart';
 import 'package:gorion_clean/core/process/running_process_lookup.dart';
-import 'package:gorion_clean/core/windows/privileged_helper_client.dart';
+import 'package:gorion_clean/core/privileged_helper/privileged_helper_client.dart';
+import 'package:gorion_clean/core/privileged_helper/privileged_helper_protocol.dart';
 import 'package:gorion_clean/core/constants/singbox_assets.dart';
 import 'package:gorion_clean/core/logging/gorion_console_log.dart';
 import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
+import 'package:gorion_clean/features/runtime/data/runtime_cleanup_watchdog.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_config_builder.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
 import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
 import 'package:gorion_clean/features/runtime/data/windows_winhttp_proxy_service.dart';
-import 'package:gorion_clean/features/runtime/data/windows_runtime_cleanup_watchdog.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/data/connection_tuning_config_overrides.dart';
@@ -42,26 +44,27 @@ SingboxRuntimeBackend selectSingboxRuntimeBackend({
 
 SingboxRuntimeService buildSingboxRuntimeService({
   bool? privilegedHelperProvisioned,
-  WindowsPrivilegedHelperClient? helperClient,
+  PrivilegedHelperClient? helperClient,
   SingboxRuntimeService? localService,
   SingboxRuntimeService? helperService,
 }) {
   final resolvedLocalService =
       localService ??
       SingboxRuntimeService(
-        privilegedHelperClient: helperClient ?? WindowsPrivilegedHelperClient(),
+        privilegedHelperClient: helperClient ?? PrivilegedHelperClient(),
       );
+  // On platforms with a privileged helper the adaptive wrapper is always
+  // used: helper availability is resolved per start, so installing the
+  // helper mid-session (the macOS TUN flow) works without an app restart.
   final helperAvailable =
-      Platform.isWindows &&
-      (privilegedHelperProvisioned ??
-          WindowsPrivilegedHelperClient.isProvisionedSync());
+      privilegedHelperProvisioned ?? isPrivilegedHelperSupported();
   if (helperAvailable) {
     return _AdaptiveSingboxRuntimeService(
       localService: resolvedLocalService,
       helperService:
           helperService ??
           _PrivilegedHelperSingboxRuntimeService(
-            helperClient: helperClient ?? WindowsPrivilegedHelperClient(),
+            helperClient: helperClient ?? PrivilegedHelperClient(),
           ),
     );
   }
@@ -69,18 +72,35 @@ SingboxRuntimeService buildSingboxRuntimeService({
   return resolvedLocalService;
 }
 
+/// Owns the local sing-box process and everything attached to it: the
+/// process marker, the cleanup watchdog, the system proxy lease and the
+/// WinHTTP lease.
+///
+/// Reliability contract:
+/// - every startup attempt cleans up after itself on failure, whatever was
+///   already set up (process, proxy, markers) — a failed connect never
+///   leaves a half-configured system;
+/// - `stop()` is idempotent and never hangs: every external command has a
+///   hard timeout, and process termination escalates SIGTERM -> SIGKILL;
+/// - an unexpected core exit restores the system proxy through the same
+///   serialized lifecycle queue, so it can never race a new start;
+/// - markers on disk allow the next app launch (or the watchdog) to recover
+///   from kill -9, crashes and power loss.
 class SingboxRuntimeService {
-  static const _maxStartupAttempts = 3;
+  /// Two attempts are enough: ports are freshly reserved per attempt, so the
+  /// only retry-worthy failure is a transient controller startup timeout.
+  /// Config and permission errors kill sing-box instantly and surface
+  /// immediately instead of burning ~36 s on pointless retries.
+  static const _maxStartupAttempts = 2;
 
   SingboxRuntimeService({
     SystemProxyService? systemProxyService,
-    WindowsRuntimeCleanupWatchdog? windowsRuntimeCleanupWatchdog,
-    WindowsPrivilegedHelperClient? privilegedHelperClient,
+    RuntimeCleanupWatchdog? runtimeCleanupWatchdog,
+    PrivilegedHelperClient? privilegedHelperClient,
     Future<RunningProcessLookup> Function(int pid)? runningProcessLookupReader,
   }) : _systemProxyService = systemProxyService ?? const SystemProxyService(),
-       _windowsRuntimeCleanupWatchdog =
-           windowsRuntimeCleanupWatchdog ??
-           const WindowsRuntimeCleanupWatchdog(),
+       _runtimeCleanupWatchdog =
+           runtimeCleanupWatchdog ?? const RuntimeCleanupWatchdog(),
        _privilegedHelperClient = privilegedHelperClient,
        _runningProcessLookupReader =
            runningProcessLookupReader ?? _lookupRunningProcess;
@@ -91,14 +111,19 @@ class SingboxRuntimeService {
   StreamSubscription<String>? _stdoutSubscription;
   StreamSubscription<String>? _stderrSubscription;
   final SystemProxyService _systemProxyService;
-  final WindowsRuntimeCleanupWatchdog _windowsRuntimeCleanupWatchdog;
-  final WindowsPrivilegedHelperClient? _privilegedHelperClient;
+  final RuntimeCleanupWatchdog _runtimeCleanupWatchdog;
+  final PrivilegedHelperClient? _privilegedHelperClient;
   final Future<RunningProcessLookup> Function(int pid)
   _runningProcessLookupReader;
   SystemProxyLease? _systemProxyLease;
   _WinHttpProxyLease? _winHttpProxyLease;
   Future<void> _lifecycleOperation = Future<void>.value();
   Process? _stoppingProcess;
+
+  /// Exit codes of dead children, keyed by process identity. Recorded
+  /// synchronously when `exitCode` completes — before the queued exit
+  /// handler runs — so the startup abort check can see early exits.
+  final _exitCodes = Expando<int>('singboxExitCode');
 
   RuntimeSession? get session => _session;
   List<String> get logs => List.unmodifiable(_logs);
@@ -139,8 +164,7 @@ class SingboxRuntimeService {
     required String profileId,
     required String templateConfig,
     String? originalTemplateConfig,
-    ConnectionTuningSettings connectionTuningSettings =
-        const ConnectionTuningSettings(),
+    required ConnectionTuningSettings connectionTuningSettings,
     required String urlTestUrl,
     required RuntimeMode mode,
     String? selectedServerTag,
@@ -161,211 +185,285 @@ class SingboxRuntimeService {
     Object? startupError;
     StackTrace? startupStackTrace;
     for (var attempt = 1; attempt <= _maxStartupAttempts; attempt += 1) {
-      ReservedLoopbackPort? controllerReservation;
-      ReservedLoopbackPort? mixedReservation;
       try {
-        controllerReservation = await reserveLoopbackPort();
-        mixedReservation = await reserveLoopbackPort();
-        final controllerPort = controllerReservation.port;
-        final mixedPort = mixedReservation.port;
-        final secret = const Uuid().v4();
-
-        final built = SingboxConfigBuilder.build(
-          templateConfig: templateConfig,
-          splitTunnelSettings: connectionTuningSettings.splitTunnel,
-          mode: mode,
-          mixedPort: mixedPort,
-          controllerPort: controllerPort,
-          controllerSecret: secret,
-          urlTestUrl: urlTestUrl,
-          selectedServerTag: selectedServerTag,
-        );
-
-        final configFile = File(p.join(runtimeDir.path, 'current-config.json'));
-        await configFile.writeAsString(built.configJson);
-
-        _pushLog('Preparing sing-box runtime for profile $profileId.');
-        _pushLog(
-          'Runtime config written to ${configFile.path}. controllerPort=$controllerPort mixedPort=$mixedPort mode=${mode.name} selectedServer=${selectedServerTag ?? '<default>'}.',
-        );
-        for (final line in describeConnectionTuningDiagnostics(
-          originalTemplateConfig: originalTemplateConfig ?? templateConfig,
-          effectiveTemplateConfig: templateConfig,
-          settings: connectionTuningSettings,
-          selectedServerTag: selectedServerTag,
-        )) {
-          _pushLog(line);
-        }
-        _pushLog(
-          'Launching sing-box $singboxVersion: ${binaryFile.path} run -c ${configFile.path}',
-        );
-
-        await controllerReservation.close();
-        controllerReservation = null;
-        await mixedReservation.close();
-        mixedReservation = null;
-
-        late final Process process;
-        try {
-          process = await Process.start(
-            binaryFile.path,
-            ['run', '-c', configFile.path],
-            workingDirectory: runtimeDir.path,
-            mode: ProcessStartMode.normal,
-          );
-        } on Object catch (error, stackTrace) {
-          _pushLog('Failed to start sing-box process: $error', isError: true);
-          Error.throwWithStackTrace(error, stackTrace);
-        }
-
-        _process = process;
-        _pushLog('sing-box process started with PID ${process.pid}.');
-        await _writeProcessMarker(
-          runtimeDir,
-          pid: process.pid,
-          binaryPath: binaryFile.path,
-          configPath: configFile.path,
-        );
-        await _windowsRuntimeCleanupWatchdog.arm(
+        return await _tryStartOnce(
           runtimeDir: runtimeDir,
-          parentPid: currentProcessPid,
-          childPid: process.pid,
-          onLog: _pushLog,
-        );
-
-        int? startupExitCode;
-        _stdoutSubscription = process.stdout
-            .transform(utf8.decoder)
-            .transform(const LineSplitter())
-            .listen((line) => _pushLog('STDOUT $line'));
-        _stderrSubscription = process.stderr
-            .transform(utf8.decoder)
-            .transform(const LineSplitter())
-            .listen((line) => _pushLog('STDERR $line', isError: true));
-
-        final session = RuntimeSession(
+          binaryFile: binaryFile,
           profileId: profileId,
+          templateConfig: templateConfig,
+          originalTemplateConfig: originalTemplateConfig,
+          connectionTuningSettings: connectionTuningSettings,
+          urlTestUrl: urlTestUrl,
           mode: mode,
-          binaryPath: binaryFile.path,
-          configPath: configFile.path,
-          controllerPort: controllerPort,
-          mixedPort: mixedPort,
-          secret: secret,
-          manualSelectorTag: built.manualSelectorTag,
-          autoGroupTag: built.autoGroupTag,
+          selectedServerTag: selectedServerTag,
+          onExit: onExit,
         );
-
-        process.exitCode.then((code) {
-          startupExitCode = code;
-          unawaited(_deleteProcessMarker(runtimeDir, expectedPid: process.pid));
-          _pushLog('sing-box exited with code $code.');
-          if (identical(_stoppingProcess, process)) {
-            return;
-          }
-          if (identical(_process, process)) {
-            final activeSession = _session;
-            final lease = _systemProxyLease;
-            final winHttpLease = _winHttpProxyLease;
-            _systemProxyLease = null;
-            _winHttpProxyLease = null;
-            if (lease != null) {
-              unawaited(
-                _systemProxyService.restore(
-                  runtimeDir: runtimeDir,
-                  lease: lease,
-                  onLog: _pushLog,
-                ),
-              );
-            }
-            if (winHttpLease != null) {
-              unawaited(
-                _restoreWinHttpProxy(
-                  runtimeDir: runtimeDir,
-                  lease: winHttpLease,
-                ),
-              );
-            }
-            _process = null;
-            _session = null;
-            if (activeSession != null) {
-              onExit?.call(activeSession, code);
-            }
-          }
-        });
-
-        final clashClient = ClashApiClient.fromSession(session);
-        try {
-          await clashClient.waitUntilReady(
-            onLog: _pushLog,
-            abortReason: () {
-              final exitCode = startupExitCode;
-              if (exitCode == null) {
-                return null;
-              }
-
-              return 'sing-box exited before the local controller became ready. Exit code: $exitCode. Check runtime logs for stderr details.';
-            },
-          );
-        } on Object catch (error, stackTrace) {
-          _pushLog('The Clash API did not start: $error', isError: true);
-          _pushLog('Stopping sing-box after startup failure.');
-          await _stopImpl();
-          Error.throwWithStackTrace(error, stackTrace);
-        }
-
-        if (mode.usesSystemProxy) {
-          try {
-            _systemProxyLease = await _systemProxyService.enable(
-              mode: mode,
-              runtimeDir: runtimeDir,
-              mixedPort: mixedPort,
-              bypassSteam: connectionTuningSettings.bypassSteamForSystemProxy,
-              onLog: _pushLog,
-            );
-          } on Object catch (error, stackTrace) {
-            _pushLog(
-              'Failed to enable the system proxy: $error',
-              isError: true,
-            );
-            await _stopImpl();
-            Error.throwWithStackTrace(error, stackTrace);
-          }
-          await _enableWinHttpProxy(
-            runtimeDir: runtimeDir,
-            mixedPort: mixedPort,
-            bypassSteam: connectionTuningSettings.bypassSteamForSystemProxy,
-          );
-        }
-
-        _pushLog('Clash API is ready on ${session.controllerBaseUrl}.');
-        _session = session;
-        return session;
       } on Object catch (error, stackTrace) {
         startupError = error;
         startupStackTrace = stackTrace;
-        if (controllerReservation != null) {
-          await controllerReservation.close();
-        }
-        if (mixedReservation != null) {
-          await mixedReservation.close();
-        }
         if (attempt >= _maxStartupAttempts ||
-            !_shouldRetryStartupAfterError(error)) {
+            !_isRetryableStartupError(error)) {
           break;
         }
-
         _pushLog(
-          'Retrying sing-box startup with a fresh local port reservation (attempt ${attempt + 1}/$_maxStartupAttempts).',
+          'Retrying sing-box startup with fresh local ports '
+          '(attempt ${attempt + 1}/$_maxStartupAttempts) after: $error',
           isError: true,
         );
-        await _stopImpl();
       }
     }
 
-    if (startupError != null && startupStackTrace != null) {
-      Error.throwWithStackTrace(startupError, startupStackTrace);
+    Error.throwWithStackTrace(
+      startupError ?? StateError('Failed to start sing-box.'),
+      startupStackTrace ?? StackTrace.current,
+    );
+  }
+
+  /// One full startup attempt. Any failure after the process exists runs the
+  /// complete `_stopImpl` cleanup, so a broken attempt can never leak a
+  /// running sing-box or an active system proxy.
+  Future<RuntimeSession> _tryStartOnce({
+    required Directory runtimeDir,
+    required File binaryFile,
+    required String profileId,
+    required String templateConfig,
+    String? originalTemplateConfig,
+    required ConnectionTuningSettings connectionTuningSettings,
+    required String urlTestUrl,
+    required RuntimeMode mode,
+    String? selectedServerTag,
+    RuntimeExitCallback? onExit,
+  }) async {
+    ReservedLoopbackPort? controllerReservation;
+    ReservedLoopbackPort? mixedReservation;
+    try {
+      controllerReservation = await reserveLoopbackPort();
+      mixedReservation = await reserveLoopbackPort();
+      final controllerPort = controllerReservation.port;
+      final mixedPort = mixedReservation.port;
+      final secret = const Uuid().v4();
+
+      final built = SingboxConfigBuilder.build(
+        templateConfig: templateConfig,
+        splitTunnelSettings: connectionTuningSettings.splitTunnel,
+        mode: mode,
+        mixedPort: mixedPort,
+        controllerPort: controllerPort,
+        controllerSecret: secret,
+        urlTestUrl: urlTestUrl,
+        selectedServerTag: selectedServerTag,
+      );
+
+      final configFile = File(p.join(runtimeDir.path, 'current-config.json'));
+      await configFile.writeAsString(built.configJson, flush: true);
+
+      final checked = await runProcessWithTimeout(binaryFile.path, [
+        'check',
+        '-c',
+        configFile.path,
+      ], workingDirectory: runtimeDir.path);
+      if (checked.exitCode != 0) {
+        throw FormatException(
+          'Invalid sing-box configuration: ${checked.stderr}',
+        );
+      }
+
+      _pushLog('Preparing sing-box runtime for profile $profileId.');
+      _pushLog(
+        'Runtime config written to ${configFile.path}. controllerPort=$controllerPort mixedPort=$mixedPort mode=${mode.name} selectedServer=${selectedServerTag ?? '<default>'}.',
+      );
+      for (final line in describeConnectionTuningDiagnostics(
+        originalTemplateConfig: originalTemplateConfig ?? templateConfig,
+        effectiveTemplateConfig: templateConfig,
+        settings: connectionTuningSettings,
+        selectedServerTag: selectedServerTag,
+      )) {
+        _pushLog(line);
+      }
+      _pushLog(
+        'Launching sing-box $singboxVersion: ${binaryFile.path} run -c ${configFile.path}',
+      );
+
+      await controllerReservation.close();
+      controllerReservation = null;
+      await mixedReservation.close();
+      mixedReservation = null;
+
+      final process = await Process.start(
+        binaryFile.path,
+        ['run', '-c', configFile.path],
+        workingDirectory: runtimeDir.path,
+        mode: ProcessStartMode.normal,
+      );
+
+      _process = process;
+      _pushLog('sing-box process started with PID ${process.pid}.');
+      await _writeProcessMarker(
+        runtimeDir,
+        pid: process.pid,
+        binaryPath: binaryFile.path,
+        configPath: configFile.path,
+      );
+      await _runtimeCleanupWatchdog.arm(
+        runtimeDir: runtimeDir,
+        parentPid: currentProcessPid,
+        childPid: process.pid,
+        managedProxyPort: mode.usesSystemProxy ? mixedPort : null,
+        onLog: _pushLog,
+      );
+
+      _stdoutSubscription = process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) => _pushLog('STDOUT $line'));
+      _stderrSubscription = process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) => _pushLog('STDERR $line', isError: true));
+
+      final session = RuntimeSession(
+        profileId: profileId,
+        mode: mode,
+        binaryPath: binaryFile.path,
+        configPath: configFile.path,
+        controllerPort: controllerPort,
+        mixedPort: mixedPort,
+        secret: secret,
+        manualSelectorTag: built.manualSelectorTag,
+        autoGroupTag: built.autoGroupTag,
+      );
+
+      unawaited(
+        process.exitCode
+            .then((code) {
+              _exitCodes[process] = code;
+              return _handleProcessExit(
+                process,
+                code,
+                runtimeDir,
+                session,
+                onExit,
+              );
+            })
+            .catchError((Object error) {
+              _pushLog('Exit handler failed: $error', isError: true);
+            }),
+      );
+
+      final clashClient = ClashApiClient.fromSession(session);
+      try {
+        await clashClient.waitUntilReady(
+          onLog: _pushLog,
+          abortReason: () {
+            final startupExitCode = _exitCodes[process];
+            if (startupExitCode == null) {
+              return null;
+            }
+            return 'sing-box exited before the local controller became ready. '
+                'Exit code: $startupExitCode. Check runtime logs for stderr details.';
+          },
+        );
+      } on Object catch (error, stackTrace) {
+        _pushLog('The Clash API did not start: $error', isError: true);
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+
+      if (mode.usesSystemProxy) {
+        _systemProxyLease = await _systemProxyService.enable(
+          mode: mode,
+          runtimeDir: runtimeDir,
+          mixedPort: mixedPort,
+          bypassSteam: connectionTuningSettings.bypassSteamForSystemProxy,
+          onLog: _pushLog,
+        );
+        await _enableWinHttpProxy(
+          runtimeDir: runtimeDir,
+          mixedPort: mixedPort,
+          bypassSteam: connectionTuningSettings.bypassSteamForSystemProxy,
+        );
+      }
+
+      if (_exitCodes[process] != null) {
+        throw StateError('sing-box exited while enabling the system proxy.');
+      }
+      _pushLog('Clash API is ready on ${session.controllerBaseUrl}.');
+      _session = session;
+      return session;
+    } on Object {
+      // Whatever this attempt managed to set up — process, proxy, markers —
+      // goes down with it. A failed connect must leave the system clean.
+      await _stopImpl();
+      rethrow;
+    } finally {
+      await controllerReservation?.close();
+      await mixedReservation?.close();
     }
-    throw StateError('Failed to start sing-box for an unknown reason.');
+  }
+
+  /// Handles an unexpected core exit. Runs inside the serialized lifecycle
+  /// queue so the proxy restore can never race a fresh `start()`.
+  Future<void> _handleProcessExit(
+    Process process,
+    int exitCode,
+    Directory runtimeDir,
+    RuntimeSession session,
+    RuntimeExitCallback? onExit,
+  ) {
+    return _serializeLifecycle(() async {
+      _pushLog('sing-box exited with code $exitCode.');
+      if (identical(_stoppingProcess, process)) {
+        return;
+      }
+      if (!identical(_process, process)) {
+        return;
+      }
+
+      await _stdoutSubscription?.cancel();
+      await _stderrSubscription?.cancel();
+      _stdoutSubscription = null;
+      _stderrSubscription = null;
+
+      final lease = _systemProxyLease;
+      final winHttpLease = _winHttpProxyLease;
+      _systemProxyLease = null;
+      _winHttpProxyLease = null;
+      if (lease != null || session.mode.usesSystemProxy) {
+        try {
+          await _systemProxyService.restore(
+            runtimeDir: runtimeDir,
+            lease: lease,
+            onLog: _pushLog,
+          );
+        } on Object catch (error) {
+          _pushLog('Failed to restore the system proxy: $error', isError: true);
+        }
+      }
+      if (winHttpLease != null) {
+        try {
+          await _restoreWinHttpProxy(
+            runtimeDir: runtimeDir,
+            lease: winHttpLease,
+          );
+        } on Object catch (error) {
+          _pushLog(
+            'Failed to restore the WinHTTP proxy: $error',
+            isError: true,
+          );
+        }
+      }
+
+      if (!await File(
+        p.join(runtimeDir.path, systemProxyMarkerFileName),
+      ).exists()) {
+        await _deleteProcessMarker(runtimeDir, expectedPid: process.pid);
+      }
+      final activeSession = _session;
+      _process = null;
+      _session = null;
+      if (activeSession != null) {
+        onExit?.call(activeSession, exitCode);
+      }
+    });
   }
 
   Future<void> stop() {
@@ -383,19 +481,32 @@ class SingboxRuntimeService {
     final process = _process;
     final systemProxyLease = _systemProxyLease;
     final winHttpProxyLease = _winHttpProxyLease;
+    Object? cleanupError;
+    if (process == null) {
+      final owner = await _readProcessMarker(runtimeDir);
+      if (owner?.launcherPid != null &&
+          owner!.launcherPid != currentProcessPid &&
+          await _isProcessAlive(owner.launcherPid!)) {
+        return;
+      }
+    }
 
-    Object? restoreError;
-    StackTrace? restoreStackTrace;
-    if (systemProxyLease != null || session?.mode.usesSystemProxy == true) {
+    // Restore the proxy before killing the core: while the restore runs the
+    // old core can still serve the loopback endpoint, so the system never
+    // points at a dead port.
+    if (systemProxyLease != null ||
+        session?.mode.usesSystemProxy == true ||
+        await File(
+          p.join(runtimeDir.path, systemProxyMarkerFileName),
+        ).exists()) {
       try {
         await _systemProxyService.restore(
           runtimeDir: runtimeDir,
           lease: systemProxyLease,
           onLog: _pushLog,
         );
-      } on Object catch (error, stackTrace) {
-        restoreError = error;
-        restoreStackTrace = stackTrace;
+      } on Object catch (error) {
+        cleanupError ??= error;
         _pushLog('Failed to restore the system proxy: $error', isError: true);
       }
     }
@@ -405,23 +516,22 @@ class SingboxRuntimeService {
           runtimeDir: runtimeDir,
           lease: winHttpProxyLease,
         );
-      } on Object catch (error, stackTrace) {
-        restoreError ??= error;
-        restoreStackTrace ??= stackTrace;
+      } on Object catch (error) {
+        cleanupError ??= error;
         _pushLog('Failed to restore the WinHTTP proxy: $error', isError: true);
       }
     }
 
     if (process == null) {
-      if (restoreError != null && restoreStackTrace != null) {
-        Error.throwWithStackTrace(restoreError, restoreStackTrace);
-      }
+      if (cleanupError != null) throw cleanupError;
       return;
     }
 
     _pushLog('Stopping sing-box PID ${process.pid}.');
     _stoppingProcess = process;
     try {
+      // SIGTERM first: sing-box shuts down gracefully, closing the TUN
+      // interface and cleaning up its routes itself.
       process.kill();
       try {
         await process.exitCode.timeout(const Duration(seconds: 4));
@@ -431,41 +541,113 @@ class SingboxRuntimeService {
           isError: true,
         );
         process.kill(ProcessSignal.sigkill);
-        await process.exitCode.timeout(
-          const Duration(seconds: 2),
-          onTimeout: () => -1,
-        );
+        try {
+          await process.exitCode.timeout(const Duration(seconds: 2));
+        } on TimeoutException {
+          // Keep the marker: the process may still die, and the orphan
+          // cleanup on the next start needs to find it.
+          _pushLog(
+            'sing-box PID ${process.pid} did not exit after SIGKILL; keeping the runtime marker for the next cleanup pass.',
+            isError: true,
+          );
+          return;
+        }
       }
 
-      await _deleteProcessMarker(runtimeDir, expectedPid: process.pid);
+      if (!await File(
+        p.join(runtimeDir.path, systemProxyMarkerFileName),
+      ).exists()) {
+        await _deleteProcessMarker(runtimeDir, expectedPid: process.pid);
+      }
     } finally {
       if (identical(_stoppingProcess, process)) {
         _stoppingProcess = null;
       }
+      if (identical(_process, process)) {
+        _process = null;
+        _session = null;
+      }
+      if (identical(_systemProxyLease, systemProxyLease)) {
+        _systemProxyLease = null;
+      }
+      if (identical(_winHttpProxyLease, winHttpProxyLease)) {
+        _winHttpProxyLease = null;
+      }
     }
-
-    if (identical(_process, process)) {
-      _process = null;
-      _session = null;
-    }
-    if (identical(_systemProxyLease, systemProxyLease)) {
-      _systemProxyLease = null;
-    }
-    if (identical(_winHttpProxyLease, winHttpProxyLease)) {
-      _winHttpProxyLease = null;
-    }
-
-    if (restoreError != null && restoreStackTrace != null) {
-      Error.throwWithStackTrace(restoreError, restoreStackTrace);
-    }
+    if (cleanupError != null) throw cleanupError;
   }
 
+  /// App-exit shutdown, bounded in time so a hung component can never block
+  /// the OS from quitting the app. No-ops cheaply when nothing is running —
+  /// important because `Future.timeout` would otherwise leave a pending
+  /// timer behind on every dispose.
   Future<void> stopForAppExit() async {
-    await stop();
+    if (_session == null &&
+        _process == null &&
+        _systemProxyLease == null &&
+        _winHttpProxyLease == null) {
+      return;
+    }
+    try {
+      await stop().timeout(const Duration(seconds: 30));
+    } on TimeoutException {
+      _pushLog(
+        'Runtime shutdown exceeded the app-exit budget; the watchdog and the next launch will finish the cleanup.',
+        isError: true,
+      );
+    } on Object catch (error) {
+      _pushLog('Shutdown recovery remains pending: $error', isError: true);
+    }
   }
 
   void dispose() {
     unawaited(stopForAppExit());
+  }
+
+  /// Best-effort recovery of state left behind by a previous app session.
+  /// Runs at app start (not only on connect), so a crash or a reboot never
+  /// leaves the machine without internet. Never throws. Serialized through
+  /// the lifecycle queue so it can never race a connect.
+  Future<void> recoverFromPreviousSession({ProxyLogSink? onLog}) {
+    return _serializeLifecycle(() => _recoverFromPreviousSessionImpl(onLog));
+  }
+
+  Future<void> _recoverFromPreviousSessionImpl(ProxyLogSink? onLog) async {
+    void log(String line, {bool isError = false}) {
+      _pushLog(line, isError: isError);
+      onLog?.call(line, isError: isError);
+    }
+
+    try {
+      final runtimeDir = await _runtimeDirectory();
+      final orphan = await _readProcessMarker(runtimeDir);
+
+      // A live launcher means another app instance owns the runtime — do not
+      // touch its process or its proxy state.
+      final launcherAlive =
+          orphan?.launcherPid != null &&
+          await _isProcessAlive(orphan!.launcherPid!);
+      if (orphan == null || !launcherAlive) {
+        await _systemProxyService.cleanupOrphanedState(
+          runtimeDir: runtimeDir,
+          onLog: log,
+        );
+        await _cleanupOrphanedWinHttpProxyState(runtimeDir);
+        if (orphan != null) {
+          await _cleanupOrphanedProcess(runtimeDir, onLog: log);
+        }
+      }
+    } on Object catch (error) {
+      log('Startup recovery failed: $error', isError: true);
+    }
+  }
+
+  Future<bool> _isProcessAlive(int pid) async {
+    if (pid <= 0) {
+      return false;
+    }
+    final lookup = await _runningProcessLookupReader(pid);
+    return lookup.isFound;
   }
 
   Future<T> _serializeLifecycle<T>(Future<T> Function() action) {
@@ -482,11 +664,11 @@ class SingboxRuntimeService {
     return completer.future;
   }
 
-  Future<File> _prepareBinary(Directory runtimeDir) async {
+  Future<File> _prepareBinary(Directory runtimeDir) {
     return prepareSingboxBinary(runtimeDir);
   }
 
-  Future<Directory> _runtimeDirectory() async {
+  Future<Directory> _runtimeDirectory() {
     return ensureGorionRuntimeDirectory();
   }
 
@@ -500,28 +682,42 @@ class SingboxRuntimeService {
     return _throwIfOrphanedProcessMarkerStillPresent(runtimeDir);
   }
 
-  Future<void> _cleanupOrphanedProcess(Directory runtimeDir) async {
+  Future<void> _cleanupOrphanedProcess(
+    Directory runtimeDir, {
+    ProxyLogSink? onLog,
+  }) async {
+    void log(String line, {bool isError = false}) {
+      _pushLog(line, isError: isError);
+      onLog?.call(line, isError: isError);
+    }
+
     final marker = await _readProcessMarker(runtimeDir);
     if (marker == null) {
       return;
     }
 
+    if (marker.launcherPid != null &&
+        marker.launcherPid != currentProcessPid &&
+        await _isProcessAlive(marker.launcherPid!)) {
+      log('Another Gorion instance owns this runtime; leaving it untouched.');
+      return;
+    }
     final matchStatus = await _inspectOrphanedProcessMarker(marker);
     switch (matchStatus) {
       case _OrphanedProcessMatch.matches:
         break;
       case _OrphanedProcessMatch.mismatches:
-        _pushLog(
+        log(
           'Skipping orphaned sing-box cleanup for PID ${marker.pid} because the running process no longer matches the saved runtime marker.',
         );
         await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
         return;
       case _OrphanedProcessMatch.missingProcess:
-        _pushLog('Removing stale sing-box PID marker for ${marker.pid}.');
+        log('Removing stale sing-box PID marker for ${marker.pid}.');
         await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
         return;
       case _OrphanedProcessMatch.inconclusive:
-        _pushLog(
+        log(
           'Could not verify orphaned sing-box PID ${marker.pid} safely; keeping the runtime marker for a later cleanup attempt.',
           isError: true,
         );
@@ -530,15 +726,33 @@ class SingboxRuntimeService {
 
     final killed = Process.killPid(marker.pid);
     if (killed) {
-      _pushLog(
-        'Stopped orphaned sing-box PID ${marker.pid} from a previous app session.',
+      // A successful signal is not proof that the core has exited.
+      for (var attempt = 0; attempt < 40; attempt++) {
+        if ((await _runningProcessLookupReader(marker.pid)).isMissing) {
+          await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+      log(
+        'Orphaned core did not stop after SIGTERM; keeping its marker.',
+        isError: true,
       );
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-    } else {
-      _pushLog('Removing stale sing-box PID marker for ${marker.pid}.');
+      return;
+    }
+    // killPid can report false for both "no such process" and "permission
+    // denied". Re-check liveness before deciding the fate of the marker.
+    final lookupAfterKill = await _runningProcessLookupReader(marker.pid);
+    if (lookupAfterKill.isMissing) {
+      log('Removing stale sing-box PID marker for ${marker.pid}.');
+      await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
+      return;
     }
 
-    await _deleteProcessMarker(runtimeDir, expectedPid: marker.pid);
+    log(
+      'Failed to stop orphaned sing-box PID ${marker.pid}; keeping the runtime marker so the next attempt can retry.',
+      isError: true,
+    );
   }
 
   Future<void> _throwIfOrphanedProcessMarkerStillPresent(
@@ -561,13 +775,15 @@ class SingboxRuntimeService {
     required String configPath,
   }) async {
     final markerFile = _processMarkerFile(runtimeDir);
-    final payload = <String, Object>{
+    final payload = <String, Object?>{
       'pid': pid,
       'binaryPath': binaryPath,
       'configPath': configPath,
-      'updatedAt': DateTime.now().toIso8601String(),
+      'launcherPid': currentProcessPid,
     };
-    await markerFile.writeAsString(jsonEncode(payload), flush: true);
+    final pending = File('${markerFile.path}.tmp');
+    await pending.writeAsString(jsonEncode(payload), flush: true);
+    await pending.rename(markerFile.path);
   }
 
   Future<_RuntimeProcessMarker?> _readProcessMarker(
@@ -600,7 +816,7 @@ class SingboxRuntimeService {
         configPath: configPath == null || configPath.isEmpty
             ? p.join(runtimeDir.path, 'current-config.json')
             : configPath,
-        updatedAt: DateTime.tryParse(decoded['updatedAt']?.toString() ?? ''),
+        launcherPid: _tryParseInt(decoded['launcherPid']),
       );
     } catch (_) {
       return null;
@@ -678,26 +894,21 @@ class SingboxRuntimeService {
       return;
     }
 
-    try {
-      final managedSettings = await helperClient.enableManagedWinHttpProxy(
+    final managedSettings = await helperClient.enableManagedWinHttpProxy(
+      mixedPort: mixedPort,
+      bypassSteam: bypassSteam,
+    );
+    final lease = _WinHttpProxyLease._(
+      _WinHttpProxyMarker(
         mixedPort: mixedPort,
-        bypassSteam: bypassSteam,
-      );
-      final lease = _WinHttpProxyLease._(
-        _WinHttpProxyMarker(
-          mixedPort: mixedPort,
-          managedSettings: managedSettings,
-        ),
-      );
-      await _writeWinHttpProxyMarker(runtimeDir, lease._marker);
-      _winHttpProxyLease = lease;
-      _pushLog(
-        'WinHTTP proxy enabled through 127.0.0.1:$mixedPort for apps that bypass WinINET.',
-      );
-    } on Object catch (error, stackTrace) {
-      _pushLog('Failed to sync the WinHTTP proxy: $error', isError: true);
-      Error.throwWithStackTrace(error, stackTrace);
-    }
+        managedSettings: managedSettings,
+      ),
+    );
+    await _writeWinHttpProxyMarker(runtimeDir, lease._marker);
+    _winHttpProxyLease = lease;
+    _pushLog(
+      'WinHTTP proxy enabled through 127.0.0.1:$mixedPort for apps that bypass WinINET.',
+    );
   }
 
   Future<void> _restoreWinHttpProxy({
@@ -722,6 +933,8 @@ class SingboxRuntimeService {
       );
       _pushLog('WinHTTP proxy restored to its previous state.');
       shouldDeleteMarker = true;
+    } on Object catch (error) {
+      _pushLog('Failed to restore the WinHTTP proxy: $error', isError: true);
     } finally {
       if (shouldDeleteMarker) {
         await _deleteWinHttpProxyMarker(runtimeDir);
@@ -796,29 +1009,17 @@ class SingboxRuntimeService {
     return int.tryParse(value?.toString() ?? '');
   }
 
-  bool _shouldRetryStartupAfterError(Object error) {
-    if (error is TimeoutException) {
-      return true;
-    }
-
-    final message = error.toString().toLowerCase();
-    return message.contains('controller became ready') ||
-        message.contains('clash api did not start') ||
-        message.contains('did not become ready in time') ||
-        message.contains('timed out') ||
-        message.contains('address already in use') ||
-        message.contains('listen tcp') ||
-        message.contains('bind');
+  /// Only a controller-startup timeout is worth a retry with fresh ports.
+  /// Everything else (bad config, missing TUN permissions, spawn failure)
+  /// fails fast instead of multiplying the wait.
+  bool _isRetryableStartupError(Object error) {
+    return error is TimeoutException;
   }
 
   Future<_OrphanedProcessMatch> _inspectOrphanedProcessMarker(
     _RuntimeProcessMarker marker,
   ) async {
     final binaryPath = marker.binaryPath?.trim();
-    if (binaryPath == null || binaryPath.isEmpty) {
-      return _OrphanedProcessMatch.inconclusive;
-    }
-
     final lookup = await _runningProcessLookupReader(marker.pid);
     if (lookup.isMissing) {
       return _OrphanedProcessMatch.missingProcess;
@@ -827,6 +1028,9 @@ class SingboxRuntimeService {
       return _OrphanedProcessMatch.inconclusive;
     }
 
+    if (binaryPath == null || binaryPath.isEmpty) {
+      return _OrphanedProcessMatch.inconclusive;
+    }
     final expectedBinary = _normalizeComparablePath(binaryPath);
     final currentBinary = lookup.executablePath == null
         ? null
@@ -871,7 +1075,7 @@ if (\$null -eq \$process) {
   commandLine = [string]\$process.CommandLine
 } | ConvertTo-Json -Compress
 ''';
-      final result = await Process.run('powershell.exe', [
+      final result = await runProcessWithTimeout('powershell.exe', [
         '-NoProfile',
         '-NonInteractive',
         '-ExecutionPolicy',
@@ -903,24 +1107,29 @@ if (\$null -eq \$process) {
       }
     }
 
-    final result = await Process.run('ps', ['-p', '$pid', '-o', 'args=']);
-    if (result.exitCode == 1) {
-      return const RunningProcessLookup.missing();
-    }
+    final result = await runProcessWithTimeout('ps', [
+      '-p',
+      '$pid',
+      '-o',
+      'args=',
+    ]);
     if (result.exitCode != 0) {
-      return const RunningProcessLookup.unavailable();
+      // POSIX ps exits non-zero when the PID does not exist.
+      return const RunningProcessLookup.missing();
     }
 
     final commandLine = result.stdout.toString().trim();
     if (commandLine.isEmpty) {
-      return const RunningProcessLookup.unavailable();
+      return const RunningProcessLookup.missing();
     }
     return RunningProcessLookup.found(commandLine: commandLine);
   }
 
+  /// Paths are compared case-insensitively: the process command line is
+  /// lowercased by [RunningProcessLookup.normalizedCommandLine], and both
+  /// Windows and the default macOS filesystem are case-insensitive anyway.
   String _normalizeComparablePath(String value) {
-    final normalized = p.normalize(value).replaceAll('\\', '/');
-    return Platform.isWindows ? normalized.toLowerCase() : normalized;
+    return p.normalize(value).replaceAll('\\', '/').toLowerCase();
   }
 
   void _pushLog(String line, {bool isError = false}) {
@@ -939,13 +1148,13 @@ class _RuntimeProcessMarker {
     required this.pid,
     this.binaryPath,
     this.configPath,
-    this.updatedAt,
+    this.launcherPid,
   });
 
   final int pid;
   final String? binaryPath;
   final String? configPath;
-  final DateTime? updatedAt;
+  final int? launcherPid;
 }
 
 enum _OrphanedProcessMatch { matches, mismatches, missingProcess, inconclusive }
@@ -1012,12 +1221,14 @@ int? _tryParseManagedWinHttpProxyPort(String? proxyServer) {
 
 class _PrivilegedHelperSingboxRuntimeService extends SingboxRuntimeService {
   _PrivilegedHelperSingboxRuntimeService({
-    required WindowsPrivilegedHelperClient helperClient,
+    required PrivilegedHelperClient helperClient,
   }) : _helperClient = helperClient;
 
-  final WindowsPrivilegedHelperClient _helperClient;
+  final PrivilegedHelperClient _helperClient;
   RuntimeSession? _remoteSession;
   final List<String> _remoteLogs = <String>[];
+  Timer? _stateTimer;
+  bool _pollingState = false;
 
   @override
   RuntimeSession? get session => _remoteSession;
@@ -1056,6 +1267,7 @@ class _PrivilegedHelperSingboxRuntimeService extends SingboxRuntimeService {
     String? selectedServerTag,
     RuntimeExitCallback? onExit,
   }) async {
+    _stateTimer?.cancel();
     final snapshot = await _helperClient.startRuntime(
       profileId: profileId,
       templateConfig: templateConfig,
@@ -1073,12 +1285,31 @@ class _PrivilegedHelperSingboxRuntimeService extends SingboxRuntimeService {
         'Privileged helper did not return a running sing-box session.',
       );
     }
+    _stateTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (_pollingState) return;
+      _pollingState = true;
+      try {
+        final current = await _helperClient.fetchRuntimeState();
+        if (!identical(_remoteSession, session)) return;
+        _replaceLogs(current.logs);
+        if (current.session == null) {
+          _stateTimer?.cancel();
+          _remoteSession = null;
+          onExit?.call(session, -1);
+        }
+      } on Object {
+        // A transient IPC failure does not prove the tunnel has stopped.
+      } finally {
+        _pollingState = false;
+      }
+    });
     return session;
   }
 
   @override
   Future<void> stop() async {
     final snapshot = await _helperClient.stopRuntime();
+    _stateTimer?.cancel();
     _remoteSession = snapshot.session;
     _replaceLogs(snapshot.logs);
   }
@@ -1090,12 +1321,32 @@ class _PrivilegedHelperSingboxRuntimeService extends SingboxRuntimeService {
     }
 
     final snapshot = await _helperClient.stopRuntimeIfAvailable();
+    _stateTimer?.cancel();
     if (snapshot == null) {
       return;
     }
 
     _remoteSession = snapshot.session;
     _replaceLogs(snapshot.logs);
+  }
+
+  /// Re-adopts a runtime session that survived an app restart inside the
+  /// privileged helper. Without this the UI would show "disconnected" while
+  /// the helper keeps routing traffic (or, worse, nobody would ever stop it).
+  @override
+  Future<void> recoverFromPreviousSession({ProxyLogSink? onLog}) async {
+    try {
+      final snapshot = await _helperClient.fetchRuntimeState();
+      _remoteSession = snapshot.session;
+      _replaceLogs(snapshot.logs);
+      if (_remoteSession != null) {
+        onLog?.call(
+          'Re-attached to the privileged helper runtime from a previous app session.',
+        );
+      }
+    } on Object {
+      // Helper unavailable — nothing to re-attach to.
+    }
   }
 
   @override
@@ -1243,6 +1494,11 @@ class _AdaptiveSingboxRuntimeService extends SingboxRuntimeService {
 
   @override
   Future<void> stopForAppExit() {
+    if (_activeService == null &&
+        _localService.session == null &&
+        _helperService.session == null) {
+      return Future<void>.value();
+    }
     return _serializeLifecycle(_stopForAppExitAdaptive);
   }
 
@@ -1272,6 +1528,18 @@ class _AdaptiveSingboxRuntimeService extends SingboxRuntimeService {
         _rememberLogs(_helperService);
       }
     }
+  }
+
+  /// Recovery fan-out: re-attach to a helper-side runtime if one survived,
+  /// then clean up local orphans.
+  @override
+  Future<void> recoverFromPreviousSession({ProxyLogSink? onLog}) async {
+    await _helperService.recoverFromPreviousSession(onLog: onLog);
+    if (_helperService.session != null) {
+      _activeService = _helperService;
+      _rememberLogs(_helperService);
+    }
+    await _localService.recoverFromPreviousSession(onLog: onLog);
   }
 
   @override

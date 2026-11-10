@@ -2,22 +2,11 @@ import 'package:flutter/material.dart';
 
 enum AppThemeModePreference { system, light, dark }
 
-enum AppThemePalette { emerald, ocean, amber, rose }
-
 AppThemeModePreference appThemeModePreferenceFromStorageValue(String? value) {
   return switch (value) {
     'light' => AppThemeModePreference.light,
     'dark' => AppThemeModePreference.dark,
     _ => AppThemeModePreference.dark,
-  };
-}
-
-AppThemePalette appThemePaletteFromStorageValue(String? value) {
-  return switch (value) {
-    'ocean' => AppThemePalette.ocean,
-    'amber' => AppThemePalette.amber,
-    'rose' => AppThemePalette.rose,
-    _ => AppThemePalette.emerald,
   };
 }
 
@@ -42,72 +31,46 @@ extension AppThemeModePreferenceX on AppThemeModePreference {
 
   String get description {
     return switch (this) {
-      AppThemeModePreference.system => 'Следует системной теме устройства.',
-      AppThemeModePreference.light => 'Светлая палитра интерфейса.',
-      AppThemeModePreference.dark => 'Тёмная палитра интерфейса.',
-    };
-  }
-}
-
-extension AppThemePaletteX on AppThemePalette {
-  String get storageValue => name;
-
-  String get title {
-    return switch (this) {
-      AppThemePalette.emerald => 'Gorion',
-      AppThemePalette.ocean => 'Ocean',
-      AppThemePalette.amber => 'Amber',
-      AppThemePalette.rose => 'Rose',
+      AppThemeModePreference.system => 'Следует теме устройства',
+      AppThemeModePreference.light => 'Всегда светлый интерфейс',
+      AppThemeModePreference.dark => 'Всегда тёмный интерфейс',
     };
   }
 
-  String get description {
+  IconData get icon {
     return switch (this) {
-      AppThemePalette.emerald => 'Фирменная зелёная палитра Gorion.',
-      AppThemePalette.ocean => 'Холодные сине-бирюзовые акценты.',
-      AppThemePalette.amber => 'Тёплые янтарные акценты.',
-      AppThemePalette.rose => 'Мягкие розово-красные акценты.',
+      AppThemeModePreference.system => Icons.brightness_auto_rounded,
+      AppThemeModePreference.light => Icons.light_mode_rounded,
+      AppThemeModePreference.dark => Icons.dark_mode_rounded,
     };
   }
 }
 
 class AppThemeSettings {
-  const AppThemeSettings({
-    this.mode = AppThemeModePreference.dark,
-    this.palette = AppThemePalette.emerald,
-  });
+  const AppThemeSettings({this.mode = AppThemeModePreference.dark});
 
   final AppThemeModePreference mode;
-  final AppThemePalette palette;
 
-  AppThemeSettings copyWith({
-    AppThemeModePreference? mode,
-    AppThemePalette? palette,
-  }) {
-    return AppThemeSettings(
-      mode: mode ?? this.mode,
-      palette: palette ?? this.palette,
-    );
+  AppThemeSettings copyWith({AppThemeModePreference? mode}) {
+    return AppThemeSettings(mode: mode ?? this.mode);
   }
 
   Map<String, dynamic> toJson() {
-    return {'mode': mode.storageValue, 'palette': palette.storageValue};
+    return {'mode': mode.storageValue};
   }
 
   factory AppThemeSettings.fromJson(Map<String, dynamic> json) {
+    // Поле palette из старых версий игнорируется: остались две темы.
     return AppThemeSettings(
       mode: appThemeModePreferenceFromStorageValue(json['mode']?.toString()),
-      palette: appThemePaletteFromStorageValue(json['palette']?.toString()),
     );
   }
 
   @override
   bool operator ==(Object other) {
-    return other is AppThemeSettings &&
-        other.mode == mode &&
-        other.palette == palette;
+    return other is AppThemeSettings && other.mode == mode;
   }
 
   @override
-  int get hashCode => Object.hash(mode, palette);
+  int get hashCode => mode.hashCode;
 }

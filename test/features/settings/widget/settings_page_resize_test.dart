@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/app/theme_settings.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
@@ -16,10 +15,6 @@ import 'package:gorion_clean/features/settings/data/desktop_settings_repository.
 import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
 import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
-import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
-import 'package:gorion_clean/features/zapret/model/zapret_settings.dart';
 
 void main() {
   testWidgets('settings page remains stable across window resize', (
@@ -41,22 +36,12 @@ void main() {
       launchAtStartupService: const NoopLaunchAtStartupService(),
       initialState: const DesktopSettingsState(launchAtStartupEnabled: true),
     );
-    final zapretController = ZapretController(
-      repository: _FakeZapretSettingsRepository(),
-      runtimeService: _FakeZapretRuntimeService(),
-      initialState: const ZapretState(
-        bootstrapping: false,
-        settings: ZapretSettings(startOnAppLaunch: true),
-      ),
-      loadOnInit: false,
-    );
     final container = ProviderContainer(
       overrides: [
         dashboardControllerProvider.overrideWith((ref) => controller),
         desktopSettingsControllerProvider.overrideWith(
           (ref) => desktopController,
         ),
-        zapretControllerProvider.overrideWith((ref) => zapretController),
       ],
     );
     addTearDown(container.dispose);
@@ -68,10 +53,7 @@ void main() {
         UncontrolledProviderScope(
           container: container,
           child: MaterialApp(
-            theme: buildGorionTheme(
-              brightness: Brightness.dark,
-              palette: AppThemePalette.emerald,
-            ),
+            theme: buildGorionTheme(brightness: Brightness.dark),
             home: const Scaffold(body: SettingsPage(animateOnMount: false)),
           ),
         ),
@@ -82,7 +64,11 @@ void main() {
     }
 
     await pumpAtSize(const Size(1440, 900));
-    await tester.tap(find.text('Тема приложения').first);
+    expect(find.text('Внешний вид'), findsOneWidget);
+    await tester.drag(
+      find.byType(SingleChildScrollView).first,
+      const Offset(0, -600),
+    );
     await tester.pumpAndSettle();
 
     await pumpAtSize(const Size(1100, 760));
@@ -110,19 +96,12 @@ void main() {
         launchAtStartupService: const NoopLaunchAtStartupService(),
         initialState: const DesktopSettingsState(),
       );
-      final zapretController = ZapretController(
-        repository: _FakeZapretSettingsRepository(),
-        runtimeService: _FakeZapretRuntimeService(),
-        initialState: const ZapretState(bootstrapping: false),
-        loadOnInit: false,
-      );
       final container = ProviderContainer(
         overrides: [
           dashboardControllerProvider.overrideWith((ref) => controller),
           desktopSettingsControllerProvider.overrideWith(
             (ref) => desktopController,
           ),
-          zapretControllerProvider.overrideWith((ref) => zapretController),
         ],
       );
 
@@ -133,10 +112,7 @@ void main() {
         UncontrolledProviderScope(
           container: container,
           child: MaterialApp(
-            theme: buildGorionTheme(
-              brightness: Brightness.dark,
-              palette: AppThemePalette.emerald,
-            ),
+            theme: buildGorionTheme(brightness: Brightness.dark),
             home: const Scaffold(body: SettingsPage(animateOnMount: false)),
           ),
         ),
@@ -153,7 +129,7 @@ void main() {
     },
   );
 
-  testWidgets('desktop settings group contains Gorion and zapret startup', (
+  testWidgets('desktop settings group contains Gorion startup options', (
     WidgetTester tester,
   ) async {
     if (!Platform.isWindows) {
@@ -176,22 +152,12 @@ void main() {
       launchAtStartupService: const NoopLaunchAtStartupService(),
       initialState: const DesktopSettingsState(launchAtStartupEnabled: true),
     );
-    final zapretController = ZapretController(
-      repository: _FakeZapretSettingsRepository(),
-      runtimeService: _FakeZapretRuntimeService(),
-      initialState: const ZapretState(
-        bootstrapping: false,
-        settings: ZapretSettings(startOnAppLaunch: true),
-      ),
-      loadOnInit: false,
-    );
     final container = ProviderContainer(
       overrides: [
         dashboardControllerProvider.overrideWith((ref) => controller),
         desktopSettingsControllerProvider.overrideWith(
           (ref) => desktopController,
         ),
-        zapretControllerProvider.overrideWith((ref) => zapretController),
       ],
     );
 
@@ -202,10 +168,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: buildGorionTheme(
-            brightness: Brightness.dark,
-            palette: AppThemePalette.emerald,
-          ),
+          theme: buildGorionTheme(brightness: Brightness.dark),
           home: const Scaffold(body: SettingsPage(animateOnMount: false)),
         ),
       ),
@@ -218,8 +181,6 @@ void main() {
 
     expect(find.text('Gorion с Windows'), findsOneWidget);
     expect(find.text('Запускать первым'), findsOneWidget);
-    expect(find.text('Автостарт Gorion Boost'), findsOneWidget);
-    expect(find.text('Стоп при TUN'), findsNothing);
   });
 
   testWidgets(
@@ -248,19 +209,12 @@ void main() {
           settings: DesktopSettings(launchMinimized: true),
         ),
       );
-      final zapretController = ZapretController(
-        repository: _FakeZapretSettingsRepository(),
-        runtimeService: _FakeZapretRuntimeService(),
-        initialState: const ZapretState(bootstrapping: false),
-        loadOnInit: false,
-      );
       final container = ProviderContainer(
         overrides: [
           dashboardControllerProvider.overrideWith((ref) => controller),
           desktopSettingsControllerProvider.overrideWith(
             (ref) => desktopController,
           ),
-          zapretControllerProvider.overrideWith((ref) => zapretController),
         ],
       );
 
@@ -271,10 +225,7 @@ void main() {
         UncontrolledProviderScope(
           container: container,
           child: MaterialApp(
-            theme: buildGorionTheme(
-              brightness: Brightness.dark,
-              palette: AppThemePalette.emerald,
-            ),
+            theme: buildGorionTheme(brightness: Brightness.dark),
             home: const Scaffold(body: SettingsPage(animateOnMount: false)),
           ),
         ),
@@ -300,7 +251,3 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   @override
   List<String> get logs => const <String>[];
 }
-
-class _FakeZapretSettingsRepository extends ZapretSettingsRepository {}
-
-class _FakeZapretRuntimeService extends ZapretRuntimeService {}

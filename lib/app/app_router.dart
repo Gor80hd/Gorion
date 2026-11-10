@@ -9,11 +9,9 @@ import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart
 import 'package:gorion_clean/features/home/widget/home_page.dart';
 import 'package:gorion_clean/features/home/widget/servers_panel.dart';
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
-import 'package:gorion_clean/features/zapret/widget/zapret_page.dart';
 
 abstract final class AppRoutePaths {
   static const home = '/';
-  static const zapret = '/zapret';
   static const settings = '/settings';
   static const addProfile = '/modal/add-profile';
   static const profilesOverview = '/modal/profiles-overview';
@@ -23,7 +21,6 @@ abstract final class AppRoutePaths {
 
 abstract final class AppRouteNames {
   static const home = 'home';
-  static const zapret = 'zapret';
   static const settings = 'settings';
   static const addProfile = 'add-profile';
   static const profilesOverview = 'profiles-overview';
@@ -49,13 +46,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             name: AppRouteNames.home,
             pageBuilder: (context, state) => const NoTransitionPage<void>(
               child: HomePage(animateOnMount: false),
-            ),
-          ),
-          GoRoute(
-            path: AppRoutePaths.zapret,
-            name: AppRouteNames.zapret,
-            pageBuilder: (context, state) => const NoTransitionPage<void>(
-              child: ZapretPage(animateOnMount: false),
             ),
           ),
           GoRoute(

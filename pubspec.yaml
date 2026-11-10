@@ -1,5 +1,5 @@
 name: gorion_clean
-description: "Desktop VPN and proxy client built around sing-box and Gorion Boost."
+description: "Desktop VPN and proxy client built around sing-box."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -42,7 +42,6 @@ dependencies:
   flutter_animate: ^4.5.0
   flutter_svg: ^2.0.10+1
   gap: ^3.0.1
-  font_awesome_flutter: ^10.8.0
   google_fonts: ^6.3.0
   package_info_plus: ^8.3.0
   path: ^1.9.1
@@ -112,14 +111,6 @@ flutter:
     - assets/singbox/android/arm64-v8a/
     - assets/singbox/android/x86/
     - assets/singbox/android/x86_64/
-    - assets/zapret/manifest.json
-    - assets/zapret/profiles/
-    - assets/zapret/common/lua/
-    - assets/zapret/common/files/
-    - assets/zapret/common/files/fake/
-    - assets/zapret/common/init.d/windivert.filter.examples/
-    - assets/zapret/windows/x64/binaries/windows-x86_64/
-    - assets/zapret/windows/x86/binaries/windows-x86/
 
   fonts:
     - family: IBMPlexSans

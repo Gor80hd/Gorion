@@ -51,33 +51,58 @@ class SplitTunnelSection extends StatelessWidget {
     final importedBindings = _collectCustomRuleSetBindings(settings);
 
     return GlassPanel(
-      borderRadius: 26,
-      padding: const EdgeInsets.all(22),
+      borderRadius: 20,
+      padding: const EdgeInsets.all(20),
       opacity: 0.06,
       backgroundColor: Colors.white,
       strokeColor: Colors.white,
-      strokeOpacity: 0.04,
+      strokeOpacity: 0.05,
       strokeWidth: 1,
       showGlow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Traffic routing',
-            style: theme.textTheme.titleLarge?.copyWith(
-              color: _splitTunnelPrimaryInk(theme),
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.alt_route_rounded,
+                  size: 18,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Маршрутизация трафика',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: _splitTunnelPrimaryInk(theme),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Что идёт в direct, что блокируется, а что остаётся на proxy. Пресеты добавляют готовые правила, ниже — свои домены и сети.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: _splitTunnelSecondaryInk(theme),
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Здесь задаётся понятная логика маршрутизации: что идёт в direct, что блокируется, а что принудительно остаётся на proxy. Пресеты добавляют готовые правила, а ниже можно вручную дописать свои домены и сети.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: _splitTunnelSecondaryInk(theme),
-              height: 1.45,
-            ),
-          ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           _ToggleCard(
             title: 'Включить правила маршрутизации',
             subtitle: _buildEnabledSubtitle(),
@@ -549,9 +574,9 @@ class SplitTunnelSection extends StatelessWidget {
     return showDialog<String>(
       context: context,
       builder: (context) {
+        final theme = Theme.of(context);
         return AlertDialog(
-          backgroundColor: gorionSurface,
-          title: Text(title, style: const TextStyle(color: gorionOnSurface)),
+          title: Text(title),
           content: SizedBox(
             width: 460,
             child: Column(
@@ -560,25 +585,22 @@ class SplitTunnelSection extends StatelessWidget {
               children: [
                 Text(
                   description,
-                  style: const TextStyle(
-                    color: gorionOnSurfaceMuted,
+                  style: TextStyle(
+                    color: theme.gorionTokens.onSurfaceMuted,
                     height: 1.45,
                   ),
                 ),
                 const SizedBox(height: 14),
                 TextField(
                   controller: controller,
-                  decoration: InputDecoration(
-                    hintText: hintText,
-                    hintStyle: const TextStyle(color: gorionOnSurfaceMuted),
-                  ),
+                  decoration: InputDecoration(hintText: hintText),
                 ),
                 if (suggestions.isNotEmpty) ...[
                   const SizedBox(height: 14),
-                  const Text(
+                  Text(
                     'Быстрый выбор',
                     style: TextStyle(
-                      color: gorionOnSurface,
+                      color: theme.colorScheme.onSurface,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -716,9 +738,11 @@ class _SplitTunnelTagSelectionDialogState
     final screenWidth = MediaQuery.sizeOf(context).width;
     final maxDialogHeight = MediaQuery.sizeOf(context).height * 0.72;
 
+    final theme = Theme.of(context);
+    final muted = theme.gorionTokens.onSurfaceMuted;
+
     return AlertDialog(
-      backgroundColor: gorionSurface,
-      title: Text(widget.title, style: const TextStyle(color: gorionOnSurface)),
+      title: Text(widget.title),
       content: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: 560, maxHeight: maxDialogHeight),
         child: SizedBox(
@@ -728,10 +752,7 @@ class _SplitTunnelTagSelectionDialogState
             children: [
               Text(
                 widget.description,
-                style: const TextStyle(
-                  color: gorionOnSurfaceMuted,
-                  height: 1.45,
-                ),
+                style: TextStyle(color: muted, height: 1.45),
               ),
               const SizedBox(height: 14),
               TextField(
@@ -739,7 +760,6 @@ class _SplitTunnelTagSelectionDialogState
                 decoration: InputDecoration(
                   prefixIcon: const Icon(Icons.search_rounded),
                   hintText: widget.searchHintText,
-                  hintStyle: const TextStyle(color: gorionOnSurfaceMuted),
                 ),
               ),
               const SizedBox(height: 12),
@@ -747,22 +767,16 @@ class _SplitTunnelTagSelectionDialogState
                 _selectedTags.isEmpty
                     ? 'Ничего не выбрано'
                     : 'Выбрано: ${_selectedTags.length}',
-                style: const TextStyle(
-                  color: gorionOnSurfaceMuted,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(color: muted, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 10),
               Expanded(
                 child: filteredOptions.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
                           'Ничего не найдено. Уточните поиск или введите свой тег.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: gorionOnSurfaceMuted,
-                            height: 1.45,
-                          ),
+                          style: TextStyle(color: muted, height: 1.45),
                         ),
                       )
                     : Scrollbar(
@@ -770,7 +784,9 @@ class _SplitTunnelTagSelectionDialogState
                         child: ListView.separated(
                           itemCount: filteredOptions.length,
                           separatorBuilder: (_, _) => Divider(
-                            color: Colors.white.withValues(alpha: 0.08),
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.08,
+                            ),
                             height: 1,
                           ),
                           itemBuilder: (context, index) {
@@ -780,19 +796,18 @@ class _SplitTunnelTagSelectionDialogState
                               value: selected,
                               dense: true,
                               controlAffinity: ListTileControlAffinity.leading,
-                              activeColor: gorionAccent,
-                              checkColor: Colors.black,
+                              activeColor: theme.colorScheme.primary,
+                              checkColor: theme.colorScheme.onPrimary,
                               contentPadding: EdgeInsets.zero,
                               title: Text(
                                 option.label,
-                                style: const TextStyle(color: gorionOnSurface),
+                                style: TextStyle(
+                                  color: theme.colorScheme.onSurface,
+                                ),
                               ),
                               subtitle: Text(
                                 option.description,
-                                style: const TextStyle(
-                                  color: gorionOnSurfaceMuted,
-                                  height: 1.35,
-                                ),
+                                style: TextStyle(color: muted, height: 1.35),
                               ),
                               onChanged: (_) => _toggleOption(option.tag),
                             );
@@ -1206,20 +1221,19 @@ class _CustomRuleSetDialogState extends State<_CustomRuleSetDialog> {
     final canSubmit = normalizedName.isNotEmpty && normalizedSource.isNotEmpty;
 
     return AlertDialog(
-      backgroundColor: gorionSurface,
-      title: const Text(
-        'Новый imported rule-set',
-        style: TextStyle(color: gorionOnSurface),
-      ),
+      title: const Text('Новый imported rule-set'),
       content: SizedBox(
         width: 520,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Импорт можно привязать к direct, block или proxy. `.srs` используйте как `binary`, JSON rule-set как `source`.',
-              style: TextStyle(color: gorionOnSurfaceMuted, height: 1.45),
+              style: TextStyle(
+                color: Theme.of(context).gorionTokens.onSurfaceMuted,
+                height: 1.45,
+              ),
             ),
             const SizedBox(height: 14),
             DropdownButtonFormField<SplitTunnelAction>(

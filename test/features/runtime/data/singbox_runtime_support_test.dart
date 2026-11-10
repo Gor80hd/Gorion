@@ -63,9 +63,9 @@ void main() {
         modifiedAt: freshTime,
         files: const ['maintain-config.json', 'sing-box.exe'],
       );
-      final zapretRuntime = await _createDetachedRuntime(
+      final legacyToolRuntime = await _createDetachedRuntime(
         runtimeRoot,
-        ['zapret2'],
+        ['legacy-tool'],
         modifiedAt: staleTime,
         files: const ['runtime-process.json', 'sing-box.exe'],
       );
@@ -74,7 +74,7 @@ void main() {
 
       expect(await stalePreconnect.exists(), isFalse);
       expect(await freshMaintain.exists(), isTrue);
-      expect(await zapretRuntime.exists(), isTrue);
+      expect(await legacyToolRuntime.exists(), isTrue);
     },
   );
 }

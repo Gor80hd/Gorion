@@ -89,10 +89,6 @@ class AppThemeSettingsNotifier extends Notifier<AppThemeSettings> {
     await _update(state.copyWith(mode: mode));
   }
 
-  Future<void> setPalette(AppThemePalette palette) async {
-    await _update(state.copyWith(palette: palette));
-  }
-
   Future<void> _update(AppThemeSettings next) async {
     if (state == next) {
       return;

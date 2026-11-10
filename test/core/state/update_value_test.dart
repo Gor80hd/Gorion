@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/core/state/update_value.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
 
 void main() {
   test('absent update value keeps the original field untouched', () {
@@ -30,20 +29,5 @@ void main() {
 
     expect(next.selectedServerTag, isNull);
     expect(next.statusMessage, isNull);
-  });
-
-  test('ZapretState copyWith clears nullable fields through update values', () {
-    const state = ZapretState(
-      statusMessage: 'running',
-      errorMessage: 'warning',
-    );
-
-    final next = state.copyWith(
-      statusMessageUpdate: const UpdateValue<String?>.value(null),
-      errorMessageUpdate: const UpdateValue<String?>.value(null),
-    );
-
-    expect(next.statusMessage, isNull);
-    expect(next.errorMessage, isNull);
   });
 }

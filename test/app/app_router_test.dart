@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/app/app_router.dart';
 import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/app/theme_settings.dart';
 import 'package:gorion_clean/core/router/app_modal_router.dart';
 import 'package:gorion_clean/core/router/bottom_sheets/bottom_sheets_notifier.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
@@ -16,13 +15,9 @@ import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
-import 'package:gorion_clean/features/zapret/application/zapret_controller.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_runtime_service.dart';
-import 'package:gorion_clean/features/zapret/data/zapret_settings_repository.dart';
-import 'package:gorion_clean/features/zapret/widget/zapret_page.dart';
 
 void main() {
-  testWidgets('app router switches between home, settings, and boost routes', (
+  testWidgets('app router switches between home and settings routes', (
     WidgetTester tester,
   ) async {
     final container = _buildContainer();
@@ -33,10 +28,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp.router(
-          theme: buildGorionTheme(
-            brightness: Brightness.dark,
-            palette: AppThemePalette.emerald,
-          ),
+          theme: buildGorionTheme(brightness: Brightness.dark),
           routerConfig: router,
         ),
       ),
@@ -51,11 +43,6 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(SettingsPage), findsOneWidget);
-
-    router.go(AppRoutePaths.zapret);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byType(ZapretPage), findsOneWidget);
   });
 
   testWidgets('modal router opens route-backed dialogs without attachContext', (
@@ -69,10 +56,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp.router(
-          theme: buildGorionTheme(
-            brightness: Brightness.dark,
-            palette: AppThemePalette.emerald,
-          ),
+          theme: buildGorionTheme(brightness: Brightness.dark),
           routerConfig: router,
         ),
       ),
@@ -149,17 +133,10 @@ ProviderContainer _buildContainer() {
     initialState: const DashboardState(bootstrapping: false),
     loadOnInit: false,
   );
-  final zapretController = ZapretController(
-    repository: _FakeZapretSettingsRepository(),
-    runtimeService: _FakeZapretRuntimeService(),
-    initialState: const ZapretState(bootstrapping: false),
-    loadOnInit: false,
-  );
 
   return ProviderContainer(
     overrides: [
       dashboardControllerProvider.overrideWith((ref) => dashboardController),
-      zapretControllerProvider.overrideWith((ref) => zapretController),
     ],
   );
 }
@@ -172,7 +149,3 @@ class _FakeRuntimeService extends SingboxRuntimeService {
   @override
   List<String> get logs => const <String>[];
 }
-
-class _FakeZapretSettingsRepository extends ZapretSettingsRepository {}
-
-class _FakeZapretRuntimeService extends ZapretRuntimeService {}

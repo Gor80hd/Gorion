@@ -5,24 +5,12 @@ void main() {
   test('parses a pending elevated launch action from startup args', () {
     final request = AppLaunchRequest.fromArgs(const [
       '--foo=bar',
-      '--gorion-pending-action=start-zapret',
+      '--gorion-pending-action=connect-tun',
     ]);
 
     expect(
       request.pendingElevatedAction,
-      PendingElevatedLaunchAction.startZapret,
-    );
-    expect(request.resumesAfterElevation, isTrue);
-  });
-
-  test('parses a pending zapret config test action from startup args', () {
-    final request = AppLaunchRequest.fromArgs(const [
-      '--gorion-pending-action=test-zapret-configs',
-    ]);
-
-    expect(
-      request.pendingElevatedAction,
-      PendingElevatedLaunchAction.testZapretConfigs,
+      PendingElevatedLaunchAction.connectTun,
     );
     expect(request.resumesAfterElevation, isTrue);
   });
@@ -43,7 +31,7 @@ void main() {
         PowerShellWindowsElevationService.sanitizeArgsForRelaunch(const [
           '--foo=bar',
           gorionLaunchAtStartupArg,
-          '--gorion-pending-action=start-zapret',
+          '--gorion-pending-action=connect-tun',
           '--bar=baz',
         ]);
 

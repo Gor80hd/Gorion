@@ -23,10 +23,9 @@ void main() {
       final loaded = await repository.load();
 
       expect(loaded.mode, AppThemeModePreference.dark);
-      expect(loaded.palette, AppThemePalette.emerald);
     });
 
-    test('fall back to dark mode when stored json has no mode', () async {
+    test('ignores legacy palette key when stored json has no mode', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'gorion-theme-settings-',
       );
@@ -50,7 +49,6 @@ void main() {
       final loaded = await repository.load();
 
       expect(loaded.mode, AppThemeModePreference.dark);
-      expect(loaded.palette, AppThemePalette.rose);
     });
   });
 }

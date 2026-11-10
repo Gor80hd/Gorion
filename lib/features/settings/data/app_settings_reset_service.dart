@@ -24,7 +24,6 @@ class AppSettingsResetService {
     'desktop-settings.json',
     'connection-settings.json',
     'auto-select.json',
-    'zapret-settings.json',
     'server-sort-mode.json',
     'server-favorites.json',
   ];
