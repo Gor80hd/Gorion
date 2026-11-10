@@ -14,6 +14,7 @@ import 'package:gorion_clean/app/windows_tray_controller.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/home/application/dashboard_state.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';

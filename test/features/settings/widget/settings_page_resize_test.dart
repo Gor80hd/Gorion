@@ -8,6 +8,7 @@ import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_se
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/home/application/dashboard_state.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
 import 'package:gorion_clean/features/settings/data/desktop_settings_repository.dart';

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/home/application/dashboard_state.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
 import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';

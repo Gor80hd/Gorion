@@ -4,6 +4,7 @@ import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_se
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/home/application/dashboard_state.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
 import 'package:gorion_clean/features/proxy/notifier/ip_info_notifier.dart';
@@ -53,7 +54,7 @@ void main() {
 }
 
 class _TestDashboardController extends DashboardController {
-  _TestDashboardController({required DashboardState initialState})
+  _TestDashboardController({required DashboardState super.initialState})
     : super(
         repository: ProfileRepository(),
         runtimeService: SingboxRuntimeService(),
@@ -62,7 +63,6 @@ class _TestDashboardController extends DashboardController {
           settingsRepository: AutoSelectSettingsRepository(),
         ),
         autoSelectorService: AutoSelectorService(),
-        initialState: initialState,
         loadOnInit: false,
       );
 

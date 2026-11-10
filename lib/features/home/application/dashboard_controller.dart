@@ -1,19 +1,19 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/core/logging/gorion_console_log.dart';
 import 'package:gorion_clean/core/privileged_helper/macos_helper_installer.dart';
-import 'package:gorion_clean/core/process/process_exception_utils.dart';
-import 'package:gorion_clean/core/state/update_value.dart';
 import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
 import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
 import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
-import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
+import 'package:gorion_clean/features/home/application/auto_select_candidate_resolver.dart';
+import 'package:gorion_clean/features/home/application/dashboard_messages.dart';
+import 'package:gorion_clean/features/home/application/dashboard_state.dart';
+import 'package:gorion_clean/features/home/application/server_lookup.dart';
+import 'package:gorion_clean/features/home/application/tun_privilege_gate.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/runtime/data/adaptive_runtime_engine.dart';
@@ -25,7 +25,6 @@ import 'package:gorion_clean/features/settings/data/connection_tuning_config_ove
 import 'package:gorion_clean/features/settings/data/connection_tuning_settings_repository.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
 import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
-import 'package:gorion_clean/utils/server_display_text.dart';
 
 const _preConnectAutoSelectLabel = 'Автовыбор перед подключением';
 const _manualAutoSelectLabel = 'Ручной автовыбор';
@@ -64,48 +63,6 @@ final autoSelectorServiceProvider = Provider<AutoSelectorService>(
 
 typedef ClashApiClientFactory = ClashApiClient Function(RuntimeSession session);
 
-RuntimeMode _defaultRuntimeMode() {
-  // The system proxy is the best default where Gorion can manage it; Linux
-  // stays on the explicit local proxy (desktop environments differ too much).
-  if (Platform.isWindows || Platform.isMacOS) {
-    return RuntimeMode.systemProxy;
-  }
-  return RuntimeMode.mixed;
-}
-
-RuntimeMode _normalizeRuntimeMode(RuntimeMode mode) {
-  if (Platform.isWindows && mode == RuntimeMode.mixed) {
-    return RuntimeMode.systemProxy;
-  }
-  return mode;
-}
-
-String _pluralizeRu(int value, String one, String few, String many) {
-  final mod10 = value % 10;
-  final mod100 = value % 100;
-  if (mod10 == 1 && mod100 != 11) {
-    return one;
-  }
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
-    return few;
-  }
-  return many;
-}
-
-String _describeAutoSelectBestServerCheckInterval(int minutes) {
-  final hours = minutes ~/ 60;
-  final remainingMinutes = minutes % 60;
-  if (hours > 0 && remainingMinutes > 0) {
-    return '$hours ${_pluralizeRu(hours, 'час', 'часа', 'часов')} '
-        '$remainingMinutes '
-        '${_pluralizeRu(remainingMinutes, 'минута', 'минуты', 'минут')}';
-  }
-  if (hours > 0) {
-    return '$hours ${_pluralizeRu(hours, 'час', 'часа', 'часов')}';
-  }
-  return '$minutes ${_pluralizeRu(minutes, 'минута', 'минуты', 'минут')}';
-}
-
 class _CancelledConnectOperation implements Exception {
   const _CancelledConnectOperation([
     this.message = 'Попытка подключения отменена.',
@@ -115,10 +72,6 @@ class _CancelledConnectOperation implements Exception {
 
   @override
   String toString() => message;
-}
-
-DashboardState _normalizeDashboardState(DashboardState state) {
-  return state.copyWith(runtimeMode: _normalizeRuntimeMode(state.runtimeMode));
 }
 
 final dashboardControllerProvider =
@@ -142,174 +95,6 @@ final dashboardControllerProvider =
         ),
       );
     });
-
-class DashboardState {
-  const DashboardState({
-    this.bootstrapping = true,
-    this.busy = false,
-    this.refreshingDelays = false,
-    this.runtimeMode = RuntimeMode.mixed,
-    this.autoSelectSettings = const AutoSelectSettings(),
-    this.connectionTuningSettings = const ConnectionTuningSettings(),
-    this.storage = const StoredProfilesState(),
-    this.connectionStage = ConnectionStage.disconnected,
-    this.runtimeSession,
-    this.connectedAt,
-    this.delayByTag = const {},
-    this.selectedServerTag,
-    this.activeServerTag,
-    this.recentSuccessfulAutoConnect,
-    this.autoSelectResults = const [],
-    this.autoSelectActivity = const AutoSelectActivityState(),
-    this.lastBestServerCheckAt,
-    this.statusMessage,
-    this.errorMessage,
-    this.logs = const [],
-  });
-
-  final bool bootstrapping;
-  final bool busy;
-  final bool refreshingDelays;
-  final RuntimeMode runtimeMode;
-  final AutoSelectSettings autoSelectSettings;
-  final ConnectionTuningSettings connectionTuningSettings;
-  final StoredProfilesState storage;
-  final ConnectionStage connectionStage;
-  final RuntimeSession? runtimeSession;
-  final DateTime? connectedAt;
-  final Map<String, int> delayByTag;
-  final String? selectedServerTag;
-  final String? activeServerTag;
-  final RecentSuccessfulAutoConnect? recentSuccessfulAutoConnect;
-  final List<AutoSelectProbeResult> autoSelectResults;
-  final AutoSelectActivityState autoSelectActivity;
-  final DateTime? lastBestServerCheckAt;
-  final String? statusMessage;
-  final String? errorMessage;
-  final List<String> logs;
-
-  ProxyProfile? get activeProfile => storage.activeProfile;
-
-  bool get hasRecentSuccessfulAutoConnectForActiveProfile {
-    final profileId = activeProfile?.id;
-    if (profileId == null) {
-      return false;
-    }
-
-    return recentSuccessfulAutoConnect?.matchesProfile(profileId) ?? false;
-  }
-
-  DashboardState copyWith({
-    bool? bootstrapping,
-    bool? busy,
-    bool? refreshingDelays,
-    RuntimeMode? runtimeMode,
-    AutoSelectSettings? autoSelectSettings,
-    ConnectionTuningSettings? connectionTuningSettings,
-    StoredProfilesState? storage,
-    ConnectionStage? connectionStage,
-    RuntimeSession? runtimeSession,
-    UpdateValue<RuntimeSession?> runtimeSessionUpdate =
-        const UpdateValue<RuntimeSession?>.absent(),
-    bool clearRuntimeSession = false,
-    DateTime? connectedAt,
-    UpdateValue<DateTime?> connectedAtUpdate =
-        const UpdateValue<DateTime?>.absent(),
-    bool clearConnectedAt = false,
-    Map<String, int>? delayByTag,
-    String? selectedServerTag,
-    UpdateValue<String?> selectedServerTagUpdate =
-        const UpdateValue<String?>.absent(),
-    bool clearSelectedServerTag = false,
-    String? activeServerTag,
-    UpdateValue<String?> activeServerTagUpdate =
-        const UpdateValue<String?>.absent(),
-    bool clearActiveServerTag = false,
-    RecentSuccessfulAutoConnect? recentSuccessfulAutoConnect,
-    UpdateValue<RecentSuccessfulAutoConnect?>
-        recentSuccessfulAutoConnectUpdate =
-        const UpdateValue<RecentSuccessfulAutoConnect?>.absent(),
-    bool clearRecentSuccessfulAutoConnect = false,
-    List<AutoSelectProbeResult>? autoSelectResults,
-    AutoSelectActivityState? autoSelectActivity,
-    UpdateValue<AutoSelectActivityState> autoSelectActivityUpdate =
-        const UpdateValue<AutoSelectActivityState>.absent(),
-    bool clearAutoSelectActivity = false,
-    DateTime? lastBestServerCheckAt,
-    UpdateValue<DateTime?> lastBestServerCheckAtUpdate =
-        const UpdateValue<DateTime?>.absent(),
-    bool clearLastBestServerCheckAt = false,
-    String? statusMessage,
-    UpdateValue<String?> statusMessageUpdate =
-        const UpdateValue<String?>.absent(),
-    bool clearStatusMessage = false,
-    String? errorMessage,
-    UpdateValue<String?> errorMessageUpdate =
-        const UpdateValue<String?>.absent(),
-    bool clearErrorMessage = false,
-    List<String>? logs,
-  }) {
-    return DashboardState(
-      bootstrapping: bootstrapping ?? this.bootstrapping,
-      busy: busy ?? this.busy,
-      refreshingDelays: refreshingDelays ?? this.refreshingDelays,
-      runtimeMode: _normalizeRuntimeMode(runtimeMode ?? this.runtimeMode),
-      autoSelectSettings: autoSelectSettings ?? this.autoSelectSettings,
-      connectionTuningSettings:
-          connectionTuningSettings ?? this.connectionTuningSettings,
-      storage: storage ?? this.storage,
-      connectionStage: connectionStage ?? this.connectionStage,
-      runtimeSession: clearRuntimeSession
-          ? null
-          : runtimeSessionUpdate.isPresent
-          ? runtimeSessionUpdate.value
-          : runtimeSession ?? this.runtimeSession,
-      connectedAt: clearConnectedAt
-          ? null
-          : connectedAtUpdate.isPresent
-          ? connectedAtUpdate.value
-          : connectedAt ?? this.connectedAt,
-      delayByTag: delayByTag ?? this.delayByTag,
-      selectedServerTag: clearSelectedServerTag
-          ? null
-          : selectedServerTagUpdate.isPresent
-          ? selectedServerTagUpdate.value
-          : selectedServerTag ?? this.selectedServerTag,
-      activeServerTag: clearActiveServerTag
-          ? null
-          : activeServerTagUpdate.isPresent
-          ? activeServerTagUpdate.value
-          : activeServerTag ?? this.activeServerTag,
-      recentSuccessfulAutoConnect: clearRecentSuccessfulAutoConnect
-          ? null
-          : recentSuccessfulAutoConnectUpdate.isPresent
-          ? recentSuccessfulAutoConnectUpdate.value
-          : recentSuccessfulAutoConnect ?? this.recentSuccessfulAutoConnect,
-      autoSelectResults: autoSelectResults ?? this.autoSelectResults,
-      autoSelectActivity: clearAutoSelectActivity
-          ? const AutoSelectActivityState()
-          : autoSelectActivityUpdate.isPresent
-          ? autoSelectActivityUpdate.value!
-          : autoSelectActivity ?? this.autoSelectActivity,
-      lastBestServerCheckAt: clearLastBestServerCheckAt
-          ? null
-          : lastBestServerCheckAtUpdate.isPresent
-          ? lastBestServerCheckAtUpdate.value
-          : lastBestServerCheckAt ?? this.lastBestServerCheckAt,
-      statusMessage: clearStatusMessage
-          ? null
-          : statusMessageUpdate.isPresent
-          ? statusMessageUpdate.value
-          : statusMessage ?? this.statusMessage,
-      errorMessage: clearErrorMessage
-          ? null
-          : errorMessageUpdate.isPresent
-          ? errorMessageUpdate.value
-          : errorMessage ?? this.errorMessage,
-      logs: logs ?? this.logs,
-    );
-  }
-}
 
 class DashboardController extends StateNotifier<DashboardState> {
   static const _maxAutoSelectTraceLines = 20;
@@ -341,19 +126,24 @@ class DashboardController extends StateNotifier<DashboardState> {
            ConnectionTuningSettingsRepository(),
        _autoSelectPreconnectService = autoSelectPreconnectService,
        _autoSelectorService = autoSelectorService,
-       _elevationService =
-           elevationService ?? const NoopWindowsElevationService(),
-       _elevationPromptService =
-           elevationPromptService ?? const NoopElevationRelaunchPromptService(),
-       _macosHelperInstaller =
-           macosHelperInstaller ?? const MacosPrivilegedHelperInstaller(),
+       _candidates = AutoSelectCandidateResolver(repository),
+       _tunPrivilegeGate = TunPrivilegeGate(
+         engine: runtimeService,
+         elevationService:
+             elevationService ?? const NoopWindowsElevationService(),
+         promptService:
+             elevationPromptService ??
+             const NoopElevationRelaunchPromptService(),
+         macosHelperInstaller:
+             macosHelperInstaller ?? const MacosPrivilegedHelperInstaller(),
+       ),
        _createClashApiClient =
            clashApiClientFactory ?? ClashApiClient.fromSession,
        _createTimer = createTimer ?? _defaultCreateTimer,
        super(
-         _normalizeDashboardState(
-           initialState ?? DashboardState(runtimeMode: _defaultRuntimeMode()),
-         ),
+         // copyWith normalizes the runtime mode for this platform.
+         (initialState ?? DashboardState(runtimeMode: defaultRuntimeMode()))
+             .copyWith(),
        ) {
     if (loadOnInit) {
       unawaited(load());
@@ -375,42 +165,44 @@ class DashboardController extends StateNotifier<DashboardState> {
   final ConnectionTuningSettingsRepository _connectionTuningSettingsRepository;
   final AutoSelectPreconnectService _autoSelectPreconnectService;
   final AutoSelectorService _autoSelectorService;
-  final WindowsElevationService _elevationService;
-  final ElevationRelaunchPromptService _elevationPromptService;
-  final MacosPrivilegedHelperInstaller _macosHelperInstaller;
+  final TunPrivilegeGate _tunPrivilegeGate;
   final ClashApiClientFactory _createClashApiClient;
   final Timer Function(Duration duration, void Function() callback)
   _createTimer;
   Timer? _autoSelectionTimer;
   bool _autoSelectionInFlight = false;
   int _connectOperationId = 0;
-  final Map<String, String> _effectiveTemplateConfigCache = <String, String>{};
-  final Map<String, Map<String, String>> _autoSelectFingerprintCache =
-      <String, Map<String, String>>{};
+  final AutoSelectCandidateResolver _candidates;
+
+  List<ServerEntry> _eligibleAutoSelectServers(
+    ProxyProfile profile, {
+    AutoSelectSettings? settings,
+  }) {
+    return _candidates.eligible(profile, settings ?? state.autoSelectSettings);
+  }
+
+  Future<List<ServerEntry>> _resolveEligibleAutoSelectServers(
+    ProxyProfile profile, {
+    AutoSelectSettings? settings,
+    String? templateConfig,
+  }) {
+    return _candidates.resolveEligible(
+      profile,
+      settings: settings ?? state.autoSelectSettings,
+      tuning: state.connectionTuningSettings,
+      templateConfig: templateConfig,
+    );
+  }
+
+  String _applyConnectionTuningSettings(String templateConfig) {
+    return applyConnectionTuningSettingsToTemplateConfig(
+      templateConfig: templateConfig,
+      settings: state.connectionTuningSettings,
+    );
+  }
 
   Duration get _currentAutoSelectionInterval =>
       state.autoSelectSettings.bestServerCheckInterval;
-
-  String _effectiveTemplateConfigCacheKey(String profileId) {
-    // A full JSON key: hashCode collisions would silently hand a profile the
-    // wrong effective config.
-    return '$profileId::${jsonEncode(state.connectionTuningSettings.toJson())}';
-  }
-
-  void _invalidateAutoSelectCaches([String? profileId]) {
-    if (profileId == null) {
-      _effectiveTemplateConfigCache.clear();
-      _autoSelectFingerprintCache.clear();
-      return;
-    }
-
-    _effectiveTemplateConfigCache.removeWhere(
-      (key, _) => key.startsWith('$profileId::'),
-    );
-    _autoSelectFingerprintCache.removeWhere(
-      (key, _) => key.startsWith('$profileId::'),
-    );
-  }
 
   @override
   void dispose() {
@@ -543,7 +335,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   Future<void> load() async {
-    _invalidateAutoSelectCaches();
+    _candidates.invalidate();
     state = state.copyWith(
       bootstrapping: true,
       clearErrorMessage: true,
@@ -567,7 +359,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       final storage = await storageFuture;
       final autoSelectState = await autoSelectStateFuture;
       final connectionTuningSettings = await connectionTuningSettingsFuture;
-      _invalidateAutoSelectCaches();
+      _candidates.invalidate();
 
       // A live helper-side session means the tunnel is still up: reflect it
       // instead of showing a lying "disconnected" state.
@@ -621,7 +413,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
     try {
       final storage = await _repository.addRemoteSubscription(trimmed);
-      _invalidateAutoSelectCaches();
+      _candidates.invalidate();
       state = state.copyWith(
         busy: false,
         storage: storage,
@@ -652,7 +444,7 @@ class DashboardController extends StateNotifier<DashboardState> {
 
     try {
       final stored = await _connectionTuningSettingsRepository.save(normalized);
-      _invalidateAutoSelectCaches();
+      _candidates.invalidate();
       state = state.copyWith(
         busy: false,
         connectionTuningSettings: stored,
@@ -706,7 +498,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       final stored = await _connectionTuningSettingsRepository.save(
         currentSettings.copyWith(splitTunnel: nextSplitTunnel),
       );
-      _invalidateAutoSelectCaches();
+      _candidates.invalidate();
       state = state.copyWith(
         busy: false,
         connectionTuningSettings: stored,
@@ -751,7 +543,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
     try {
       final storage = await _repository.setActiveProfile(profileId);
-      _invalidateAutoSelectCaches();
+      _candidates.invalidate();
       state = state.copyWith(
         busy: false,
         storage: storage,
@@ -847,7 +639,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
         statusMessage:
             'Automatic best-server checks now run every '
-            '${_describeAutoSelectBestServerCheckInterval(updatedSettings.bestServerCheckIntervalMinutes)}.',
+            '${describeAutoSelectBestServerCheckInterval(updatedSettings.bestServerCheckIntervalMinutes)}.',
       );
 
       if (shouldRescheduleMonitor && !_autoSelectionInFlight) {
@@ -908,7 +700,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         autoSelectSettings: stored.settings,
         recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
         statusMessage:
-            'Интервал Live ping серверов: ${_formatLiveServerPingInterval(clampedSeconds)}.',
+            'Интервал Live ping серверов: ${formatLiveServerPingInterval(clampedSeconds)}.',
       );
     } on Object catch (error) {
       state = state.copyWith(busy: false, errorMessage: error.toString());
@@ -965,7 +757,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     if (alreadyExcluded == excluded) {
       return;
     }
-    _invalidateAutoSelectCaches(profile.id);
+    _candidates.invalidate(profile.id);
 
     final shouldKickMonitor =
         currentSettings.enabled &&
@@ -1031,7 +823,13 @@ class DashboardController extends StateNotifier<DashboardState> {
       return;
     }
 
-    if (await _maybeRelaunchForTunElevation()) {
+    final gate = await _tunPrivilegeGate.ensure(state.runtimeMode);
+    if (gate.errorMessage case final message?) {
+      state = state.copyWith(errorMessage: message, clearStatusMessage: true);
+    } else if (gate.statusMessage case final message?) {
+      state = state.copyWith(statusMessage: message, clearErrorMessage: true);
+    }
+    if (!gate.proceed) {
       return;
     }
 
@@ -1208,8 +1006,8 @@ class DashboardController extends StateNotifier<DashboardState> {
       }
 
       final statusMessage = preparedAutoSelection == null
-          ? _connectedStatus(session)
-          : '${preparedAutoSelection.summary} ${_connectedStatus(session)}';
+          ? connectedStatus(session)
+          : '${preparedAutoSelection.summary} ${connectedStatus(session)}';
       final effectiveStatusMessage =
           verification.statusMessage ?? statusMessage;
       _throwIfConnectOperationCancelled(connectOperationId);
@@ -1255,7 +1053,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         clearRuntimeSession: true,
         clearConnectedAt: true,
         clearLastBestServerCheckAt: true,
-        errorMessage: _connectionError(error, state.runtimeMode),
+        errorMessage: connectionErrorMessage(error, state.runtimeMode),
         logs: _runtimeService.logs,
       );
     }
@@ -1296,7 +1094,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         autoSelectResults: const [],
         clearAutoSelectActivity: true,
         clearLastBestServerCheckAt: true,
-        statusMessage: _disconnectedStatus(previousSession),
+        statusMessage: disconnectedStatus(previousSession),
         logs: _runtimeService.logs,
       );
       if (previousSession != null) {
@@ -1332,7 +1130,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       autoSelectResults: const [],
       clearAutoSelectActivity: true,
       clearLastBestServerCheckAt: true,
-      statusMessage: exitedCleanly ? _disconnectedStatus(session) : null,
+      statusMessage: exitedCleanly ? disconnectedStatus(session) : null,
       clearStatusMessage: !exitedCleanly,
       errorMessage: exitedCleanly
           ? null
@@ -1654,7 +1452,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   Future<void> setRuntimeMode(RuntimeMode mode) async {
-    final normalizedMode = _normalizeRuntimeMode(mode);
+    final normalizedMode = normalizeRuntimeMode(mode);
     if (state.busy ||
         state.refreshingDelays ||
         state.runtimeMode == normalizedMode) {
@@ -1667,7 +1465,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       clearErrorMessage: true,
       statusMessage: shouldReconnect
           ? 'Reconnecting with ${normalizedMode.label.toLowerCase()} mode.'
-          : _modeSelectionStatus(normalizedMode),
+          : modeSelectionStatus(normalizedMode),
     );
 
     if (shouldReconnect) {
@@ -1708,7 +1506,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       final storage = await _repository.refreshRemoteSubscription(profile.id);
       // The refreshed template can change the server inventory, so cached
       // effective configs and auto-select fingerprints are no longer valid.
-      _invalidateAutoSelectCaches(profile.id);
+      _candidates.invalidate(profile.id);
       final activeProfile = storage.activeProfile;
       state = state.copyWith(
         busy: false,
@@ -1781,7 +1579,7 @@ class DashboardController extends StateNotifier<DashboardState> {
     );
     try {
       final storage = await _repository.removeProfile(profile.id);
-      _invalidateAutoSelectCaches();
+      _candidates.invalidate();
       final activeProfile = storage.activeProfile;
       state = state.copyWith(
         busy: false,
@@ -2191,16 +1989,16 @@ class DashboardController extends StateNotifier<DashboardState> {
             _reportAutoSelectProgress(_automaticMaintenanceLabel, event);
           },
         );
-        final selectedProbe = _probeByServerTag(
+        final selectedProbe = probeByServerTag(
           outcome.probes,
           outcome.selectedServerTag,
         );
         final nextDelayByTag = {...delayByTag, ...outcome.delayByTag};
         if (selectedProbe == null || !selectedProbe.fullyHealthy) {
           final failureMessage = selectedProbe == null
-              ? _internetAccessVerificationErrorMessage()
-              : _fullInternetAccessFailureMessage(
-                  serverName: _serverNameForTag(
+              ? internetAccessVerificationErrorMessage()
+              : fullInternetAccessFailureMessage(
+                  serverName: serverNameForTag(
                     profile.servers,
                     outcome.selectedServerTag,
                   ),
@@ -2235,12 +2033,12 @@ class DashboardController extends StateNotifier<DashboardState> {
           delayByTag: nextDelayByTag,
           probes: outcome.probes,
           statusMessage: outcome.didSwitch
-              ? '${outcome.summary} ${_connectedStatus(session)}'
+              ? '${outcome.summary} ${connectedStatus(session)}'
               : null,
           failureMessage: null,
         );
       } on Object {
-        final failureMessage = _internetAccessVerificationErrorMessage();
+        final failureMessage = internetAccessVerificationErrorMessage();
         _finishAutoSelectActivity(
           _automaticMaintenanceLabel,
           message: failureMessage,
@@ -2257,7 +2055,7 @@ class DashboardController extends StateNotifier<DashboardState> {
       }
     }
 
-    final currentServer = _findServerByTag(profile.servers, activeServerTag);
+    final currentServer = findServerByTag(profile.servers, activeServerTag);
     if (currentServer == null) {
       return (
         storage: storage,
@@ -2265,7 +2063,7 @@ class DashboardController extends StateNotifier<DashboardState> {
         delayByTag: delayByTag,
         probes: const <AutoSelectProbeResult>[],
         statusMessage: null,
-        failureMessage: _internetAccessVerificationErrorMessage(),
+        failureMessage: internetAccessVerificationErrorMessage(),
       );
     }
 
@@ -2290,8 +2088,8 @@ class DashboardController extends StateNotifier<DashboardState> {
         statusMessage: null,
         failureMessage: probe.fullyHealthy
             ? null
-            : _fullInternetAccessFailureMessage(
-                serverName: _serverNameForTag(
+            : fullInternetAccessFailureMessage(
+                serverName: serverNameForTag(
                   profile.servers,
                   currentServer.tag,
                 ),
@@ -2304,332 +2102,8 @@ class DashboardController extends StateNotifier<DashboardState> {
         delayByTag: delayByTag,
         probes: const <AutoSelectProbeResult>[],
         statusMessage: null,
-        failureMessage: _internetAccessVerificationErrorMessage(),
+        failureMessage: internetAccessVerificationErrorMessage(),
       );
     }
   }
-
-  List<ServerEntry> _eligibleAutoSelectServers(
-    ProxyProfile profile, {
-    AutoSelectSettings? settings,
-  }) {
-    final effectiveSettings = settings ?? state.autoSelectSettings;
-    return _deduplicateExactServers([
-      for (final server in profile.servers)
-        if (!effectiveSettings.isExcluded(profile.id, server.tag)) server,
-    ]);
-  }
-
-  Future<List<ServerEntry>> _resolveEligibleAutoSelectServers(
-    ProxyProfile profile, {
-    AutoSelectSettings? settings,
-    String? templateConfig,
-  }) async {
-    final eligibleServers = _eligibleAutoSelectServers(
-      profile,
-      settings: settings,
-    );
-    if (eligibleServers.length <= 1 ||
-        eligibleServers.every(
-          (server) => (server.configFingerprint ?? '').isNotEmpty,
-        )) {
-      return eligibleServers;
-    }
-
-    try {
-      final resolvedTemplateConfig =
-          templateConfig ?? await _loadEffectiveTemplateConfig(profile);
-      final fingerprintByTag = _resolveAutoSelectFingerprintByTag(
-        profile,
-        resolvedTemplateConfig,
-      );
-      if (fingerprintByTag.isEmpty) {
-        return eligibleServers;
-      }
-      return _deduplicateExactServers([
-        for (final server in eligibleServers)
-          if ((server.configFingerprint ?? '').isNotEmpty)
-            server
-          else
-            ServerEntry(
-              tag: server.tag,
-              displayName: server.displayName,
-              type: server.type,
-              host: server.host,
-              port: server.port,
-              configFingerprint: fingerprintByTag[server.tag],
-            ),
-      ]);
-    } on Object {
-      return eligibleServers;
-    }
-  }
-
-  Future<String> _loadEffectiveTemplateConfig(ProxyProfile profile) async {
-    final cacheKey = _effectiveTemplateConfigCacheKey(profile.id);
-    final cached = _effectiveTemplateConfigCache[cacheKey];
-    if (cached != null) {
-      return cached;
-    }
-
-    final templateConfig = await _repository.loadTemplateConfig(profile);
-    final resolved = _applyConnectionTuningSettings(templateConfig);
-    _effectiveTemplateConfigCache[cacheKey] = resolved;
-    return resolved;
-  }
-
-  Map<String, String> _resolveAutoSelectFingerprintByTag(
-    ProxyProfile profile,
-    String resolvedTemplateConfig,
-  ) {
-    final cacheKey = _effectiveTemplateConfigCacheKey(profile.id);
-    final cached = _autoSelectFingerprintCache[cacheKey];
-    if (cached != null) {
-      return cached;
-    }
-
-    final fingerprintByTag = <String, String>{
-      for (final candidate in extractAutoSelectConfigCandidates(
-        resolvedTemplateConfig,
-      ))
-        candidate.tag: candidate.configFingerprint,
-    };
-    _autoSelectFingerprintCache[cacheKey] = fingerprintByTag;
-    return fingerprintByTag;
-  }
-
-  String _applyConnectionTuningSettings(String templateConfig) {
-    return applyConnectionTuningSettingsToTemplateConfig(
-      templateConfig: templateConfig,
-      settings: state.connectionTuningSettings,
-    );
-  }
-
-  List<ServerEntry> _deduplicateExactServers(List<ServerEntry> servers) {
-    final deduplicated = <ServerEntry>[];
-    final seenFingerprints = <String>{};
-
-    for (final server in servers) {
-      final fingerprint = server.configFingerprint;
-      if (fingerprint == null || fingerprint.isEmpty) {
-        deduplicated.add(server);
-        continue;
-      }
-      if (!seenFingerprints.add(fingerprint)) {
-        continue;
-      }
-      deduplicated.add(server);
-    }
-
-    return deduplicated;
-  }
-
-  ServerEntry? _findServerByTag(List<ServerEntry> servers, String? serverTag) {
-    if (serverTag == null || serverTag.isEmpty) {
-      return null;
-    }
-
-    for (final server in servers) {
-      if (server.tag == serverTag) {
-        return server;
-      }
-    }
-    return null;
-  }
-
-  String _serverNameForTag(List<ServerEntry> servers, String serverTag) {
-    final server = _findServerByTag(servers, serverTag);
-    final raw = server?.displayName ?? serverTag;
-    return normalizeServerDisplayText(raw);
-  }
-
-  AutoSelectProbeResult? _probeByServerTag(
-    List<AutoSelectProbeResult> probes,
-    String? serverTag,
-  ) {
-    if (serverTag == null || serverTag.isEmpty) {
-      return null;
-    }
-
-    for (final probe in probes) {
-      if (probe.serverTag == serverTag) {
-        return probe;
-      }
-    }
-    return null;
-  }
-
-  String _fullInternetAccessFailureMessage({required String serverName}) {
-    final normalizedName = serverName.trim();
-    if (normalizedName.isEmpty) {
-      return 'Подключение не удалось: сервер недоступен.';
-    }
-    return 'Подключение не удалось: $normalizedName недоступен.';
-  }
-
-  String _internetAccessVerificationErrorMessage() {
-    return 'Подключение не удалось: сервер недоступен.';
-  }
-
-  String _connectedStatus(RuntimeSession session) {
-    return switch (_normalizeRuntimeMode(session.mode)) {
-      RuntimeMode.mixed =>
-        'Подключение через локальный прокси активно на ${session.mixedProxyAddress}. Используйте этот адрес в приложениях вручную или переключитесь на системный прокси/TUN.',
-      RuntimeMode.systemProxy =>
-        'Подключение через системный прокси активно. Трафик Windows-приложений, которые используют системный прокси, теперь идёт через ${session.mixedProxyAddress}.',
-      RuntimeMode.tun =>
-        'Подключение через TUN активно. Системный трафик маршрутизируется через sing-box, а mixed-inbound остаётся доступен на ${session.mixedProxyAddress}.',
-    };
-  }
-
-  String _disconnectedStatus(RuntimeSession? previousSession) {
-    return switch (previousSession == null
-        ? null
-        : _normalizeRuntimeMode(previousSession.mode)) {
-      RuntimeMode.systemProxy =>
-        'Локальный runtime sing-box остановлен, прежние системные настройки прокси Windows восстановлены.',
-      RuntimeMode.tun ||
-      RuntimeMode.mixed ||
-      null => 'Локальный runtime sing-box остановлен.',
-    };
-  }
-
-  String _modeSelectionStatus(RuntimeMode mode) {
-    return switch (_normalizeRuntimeMode(mode)) {
-      RuntimeMode.mixed =>
-        'Выбран режим локального прокси. После подключения укажите mixed-inbound в приложениях вручную.',
-      RuntimeMode.systemProxy =>
-        'Выбран режим системного прокси. Подключитесь, чтобы направить через него браузеры и приложения, которые уважают системный прокси Windows.',
-      RuntimeMode.tun =>
-        'Выбран режим TUN. Подключитесь, чтобы направить системный трафик через sing-box.',
-    };
-  }
-
-  String _connectionError(Object error, RuntimeMode mode) {
-    if (error is ProcessException && isProcessElevationRequired(error)) {
-      return 'Запуск TUN требует прав администратора. Подтвердите UAC-запрос или перезапустите Gorion от имени администратора.';
-    }
-
-    final message = error.toString();
-    return switch (_normalizeRuntimeMode(mode)) {
-      RuntimeMode.tun =>
-        '$message Режим TUN может требовать повышенных прав на этой платформе.',
-      _ => message,
-    };
-  }
-
-  Future<bool> _maybeRelaunchForTunElevation() async {
-    if (state.runtimeMode != RuntimeMode.tun) {
-      return false;
-    }
-    if (await _runtimeService.canLaunchWithEmbeddedPrivilegeBroker(
-      mode: state.runtimeMode,
-    )) {
-      return false;
-    }
-
-    if (Platform.isMacOS) {
-      return _installMacosTunHelper();
-    }
-    if (!Platform.isWindows) {
-      return false;
-    }
-
-    bool isElevated;
-    try {
-      isElevated = await _elevationService.isElevated();
-    } on Object {
-      return false;
-    }
-
-    if (isElevated) {
-      return false;
-    }
-
-    final confirmed = await _elevationPromptService.confirmRelaunch(
-      action: PendingElevatedLaunchAction.connectTun,
-    );
-    if (!confirmed) {
-      state = state.copyWith(
-        statusMessage: 'Запуск TUN отменён.',
-        clearErrorMessage: true,
-      );
-      return true;
-    }
-
-    try {
-      await _elevationService.relaunchAsAdministrator(
-        action: PendingElevatedLaunchAction.connectTun,
-      );
-      state = state.copyWith(
-        statusMessage:
-            'Запрошены права администратора. После подтверждения UAC Gorion перезапустится и продолжит запуск TUN.',
-        clearErrorMessage: true,
-      );
-    } on ElevationRequestCancelledException {
-      state = state.copyWith(
-        errorMessage: 'Запрос прав администратора был отменён. TUN не запущен.',
-        clearStatusMessage: true,
-      );
-    } on Object catch (error) {
-      state = state.copyWith(
-        errorMessage:
-            'Не удалось запросить права администратора для TUN: $error',
-        clearStatusMessage: true,
-      );
-    }
-
-    return true;
-  }
-
-  /// macOS TUN path: install the root launchd helper once (native password
-  /// prompt) instead of relaunching the whole app as root. Returns true when
-  /// the connect attempt should stop here (user cancelled or install failed).
-  Future<bool> _installMacosTunHelper() async {
-    final confirmed = await _elevationPromptService
-        .confirmPrivilegedHelperInstall();
-    if (!confirmed) {
-      state = state.copyWith(
-        statusMessage: 'Запуск TUN отменён.',
-        clearErrorMessage: true,
-      );
-      return true;
-    }
-
-    try {
-      await _macosHelperInstaller.install();
-    } on HelperInstallCancelledException {
-      state = state.copyWith(
-        statusMessage:
-            'Установка системного компонента отменена. TUN не запущен.',
-        clearErrorMessage: true,
-      );
-      return true;
-    } on Object catch (error) {
-      state = state.copyWith(
-        errorMessage:
-            'Не удалось установить системный компонент для TUN: $error',
-        clearStatusMessage: true,
-      );
-      return true;
-    }
-
-    state = state.copyWith(
-      statusMessage: 'Системный компонент установлен. Подключаемся…',
-      clearErrorMessage: true,
-    );
-    return false;
-  }
-}
-
-String _formatLiveServerPingInterval(int seconds) {
-  if (seconds < 60) {
-    return '$seconds сек';
-  }
-  final minutes = seconds ~/ 60;
-  final remainingSeconds = seconds % 60;
-  if (remainingSeconds == 0) {
-    return '$minutes мин';
-  }
-  return '$minutes мин $remainingSeconds сек';
 }

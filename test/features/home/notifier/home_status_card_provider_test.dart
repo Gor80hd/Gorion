@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/home/application/dashboard_state.dart';
 import 'package:gorion_clean/features/home/notifier/home_status_card_provider.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';

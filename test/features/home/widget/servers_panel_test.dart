@@ -9,6 +9,7 @@ import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repo
 import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
 import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/home/application/dashboard_state.dart';
 import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
 import 'package:gorion_clean/features/home/widget/servers_panel.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';

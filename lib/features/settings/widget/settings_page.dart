@@ -11,6 +11,7 @@ import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
 import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion_clean/features/home/application/dashboard_state.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
 import 'package:gorion_clean/features/settings/data/app_settings_reset_service.dart';
