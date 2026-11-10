@@ -7,7 +7,7 @@
 #endif
 
 #ifndef AppExeName
-  #define AppExeName "gorion_clean.exe"
+  #define AppExeName "Gorion.exe"
 #endif
 
 #ifndef AppVersion
@@ -16,6 +16,14 @@
 
 #ifndef PrivilegedHelperTaskName
   #define PrivilegedHelperTaskName "Gorion Privileged Helper"
+#endif
+
+#ifndef LegacyAppExeName
+  #define LegacyAppExeName "gorion_clean.exe"
+#endif
+
+#ifndef StartupTaskName
+  #define StartupTaskName "gorion Elevated Startup"
 #endif
 
 #ifndef PrivilegedHelperArg
@@ -66,6 +74,10 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
+[InstallDelete]
+; The executable was renamed; an upgrade must not leave the old one behind.
+Type: files; Name: "{app}\{#LegacyAppExeName}"
+
 [UninstallDelete]
 Type: files; Name: "{app}\gorion_privileged_helper.installed"
 
@@ -94,6 +106,25 @@ begin
     'if ($null -ne $task) {' + #13#10 +
     '  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null' + #13#10 +
     '  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null' + #13#10 +
+    '}';
+end;
+
+{ An autostart task created by an older version still points at the old
+  executable name. Repoint it, keeping its arguments. }
+function BuildStartupTaskRepointScript(): String;
+begin
+  Result :=
+    '$taskName = ''{#StartupTaskName}''' + #13#10 +
+    '$appPath = ''' + ExpandConstant('{app}\{#AppExeName}') + '''' + #13#10 +
+    '$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue' + #13#10 +
+    'if ($null -ne $task -and $task.Actions.Count -gt 0) {' + #13#10 +
+    '  $arguments = $task.Actions[0].Arguments' + #13#10 +
+    '  if ([string]::IsNullOrEmpty($arguments)) {' + #13#10 +
+    '    $action = New-ScheduledTaskAction -Execute $appPath' + #13#10 +
+    '  } else {' + #13#10 +
+    '    $action = New-ScheduledTaskAction -Execute $appPath -Argument $arguments' + #13#10 +
+    '  }' + #13#10 +
+    '  Set-ScheduledTask -TaskName $taskName -Action $action | Out-Null' + #13#10 +
     '}';
 end;
 
@@ -153,6 +184,7 @@ begin
     begin
       EnsurePrivilegedHelperMarker();
     end;
+    RunPowerShellScript(BuildStartupTaskRepointScript());
   end;
 end;
 

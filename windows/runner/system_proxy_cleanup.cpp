@@ -616,6 +616,9 @@ std::vector<std::filesystem::path> FindSystemProxyMarkerPaths() {
     }
   };
 
+  add_marker_if_present(app_data_root / L"Gorion" / L"Gorion" / L"gorion" /
+                        L"runtime" / kSystemProxyMarkerFileName);
+  // Data folders used before the app was renamed.
   add_marker_if_present(app_data_root / L"com.example" / L"gorion_clean" /
                         L"gorion" / L"runtime" / kSystemProxyMarkerFileName);
   add_marker_if_present(app_data_root / L"gorion_clean" / L"gorion" /

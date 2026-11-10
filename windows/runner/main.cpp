@@ -33,7 +33,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project, !is_privileged_helper);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"gorion_clean", origin, size)) {
+  if (!window.Create(L"Gorion", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "gorion_clean" "\0"
+            VALUE "CompanyName", "Gorion" "\0"
+            VALUE "FileDescription", "Gorion" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "gorion_clean" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "gorion_clean.exe" "\0"
-            VALUE "ProductName", "gorion_clean" "\0"
+            VALUE "InternalName", "Gorion" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Gorion. All rights reserved." "\0"
+            VALUE "OriginalFilename", "Gorion.exe" "\0"
+            VALUE "ProductName", "Gorion" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

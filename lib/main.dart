@@ -6,6 +6,7 @@ import 'package:gorion/app/app.dart';
 import 'package:gorion/app/theme.dart';
 import 'package:gorion/core/privileged_helper/privileged_helper_protocol.dart';
 import 'package:gorion/core/privileged_helper/privileged_helper_server.dart';
+import 'package:gorion/core/storage/legacy_data_migration.dart';
 import 'package:gorion/core/windows/windows_elevation_service.dart';
 import 'package:gorion/features/settings/application/desktop_settings_controller.dart';
 import 'package:gorion/features/settings/data/desktop_settings_repository.dart';
@@ -14,6 +15,12 @@ import 'package:window_manager/window_manager.dart';
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    // Must run before anything reads the support directory.
+    await migrateLegacyWindowsAppData();
+  } on Object catch (error) {
+    stderr.writeln('Legacy data migration failed: $error');
+  }
   if (isPrivilegedHelperLaunch(args)) {
     await runPrivilegedHelperServer();
     return;

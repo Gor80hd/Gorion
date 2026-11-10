@@ -2,7 +2,7 @@
 param(
     [string]$AppName = 'Gorion',
     [string]$Publisher = 'Gorion',
-    [string]$ExeName = 'gorion_clean.exe',
+    [string]$ExeName = 'Gorion.exe',
     [string]$FlutterOutputDir = 'build\windows\x64\runner\Release',
     [string]$InstallerScript = 'installer\windows\gorion_windows_installer.iss',
     [string]$OutputDir = 'dist\windows-installer',
