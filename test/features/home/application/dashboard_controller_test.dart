@@ -13,11 +13,13 @@ import 'package:gorion_clean/features/home/application/dashboard_controller.dart
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
 import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
+import 'package:gorion_clean/features/runtime/data/runtime_engine.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/data/connection_tuning_settings_repository.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+
+import '../../../support/fake_runtime_engine.dart';
 
 final _createdAt = DateTime(2026, 4, 3, 12);
 const _session = RuntimeSession(
@@ -2117,7 +2119,7 @@ class _FakeConnectionTuningSettingsRepository
   }
 }
 
-class _FakeRuntimeService extends SingboxRuntimeService {
+class _FakeRuntimeService extends FakeRuntimeEngine {
   _FakeRuntimeService({RuntimeSession? startSession})
     : _startSession = startSession ?? _session;
 

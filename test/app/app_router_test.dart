@@ -13,8 +13,9 @@ import 'package:gorion_clean/features/home/widget/home_page.dart';
 import 'package:gorion_clean/features/home/widget/servers_panel.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
+
+import '../support/fake_runtime_engine.dart';
 
 void main() {
   testWidgets('app router switches between home and settings routes', (
@@ -130,7 +131,7 @@ void main() {
 ProviderContainer _buildContainer() {
   final dashboardController = DashboardController(
     repository: _FakeProfileRepository(),
-    runtimeService: _FakeRuntimeService(),
+    runtimeService: FakeRuntimeEngine(),
     autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
     autoSelectPreconnectService: AutoSelectPreconnectService(
       settingsRepository: _FakeAutoSelectSettingsRepository(),
@@ -150,8 +151,3 @@ ProviderContainer _buildContainer() {
 class _FakeAutoSelectSettingsRepository extends AutoSelectSettingsRepository {}
 
 class _FakeProfileRepository extends ProfileRepository {}
-
-class _FakeRuntimeService extends SingboxRuntimeService {
-  @override
-  List<String> get logs => const <String>[];
-}

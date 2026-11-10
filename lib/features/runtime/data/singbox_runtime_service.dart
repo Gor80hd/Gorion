@@ -6,12 +6,12 @@ import 'package:flutter/foundation.dart';
 import 'package:gorion_clean/core/constants/singbox_assets.dart';
 import 'package:gorion_clean/core/logging/gorion_console_log.dart';
 import 'package:gorion_clean/core/privileged_helper/privileged_helper_client.dart';
-import 'package:gorion_clean/core/privileged_helper/privileged_helper_protocol.dart';
 import 'package:gorion_clean/core/process/current_process.dart';
 import 'package:gorion_clean/core/process/process_runner.dart';
 import 'package:gorion_clean/core/process/running_process_lookup.dart';
 import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
 import 'package:gorion_clean/features/runtime/data/runtime_cleanup_watchdog.dart';
+import 'package:gorion_clean/features/runtime/data/runtime_engine.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_config_builder.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
 import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
@@ -25,52 +25,6 @@ import 'package:uuid/uuid.dart';
 
 const _runtimeProcessMarkerFileName = 'runtime-process.json';
 const _winHttpProxyMarkerFileName = 'winhttp-proxy.json';
-
-enum SingboxRuntimeBackend { local, privilegedHelper }
-
-typedef RuntimeExitCallback =
-    void Function(RuntimeSession session, int exitCode);
-
-SingboxRuntimeBackend selectSingboxRuntimeBackend({
-  required RuntimeMode mode,
-  required bool privilegedHelperProvisioned,
-}) {
-  if (privilegedHelperProvisioned && mode.usesTun) {
-    return SingboxRuntimeBackend.privilegedHelper;
-  }
-
-  return SingboxRuntimeBackend.local;
-}
-
-SingboxRuntimeService buildSingboxRuntimeService({
-  bool? privilegedHelperProvisioned,
-  PrivilegedHelperClient? helperClient,
-  SingboxRuntimeService? localService,
-  SingboxRuntimeService? helperService,
-}) {
-  final resolvedLocalService =
-      localService ??
-      SingboxRuntimeService(
-        privilegedHelperClient: helperClient ?? PrivilegedHelperClient(),
-      );
-  // On platforms with a privileged helper the adaptive wrapper is always
-  // used: helper availability is resolved per start, so installing the
-  // helper mid-session (the macOS TUN flow) works without an app restart.
-  final helperAvailable =
-      privilegedHelperProvisioned ?? isPrivilegedHelperSupported();
-  if (helperAvailable) {
-    return _AdaptiveSingboxRuntimeService(
-      localService: resolvedLocalService,
-      helperService:
-          helperService ??
-          _PrivilegedHelperSingboxRuntimeService(
-            helperClient: helperClient ?? PrivilegedHelperClient(),
-          ),
-    );
-  }
-
-  return resolvedLocalService;
-}
 
 /// Owns the local sing-box process and everything attached to it: the
 /// process marker, the cleanup watchdog, the system proxy lease and the
@@ -86,7 +40,7 @@ SingboxRuntimeService buildSingboxRuntimeService({
 ///   serialized lifecycle queue, so it can never race a new start;
 /// - markers on disk allow the next app launch (or the watchdog) to recover
 ///   from kill -9, crashes and power loss.
-class SingboxRuntimeService {
+class SingboxRuntimeService implements RuntimeEngine {
   /// Two attempts are enough: ports are freshly reserved per attempt, so the
   /// only retry-worthy failure is a transient controller startup timeout.
   /// Config and permission errors kill sing-box instantly and surface
@@ -117,7 +71,7 @@ class SingboxRuntimeService {
   _runningProcessLookupReader;
   SystemProxyLease? _systemProxyLease;
   _WinHttpProxyLease? _winHttpProxyLease;
-  Future<void> _lifecycleOperation = Future<void>.value();
+  final _lifecycle = LifecycleQueue();
   Process? _stoppingProcess;
 
   /// Exit codes of dead children, keyed by process identity. Recorded
@@ -125,16 +79,21 @@ class SingboxRuntimeService {
   /// handler runs — so the startup abort check can see early exits.
   final _exitCodes = Expando<int>('singboxExitCode');
 
+  @override
   RuntimeSession? get session => _session;
+  @override
   List<String> get logs => List.unmodifiable(_logs);
+  @override
   bool get launchesWithEmbeddedPrivilegeBroker => false;
 
+  @override
   Future<bool> canLaunchWithEmbeddedPrivilegeBroker({
     required RuntimeMode mode,
   }) async {
     return false;
   }
 
+  @override
   Future<RuntimeSession> start({
     required String profileId,
     required String templateConfig,
@@ -146,7 +105,7 @@ class SingboxRuntimeService {
     String? selectedServerTag,
     RuntimeExitCallback? onExit,
   }) {
-    return _serializeLifecycle(
+    return _lifecycle.run(
       () => _startImpl(
         profileId: profileId,
         templateConfig: templateConfig,
@@ -409,7 +368,7 @@ class SingboxRuntimeService {
     RuntimeSession session,
     RuntimeExitCallback? onExit,
   ) {
-    return _serializeLifecycle(() async {
+    return _lifecycle.run(() async {
       _pushLog('sing-box exited with code $exitCode.');
       if (identical(_stoppingProcess, process)) {
         return;
@@ -466,8 +425,9 @@ class SingboxRuntimeService {
     });
   }
 
+  @override
   Future<void> stop() {
-    return _serializeLifecycle(_stopImpl);
+    return _lifecycle.run(_stopImpl);
   }
 
   Future<void> _stopImpl() async {
@@ -581,6 +541,7 @@ class SingboxRuntimeService {
   /// the OS from quitting the app. No-ops cheaply when nothing is running —
   /// important because `Future.timeout` would otherwise leave a pending
   /// timer behind on every dispose.
+  @override
   Future<void> stopForAppExit() async {
     if (_session == null &&
         _process == null &&
@@ -600,6 +561,7 @@ class SingboxRuntimeService {
     }
   }
 
+  @override
   void dispose() {
     unawaited(stopForAppExit());
   }
@@ -608,8 +570,9 @@ class SingboxRuntimeService {
   /// Runs at app start (not only on connect), so a crash or a reboot never
   /// leaves the machine without internet. Never throws. Serialized through
   /// the lifecycle queue so it can never race a connect.
+  @override
   Future<void> recoverFromPreviousSession({ProxyLogSink? onLog}) {
-    return _serializeLifecycle(() => _recoverFromPreviousSessionImpl(onLog));
+    return _lifecycle.run(() => _recoverFromPreviousSessionImpl(onLog));
   }
 
   Future<void> _recoverFromPreviousSessionImpl(ProxyLogSink? onLog) async {
@@ -648,20 +611,6 @@ class SingboxRuntimeService {
     }
     final lookup = await _runningProcessLookupReader(pid);
     return lookup.isFound;
-  }
-
-  Future<T> _serializeLifecycle<T>(Future<T> Function() action) {
-    final completer = Completer<T>();
-    _lifecycleOperation = _lifecycleOperation.catchError((_) {}).then((
-      _,
-    ) async {
-      try {
-        completer.complete(await action());
-      } on Object catch (error, stackTrace) {
-        completer.completeError(error, stackTrace);
-      }
-    });
-    return completer.future;
   }
 
   Future<File> _prepareBinary(Directory runtimeDir) {
@@ -1217,362 +1166,4 @@ int? _tryParseManagedWinHttpProxyPort(String? proxyServer) {
     return null;
   }
   return parsed.port;
-}
-
-class _PrivilegedHelperSingboxRuntimeService extends SingboxRuntimeService {
-  _PrivilegedHelperSingboxRuntimeService({
-    required PrivilegedHelperClient helperClient,
-  }) : _helperClient = helperClient;
-
-  final PrivilegedHelperClient _helperClient;
-  RuntimeSession? _remoteSession;
-  final List<String> _remoteLogs = <String>[];
-  Timer? _stateTimer;
-  bool _pollingState = false;
-
-  @override
-  RuntimeSession? get session => _remoteSession;
-
-  @override
-  List<String> get logs => List.unmodifiable(_remoteLogs);
-
-  @override
-  bool get launchesWithEmbeddedPrivilegeBroker => true;
-
-  @override
-  Future<bool> canLaunchWithEmbeddedPrivilegeBroker({
-    required RuntimeMode mode,
-  }) async {
-    if (!mode.usesTun) {
-      return false;
-    }
-
-    try {
-      await _helperClient.ensureAvailable();
-      return true;
-    } on Object {
-      return false;
-    }
-  }
-
-  @override
-  Future<RuntimeSession> start({
-    required String profileId,
-    required String templateConfig,
-    String? originalTemplateConfig,
-    ConnectionTuningSettings connectionTuningSettings =
-        const ConnectionTuningSettings(),
-    required String urlTestUrl,
-    required RuntimeMode mode,
-    String? selectedServerTag,
-    RuntimeExitCallback? onExit,
-  }) async {
-    _stateTimer?.cancel();
-    final snapshot = await _helperClient.startRuntime(
-      profileId: profileId,
-      templateConfig: templateConfig,
-      originalTemplateConfig: originalTemplateConfig,
-      connectionTuningSettings: connectionTuningSettings,
-      urlTestUrl: urlTestUrl,
-      mode: mode,
-      selectedServerTag: selectedServerTag,
-    );
-    _remoteSession = snapshot.session;
-    _replaceLogs(snapshot.logs);
-    final session = _remoteSession;
-    if (session == null) {
-      throw StateError(
-        'Privileged helper did not return a running sing-box session.',
-      );
-    }
-    _stateTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
-      if (_pollingState) return;
-      _pollingState = true;
-      try {
-        final current = await _helperClient.fetchRuntimeState();
-        if (!identical(_remoteSession, session)) return;
-        _replaceLogs(current.logs);
-        if (current.session == null) {
-          _stateTimer?.cancel();
-          _remoteSession = null;
-          onExit?.call(session, -1);
-        }
-      } on Object {
-        // A transient IPC failure does not prove the tunnel has stopped.
-      } finally {
-        _pollingState = false;
-      }
-    });
-    return session;
-  }
-
-  @override
-  Future<void> stop() async {
-    final snapshot = await _helperClient.stopRuntime();
-    _stateTimer?.cancel();
-    _remoteSession = snapshot.session;
-    _replaceLogs(snapshot.logs);
-  }
-
-  @override
-  Future<void> stopForAppExit() async {
-    if (_remoteSession == null) {
-      return;
-    }
-
-    final snapshot = await _helperClient.stopRuntimeIfAvailable();
-    _stateTimer?.cancel();
-    if (snapshot == null) {
-      return;
-    }
-
-    _remoteSession = snapshot.session;
-    _replaceLogs(snapshot.logs);
-  }
-
-  /// Re-adopts a runtime session that survived an app restart inside the
-  /// privileged helper. Without this the UI would show "disconnected" while
-  /// the helper keeps routing traffic (or, worse, nobody would ever stop it).
-  @override
-  Future<void> recoverFromPreviousSession({ProxyLogSink? onLog}) async {
-    try {
-      final snapshot = await _helperClient.fetchRuntimeState();
-      _remoteSession = snapshot.session;
-      _replaceLogs(snapshot.logs);
-      if (_remoteSession != null) {
-        onLog?.call(
-          'Re-attached to the privileged helper runtime from a previous app session.',
-        );
-      }
-    } on Object {
-      // Helper unavailable — nothing to re-attach to.
-    }
-  }
-
-  @override
-  void dispose() {
-    unawaited(stopForAppExit());
-  }
-
-  void _replaceLogs(List<String> nextLogs) {
-    _remoteLogs
-      ..clear()
-      ..addAll(nextLogs);
-  }
-}
-
-class _AdaptiveSingboxRuntimeService extends SingboxRuntimeService {
-  _AdaptiveSingboxRuntimeService({
-    required SingboxRuntimeService localService,
-    required SingboxRuntimeService helperService,
-  }) : _localService = localService,
-       _helperService = helperService;
-
-  final SingboxRuntimeService _localService;
-  final SingboxRuntimeService _helperService;
-  final List<String> _lastLogs = <String>[];
-  SingboxRuntimeService? _activeService;
-
-  @override
-  RuntimeSession? get session => _activeService?.session;
-
-  @override
-  List<String> get logs {
-    final activeService = _activeService;
-    if (activeService != null) {
-      return activeService.logs;
-    }
-    return List.unmodifiable(_lastLogs);
-  }
-
-  @override
-  bool get launchesWithEmbeddedPrivilegeBroker => true;
-
-  @override
-  Future<bool> canLaunchWithEmbeddedPrivilegeBroker({
-    required RuntimeMode mode,
-  }) async {
-    return identical(await _resolveServiceForStart(mode), _helperService);
-  }
-
-  @override
-  Future<RuntimeSession> start({
-    required String profileId,
-    required String templateConfig,
-    String? originalTemplateConfig,
-    ConnectionTuningSettings connectionTuningSettings =
-        const ConnectionTuningSettings(),
-    required String urlTestUrl,
-    required RuntimeMode mode,
-    String? selectedServerTag,
-    RuntimeExitCallback? onExit,
-  }) {
-    return _serializeLifecycle(
-      () => _startAdaptive(
-        profileId: profileId,
-        templateConfig: templateConfig,
-        originalTemplateConfig: originalTemplateConfig,
-        connectionTuningSettings: connectionTuningSettings,
-        urlTestUrl: urlTestUrl,
-        mode: mode,
-        selectedServerTag: selectedServerTag,
-        onExit: onExit,
-      ),
-    );
-  }
-
-  Future<RuntimeSession> _startAdaptive({
-    required String profileId,
-    required String templateConfig,
-    String? originalTemplateConfig,
-    required ConnectionTuningSettings connectionTuningSettings,
-    required String urlTestUrl,
-    required RuntimeMode mode,
-    String? selectedServerTag,
-    RuntimeExitCallback? onExit,
-  }) async {
-    final nextService = await _resolveServiceForStart(mode);
-    final previousService = _activeService;
-    if (previousService != null && !identical(previousService, nextService)) {
-      await previousService.stop();
-      _rememberLogs(previousService);
-      _activeService = null;
-    }
-
-    try {
-      final session = await nextService.start(
-        profileId: profileId,
-        templateConfig: templateConfig,
-        originalTemplateConfig: originalTemplateConfig,
-        connectionTuningSettings: connectionTuningSettings,
-        urlTestUrl: urlTestUrl,
-        mode: mode,
-        selectedServerTag: selectedServerTag,
-        onExit: onExit,
-      );
-      _activeService = nextService;
-      _rememberLogs(nextService);
-      return session;
-    } on Object {
-      _rememberLogs(nextService);
-      rethrow;
-    }
-  }
-
-  @override
-  Future<void> stop() {
-    return _serializeLifecycle(_stopAdaptive);
-  }
-
-  Future<void> _stopAdaptive() async {
-    final activeService = _activeService;
-    if (activeService != null) {
-      try {
-        await activeService.stop();
-        _activeService = null;
-      } finally {
-        _rememberLogs(activeService);
-      }
-      return;
-    }
-
-    if (_localService.session != null) {
-      try {
-        await _localService.stop();
-      } finally {
-        _rememberLogs(_localService);
-      }
-    }
-    if (_helperService.session != null) {
-      try {
-        await _helperService.stop();
-      } finally {
-        _rememberLogs(_helperService);
-      }
-    }
-  }
-
-  @override
-  Future<void> stopForAppExit() {
-    if (_activeService == null &&
-        _localService.session == null &&
-        _helperService.session == null) {
-      return Future<void>.value();
-    }
-    return _serializeLifecycle(_stopForAppExitAdaptive);
-  }
-
-  Future<void> _stopForAppExitAdaptive() async {
-    final activeService = _activeService;
-    if (activeService != null) {
-      try {
-        await activeService.stopForAppExit();
-        _activeService = null;
-      } finally {
-        _rememberLogs(activeService);
-      }
-      return;
-    }
-
-    if (_localService.session != null) {
-      try {
-        await _localService.stopForAppExit();
-      } finally {
-        _rememberLogs(_localService);
-      }
-    }
-    if (_helperService.session != null) {
-      try {
-        await _helperService.stopForAppExit();
-      } finally {
-        _rememberLogs(_helperService);
-      }
-    }
-  }
-
-  /// Recovery fan-out: re-attach to a helper-side runtime if one survived,
-  /// then clean up local orphans.
-  @override
-  Future<void> recoverFromPreviousSession({ProxyLogSink? onLog}) async {
-    await _helperService.recoverFromPreviousSession(onLog: onLog);
-    if (_helperService.session != null) {
-      _activeService = _helperService;
-      _rememberLogs(_helperService);
-    }
-    await _localService.recoverFromPreviousSession(onLog: onLog);
-  }
-
-  @override
-  void dispose() {
-    unawaited(stopForAppExit());
-  }
-
-  SingboxRuntimeService _serviceForMode(RuntimeMode mode) {
-    return switch (selectSingboxRuntimeBackend(
-      mode: mode,
-      privilegedHelperProvisioned: true,
-    )) {
-      SingboxRuntimeBackend.local => _localService,
-      SingboxRuntimeBackend.privilegedHelper => _helperService,
-    };
-  }
-
-  Future<SingboxRuntimeService> _resolveServiceForStart(
-    RuntimeMode mode,
-  ) async {
-    final preferredService = _serviceForMode(mode);
-    if (!identical(preferredService, _helperService)) {
-      return preferredService;
-    }
-    if (await _helperService.canLaunchWithEmbeddedPrivilegeBroker(mode: mode)) {
-      return _helperService;
-    }
-    return _localService;
-  }
-
-  void _rememberLogs(SingboxRuntimeService service) {
-    _lastLogs
-      ..clear()
-      ..addAll(service.logs);
-  }
 }

@@ -13,9 +13,10 @@ import 'package:gorion_clean/features/home/widget/selected_server_preview_provid
 import 'package:gorion_clean/features/home/widget/servers_panel.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+
+import '../../../support/fake_runtime_engine.dart';
 
 void main() {
   testWidgets('selecting batch benchmark enters and exits the running state', (
@@ -31,7 +32,7 @@ void main() {
     final settingsRepository = _FakeAutoSelectSettingsRepository();
     final controller = DashboardController(
       repository: repository,
-      runtimeService: _FakeRuntimeService(),
+      runtimeService: FakeRuntimeEngine(),
       autoSelectSettingsRepository: settingsRepository,
       autoSelectPreconnectService: AutoSelectPreconnectService(
         settingsRepository: settingsRepository,
@@ -95,7 +96,7 @@ void main() {
     final settingsRepository = _FakeAutoSelectSettingsRepository();
     final controller = DashboardController(
       repository: repository,
-      runtimeService: _FakeRuntimeService(),
+      runtimeService: FakeRuntimeEngine(),
       autoSelectSettingsRepository: settingsRepository,
       autoSelectPreconnectService: AutoSelectPreconnectService(
         settingsRepository: settingsRepository,
@@ -151,7 +152,7 @@ void main() {
       );
       final controller = DashboardController(
         repository: repository,
-        runtimeService: _FakeRuntimeService(),
+        runtimeService: FakeRuntimeEngine(),
         autoSelectSettingsRepository: settingsRepository,
         autoSelectPreconnectService: AutoSelectPreconnectService(
           settingsRepository: settingsRepository,
@@ -303,9 +304,4 @@ class _FakeAutoSelectSettingsRepository extends AutoSelectSettingsRepository {
     _state = _state.copyWith(settings: settings);
     return _state;
   }
-}
-
-class _FakeRuntimeService extends SingboxRuntimeService {
-  @override
-  List<String> get logs => const <String>[];
 }

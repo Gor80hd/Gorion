@@ -16,8 +16,9 @@ import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion_clean/features/runtime/data/adaptive_runtime_engine.dart';
 import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
+import 'package:gorion_clean/features/runtime/data/runtime_engine.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/data/connection_tuning_config_overrides.dart';
@@ -34,8 +35,8 @@ final profileRepositoryProvider = Provider<ProfileRepository>(
   (ref) => ProfileRepository(),
 );
 
-final singboxRuntimeServiceProvider = Provider<SingboxRuntimeService>((ref) {
-  final service = buildSingboxRuntimeService();
+final runtimeEngineProvider = Provider<RuntimeEngine>((ref) {
+  final service = buildRuntimeEngine();
   ref.onDispose(service.dispose);
   return service;
 });
@@ -124,7 +125,7 @@ final dashboardControllerProvider =
     StateNotifierProvider<DashboardController, DashboardState>((ref) {
       return DashboardController(
         repository: ref.read(profileRepositoryProvider),
-        runtimeService: ref.read(singboxRuntimeServiceProvider),
+        runtimeService: ref.read(runtimeEngineProvider),
         autoSelectSettingsRepository: ref.read(
           autoSelectSettingsRepositoryProvider,
         ),
@@ -320,7 +321,7 @@ class DashboardController extends StateNotifier<DashboardState> {
 
   DashboardController({
     required ProfileRepository repository,
-    required SingboxRuntimeService runtimeService,
+    required RuntimeEngine runtimeService,
     required AutoSelectSettingsRepository autoSelectSettingsRepository,
     ConnectionTuningSettingsRepository? connectionTuningSettingsRepository,
     required AutoSelectPreconnectService autoSelectPreconnectService,
@@ -369,7 +370,7 @@ class DashboardController extends StateNotifier<DashboardState> {
   }
 
   final ProfileRepository _repository;
-  final SingboxRuntimeService _runtimeService;
+  final RuntimeEngine _runtimeService;
   final AutoSelectSettingsRepository _autoSelectSettingsRepository;
   final ConnectionTuningSettingsRepository _connectionTuningSettingsRepository;
   final AutoSelectPreconnectService _autoSelectPreconnectService;

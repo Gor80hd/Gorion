@@ -9,7 +9,8 @@ import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dar
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/home/widget/home_page.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
+
+import '../support/fake_runtime_engine.dart';
 
 void main() {
   testWidgets('app shell remains stable across window resize', (
@@ -44,7 +45,7 @@ void main() {
   ) async {
     final controller = DashboardController(
       repository: _FakeProfileRepository(),
-      runtimeService: _FakeRuntimeService(),
+      runtimeService: FakeRuntimeEngine(),
       autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
       autoSelectPreconnectService: AutoSelectPreconnectService(
         settingsRepository: _FakeAutoSelectSettingsRepository(),
@@ -93,8 +94,3 @@ void main() {
 class _FakeAutoSelectSettingsRepository extends AutoSelectSettingsRepository {}
 
 class _FakeProfileRepository extends ProfileRepository {}
-
-class _FakeRuntimeService extends SingboxRuntimeService {
-  @override
-  List<String> get logs => const <String>[];
-}

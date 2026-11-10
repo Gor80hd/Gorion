@@ -1,46 +1,49 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
+import 'package:gorion_clean/features/runtime/data/adaptive_runtime_engine.dart';
+import 'package:gorion_clean/features/runtime/data/runtime_engine.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
 
+import '../../../support/fake_runtime_engine.dart';
+
 void main() {
   test(
-    'selectSingboxRuntimeBackend keeps mixed and system proxy in the user session',
+    'selectRuntimeBackend keeps mixed and system proxy in the user session',
     () {
       expect(
-        selectSingboxRuntimeBackend(
+        selectRuntimeBackend(
           mode: RuntimeMode.mixed,
           privilegedHelperProvisioned: true,
         ),
-        SingboxRuntimeBackend.local,
+        RuntimeBackend.local,
       );
       expect(
-        selectSingboxRuntimeBackend(
+        selectRuntimeBackend(
           mode: RuntimeMode.systemProxy,
           privilegedHelperProvisioned: true,
         ),
-        SingboxRuntimeBackend.local,
+        RuntimeBackend.local,
       );
     },
   );
 
-  test('selectSingboxRuntimeBackend uses helper only for TUN', () {
+  test('selectRuntimeBackend uses helper only for TUN', () {
     expect(
-      selectSingboxRuntimeBackend(
+      selectRuntimeBackend(
         mode: RuntimeMode.tun,
         privilegedHelperProvisioned: true,
       ),
-      SingboxRuntimeBackend.privilegedHelper,
+      RuntimeBackend.privilegedHelper,
     );
     expect(
-      selectSingboxRuntimeBackend(
+      selectRuntimeBackend(
         mode: RuntimeMode.tun,
         privilegedHelperProvisioned: false,
       ),
-      SingboxRuntimeBackend.local,
+      RuntimeBackend.local,
     );
   });
 
@@ -55,7 +58,7 @@ void main() {
         canUseEmbeddedBroker: false,
         sessionTemplate: _runtimeSession('helper'),
       );
-      final service = buildSingboxRuntimeService(
+      final service = buildRuntimeEngine(
         privilegedHelperProvisioned: true,
         localService: localService,
         helperService: helperService,
@@ -92,7 +95,7 @@ void main() {
         canUseEmbeddedBroker: true,
         sessionTemplate: _runtimeSession('helper'),
       );
-      final service = buildSingboxRuntimeService(
+      final service = buildRuntimeEngine(
         privilegedHelperProvisioned: true,
         localService: localService,
         helperService: helperService,
@@ -135,7 +138,7 @@ void main() {
         canUseEmbeddedBroker: false,
         sessionTemplate: _runtimeSession('helper'),
       );
-      final service = buildSingboxRuntimeService(
+      final service = buildRuntimeEngine(
         privilegedHelperProvisioned: true,
         localService: localService,
         helperService: helperService,
@@ -166,7 +169,7 @@ void main() {
   );
 }
 
-class _FakeAdaptiveSingboxRuntimeService extends SingboxRuntimeService {
+class _FakeAdaptiveSingboxRuntimeService extends FakeRuntimeEngine {
   _FakeAdaptiveSingboxRuntimeService({
     required this.canUseEmbeddedBroker,
     required this.sessionTemplate,
