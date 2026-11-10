@@ -138,4 +138,44 @@ void main() {
       ]),
     );
   });
+
+  test('strips file targets and listeners from an untrusted template', () {
+    const templateConfig = '''
+{
+  "log": {"level": "debug", "output": "/etc/cron.d/owned", "timestamp": true},
+  "experimental": {
+    "cache_file": {"enabled": true, "path": "/etc/passwd", "store_rdrc": true},
+    "v2ray_api": {"listen": "0.0.0.0:9999"},
+    "debug": {"listen": "0.0.0.0:6060"},
+    "clash_api": {"external_controller": "0.0.0.0:9090", "external_ui": "/tmp/ui"}
+  },
+  "services": [{"type": "ssm-api", "listen": "0.0.0.0", "listen_port": 8080}],
+  "outbounds": [
+    {"type": "socks", "tag": "proxy-1", "server": "example.com", "server_port": 1080}
+  ]
+}
+''';
+
+    for (final mode in RuntimeMode.values) {
+      final built = SingboxConfigBuilder.build(
+        templateConfig: templateConfig,
+        splitTunnelSettings: const SplitTunnelSettings(),
+        mode: mode,
+        mixedPort: 2080,
+        controllerPort: 9090,
+        controllerSecret: 'secret',
+        urlTestUrl: 'https://example.com',
+      );
+      final config = jsonDecode(built.configJson) as Map<String, dynamic>;
+
+      expect(config['log'], {'level': 'debug', 'timestamp': true});
+      expect(config.containsKey('services'), isFalse);
+      final experimental = config['experimental'] as Map<String, dynamic>;
+      expect(experimental.keys, unorderedEquals(['cache_file', 'clash_api']));
+      expect(experimental['cache_file'], {'enabled': true, 'store_rdrc': true});
+      final clashApi = experimental['clash_api'] as Map<String, dynamic>;
+      expect(clashApi['external_controller'], '127.0.0.1:9090');
+      expect(clashApi.containsKey('external_ui'), isFalse);
+    }
+  });
 }

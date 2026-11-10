@@ -159,7 +159,7 @@ class PrivilegedHelperServer {
   Future<void> _handleRequest(HttpRequest request) async {
     try {
       final token = request.headers.value(gorionPrivilegedHelperAuthHeader);
-      final authenticated = token != null && token == _authToken;
+      final authenticated = _isValidToken(token);
       final method = request.method.toUpperCase();
       final path = request.uri.path;
       if (method == 'GET' && path == '/health') {
@@ -372,9 +372,40 @@ class PrivilegedHelperServer {
     return port;
   }
 
+  /// Compares in constant time so response timing does not leak the token.
+  bool _isValidToken(String? candidate) {
+    final expected = _authToken;
+    if (candidate == null ||
+        expected == null ||
+        candidate.length != expected.length) {
+      return false;
+    }
+    var difference = 0;
+    for (var i = 0; i < expected.length; i += 1) {
+      difference |= candidate.codeUnitAt(i) ^ expected.codeUnitAt(i);
+    }
+    return difference == 0;
+  }
+
+  /// Large enough for a subscription with thousands of servers, small enough
+  /// that a local process cannot exhaust the root daemon's memory.
+  static const _maxRequestBodyBytes = 16 * 1024 * 1024;
+
   Future<Map<String, dynamic>> _readJsonBody(HttpRequest request) async {
+    if (request.contentLength > _maxRequestBodyBytes) {
+      throw const FormatException('Request body is too large.');
+    }
+    var received = 0;
     final payload = await utf8.decoder
-        .bind(request)
+        .bind(
+          request.map((chunk) {
+            received += chunk.length;
+            if (received > _maxRequestBodyBytes) {
+              throw const FormatException('Request body is too large.');
+            }
+            return chunk;
+          }),
+        )
         .join()
         .timeout(const Duration(seconds: 15));
     if (payload.trim().isEmpty) {

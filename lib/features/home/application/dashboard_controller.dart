@@ -560,6 +560,34 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
   }
 
+  /// Persists auto-select settings behind the busy flag. Returns the stored
+  /// settings, or null when saving failed (the error is then in the state).
+  Future<AutoSelectSettings?> _saveAutoSelectSettings(
+    AutoSelectSettings next, {
+    required String statusMessage,
+    bool clearLastBestServerCheckAt = false,
+  }) async {
+    state = state.copyWith(
+      busy: true,
+      clearErrorMessage: true,
+      clearStatusMessage: true,
+    );
+    try {
+      final stored = await _autoSelectSettingsRepository.saveSettings(next);
+      state = state.copyWith(
+        busy: false,
+        autoSelectSettings: stored.settings,
+        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
+        clearLastBestServerCheckAt: clearLastBestServerCheckAt,
+        statusMessage: statusMessage,
+      );
+      return stored.settings;
+    } on Object catch (error) {
+      state = state.copyWith(busy: false, errorMessage: error.toString());
+      return null;
+    }
+  }
+
   Future<void> setAutoSelectEnabled(bool enabled) async {
     final currentSettings = state.autoSelectSettings;
     if (state.busy || currentSettings.enabled == enabled) {
@@ -574,38 +602,23 @@ class DashboardController extends StateNotifier<DashboardState> {
         profile != null &&
         profile.prefersAutoSelection;
 
-    state = state.copyWith(
-      busy: true,
-      clearErrorMessage: true,
-      clearStatusMessage: true,
+    final saved = await _saveAutoSelectSettings(
+      currentSettings.copyWith(enabled: enabled),
+      clearLastBestServerCheckAt: !enabled,
+      statusMessage: enabled
+          ? 'Автоматический выбор сервера включён.'
+          : 'Автоматический выбор сервера выключен.',
     );
-    try {
-      final stored = await _autoSelectSettingsRepository.saveSettings(
-        currentSettings.copyWith(enabled: enabled),
+    if (saved == null) {
+      return;
+    }
+    if (!enabled) {
+      _stopAutoSelectionMonitoring();
+    } else if (shouldKickMonitor) {
+      _runAutomaticAutoSelectNow(
+        allowSwitchDuringCooldown: true,
+        surfaceFailures: true,
       );
-      state = state.copyWith(
-        busy: false,
-        autoSelectSettings: stored.settings,
-        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
-        clearLastBestServerCheckAt: !enabled,
-        statusMessage: enabled
-            ? 'Automatic server selection is enabled.'
-            : 'Automatic server selection is disabled.',
-      );
-
-      if (!enabled) {
-        _stopAutoSelectionMonitoring();
-        return;
-      }
-
-      if (shouldKickMonitor) {
-        _runAutomaticAutoSelectNow(
-          allowSwitchDuringCooldown: true,
-          surfaceFailures: true,
-        );
-      }
-    } on Object catch (error) {
-      state = state.copyWith(busy: false, errorMessage: error.toString());
     }
   }
 
@@ -620,33 +633,14 @@ class DashboardController extends StateNotifier<DashboardState> {
     }
 
     final shouldRescheduleMonitor = _shouldMonitorAutoSelection();
-
-    state = state.copyWith(
-      busy: true,
-      clearErrorMessage: true,
-      clearStatusMessage: true,
+    final saved = await _saveAutoSelectSettings(
+      currentSettings.copyWith(bestServerCheckIntervalMinutes: clampedMinutes),
+      statusMessage:
+          'Интервал проверки лучшего сервера: '
+          '${describeAutoSelectBestServerCheckInterval(clampedMinutes)}.',
     );
-    try {
-      final stored = await _autoSelectSettingsRepository.saveSettings(
-        currentSettings.copyWith(
-          bestServerCheckIntervalMinutes: clampedMinutes,
-        ),
-      );
-      final updatedSettings = stored.settings;
-      state = state.copyWith(
-        busy: false,
-        autoSelectSettings: updatedSettings,
-        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
-        statusMessage:
-            'Automatic best-server checks now run every '
-            '${describeAutoSelectBestServerCheckInterval(updatedSettings.bestServerCheckIntervalMinutes)}.',
-      );
-
-      if (shouldRescheduleMonitor && !_autoSelectionInFlight) {
-        _scheduleNextAutoSelectionPass();
-      }
-    } on Object catch (error) {
-      state = state.copyWith(busy: false, errorMessage: error.toString());
+    if (saved != null && shouldRescheduleMonitor && !_autoSelectionInFlight) {
+      _scheduleNextAutoSelectionPass();
     }
   }
 
@@ -655,27 +649,12 @@ class DashboardController extends StateNotifier<DashboardState> {
     if (state.busy || currentSettings.liveServerPingEnabled == enabled) {
       return;
     }
-
-    state = state.copyWith(
-      busy: true,
-      clearErrorMessage: true,
-      clearStatusMessage: true,
+    await _saveAutoSelectSettings(
+      currentSettings.copyWith(liveServerPingEnabled: enabled),
+      statusMessage: enabled
+          ? 'Live ping серверов включён.'
+          : 'Live ping серверов выключен.',
     );
-    try {
-      final stored = await _autoSelectSettingsRepository.saveSettings(
-        currentSettings.copyWith(liveServerPingEnabled: enabled),
-      );
-      state = state.copyWith(
-        busy: false,
-        autoSelectSettings: stored.settings,
-        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
-        statusMessage: enabled
-            ? 'Live ping серверов включён.'
-            : 'Live ping серверов выключен.',
-      );
-    } on Object catch (error) {
-      state = state.copyWith(busy: false, errorMessage: error.toString());
-    }
   }
 
   Future<void> setLiveServerPingIntervalSeconds(int seconds) async {
@@ -685,26 +664,12 @@ class DashboardController extends StateNotifier<DashboardState> {
         currentSettings.liveServerPingIntervalSeconds == clampedSeconds) {
       return;
     }
-
-    state = state.copyWith(
-      busy: true,
-      clearErrorMessage: true,
-      clearStatusMessage: true,
+    await _saveAutoSelectSettings(
+      currentSettings.copyWith(liveServerPingIntervalSeconds: clampedSeconds),
+      statusMessage:
+          'Интервал Live ping серверов: '
+          '${formatLiveServerPingInterval(clampedSeconds)}.',
     );
-    try {
-      final stored = await _autoSelectSettingsRepository.saveSettings(
-        currentSettings.copyWith(liveServerPingIntervalSeconds: clampedSeconds),
-      );
-      state = state.copyWith(
-        busy: false,
-        autoSelectSettings: stored.settings,
-        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
-        statusMessage:
-            'Интервал Live ping серверов: ${formatLiveServerPingInterval(clampedSeconds)}.',
-      );
-    } on Object catch (error) {
-      state = state.copyWith(busy: false, errorMessage: error.toString());
-    }
   }
 
   Future<void> setLiveServerPingOnStartupEnabled(bool enabled) async {
@@ -713,27 +678,12 @@ class DashboardController extends StateNotifier<DashboardState> {
         currentSettings.liveServerPingOnStartupEnabled == enabled) {
       return;
     }
-
-    state = state.copyWith(
-      busy: true,
-      clearErrorMessage: true,
-      clearStatusMessage: true,
+    await _saveAutoSelectSettings(
+      currentSettings.copyWith(liveServerPingOnStartupEnabled: enabled),
+      statusMessage: enabled
+          ? 'Live ping при запуске включён.'
+          : 'Live ping при запуске выключен.',
     );
-    try {
-      final stored = await _autoSelectSettingsRepository.saveSettings(
-        currentSettings.copyWith(liveServerPingOnStartupEnabled: enabled),
-      );
-      state = state.copyWith(
-        busy: false,
-        autoSelectSettings: stored.settings,
-        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
-        statusMessage: enabled
-            ? 'Live ping при запуске включён.'
-            : 'Live ping при запуске выключен.',
-      );
-    } on Object catch (error) {
-      state = state.copyWith(busy: false, errorMessage: error.toString());
-    }
   }
 
   Future<void> setAutoSelectServerExcluded(

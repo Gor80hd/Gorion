@@ -136,10 +136,7 @@ class SingboxConfigBuilder {
     }
     config['route'] = route;
 
-    final log = _cloneMap(config['log']);
-    log.putIfAbsent('level', () => 'info');
-    config['log'] = log;
-
+    _sanitizeUntrustedSections(config);
     final experimental = _cloneMap(config['experimental']);
     experimental['clash_api'] = {
       'external_controller': '127.0.0.1:$controllerPort',
@@ -154,6 +151,43 @@ class SingboxConfigBuilder {
       manualSelectorTag: managedManualSelectorTag,
       autoGroupTag: managedAutoUrlTestTag,
     );
+  }
+
+  /// The template comes from a remote subscription and must not be able to
+  /// make the core write files or open extra listeners. In TUN mode the core
+  /// runs as root, so a writable path here would be a root file write.
+  static void _sanitizeUntrustedSections(Map<String, dynamic> config) {
+    // `log.output` redirects the log to an arbitrary file.
+    final templateLog = _cloneMap(config['log']);
+    config['log'] = {
+      'level': templateLog['level'] ?? 'info',
+      if (templateLog['timestamp'] is bool)
+        'timestamp': templateLog['timestamp'],
+      if (templateLog['disabled'] is bool) 'disabled': templateLog['disabled'],
+    };
+
+    // `cache_file.path` is another arbitrary write target, and `v2ray_api`
+    // / `debug` open listeners. Only the cache behaviour flags survive.
+    final templateCache = _cloneMap(
+      _cloneMap(config['experimental'])['cache_file'],
+    );
+    const allowedCacheKeys = {
+      'enabled',
+      'store_fakeip',
+      'store_rdrc',
+      'rdrc_timeout',
+    };
+    config['experimental'] = {
+      if (templateCache['enabled'] == true)
+        'cache_file': {
+          for (final entry in templateCache.entries)
+            if (allowedCacheKeys.contains(entry.key)) entry.key: entry.value,
+        },
+    };
+
+    // Server-side components (DERP, SSM API, resolved) have no place in a
+    // client config.
+    config.remove('services');
   }
 
   static Map<String, dynamic>? _decodeMap(String content) {
