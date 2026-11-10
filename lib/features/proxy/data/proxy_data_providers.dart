@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/home/application/dashboard_state.dart';
-import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
-import 'package:gorion_clean/utils/functional.dart';
+import 'package:gorion/features/home/application/dashboard_controller.dart';
+import 'package:gorion/features/home/application/dashboard_state.dart';
+import 'package:gorion/features/proxy/model/outbound_models.dart';
+import 'package:gorion/utils/functional.dart';
 
 /// Reactive proxy repository that emits an [OutboundGroup] whenever the
 /// dashboard's selected server or delay map changes.

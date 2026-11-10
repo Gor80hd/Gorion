@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/app/windows_tray_controller.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion/app/windows_tray_controller.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
 
 void main() {
   group('WindowsTrayController.iconPathForStage', () {

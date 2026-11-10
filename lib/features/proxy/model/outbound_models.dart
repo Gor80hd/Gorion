@@ -1,4 +1,4 @@
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
 
 /// Server entry model compatible with the home page UI.
 /// Maps to [ServerEntry] from the profiles domain.

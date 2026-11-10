@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/profiles/model/profile_entity.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/features/profiles/model/profile_sort_enum.dart';
-import 'package:gorion_clean/utils/functional.dart';
+import 'package:gorion/features/home/application/dashboard_controller.dart';
+import 'package:gorion/features/profiles/model/profile_entity.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/profiles/model/profile_sort_enum.dart';
+import 'package:gorion/utils/functional.dart';
 
 // ─── Minimal TaskEither compatibility shim ───────────────────────────────────
 
@@ -83,7 +83,7 @@ class _ProfileRepoFacade {
     }, (e) => e);
   }
 
-  /// In gorion_clean the template config IS the full outbound config.
+  /// In Gorion the template config IS the full outbound config.
   TaskEither<dynamic, String> generateConfig(String profileId) =>
       getRawConfig(profileId);
 

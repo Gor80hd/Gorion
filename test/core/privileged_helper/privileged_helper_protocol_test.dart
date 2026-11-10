@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/core/privileged_helper/privileged_helper_protocol.dart';
+import 'package:gorion/core/privileged_helper/privileged_helper_protocol.dart';
 
 void main() {
   test('PrivilegedHelperConnectionInfo round-trips persisted launch state', () {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/runtime/data/windows_winhttp_proxy_service.dart';
+import 'package:gorion/features/runtime/data/windows_winhttp_proxy_service.dart';
 
 void main() {
   test('parseWinHttpShowProxyOutput detects direct access', () {

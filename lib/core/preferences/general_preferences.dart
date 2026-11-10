@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/features/auto_select/utils/auto_select_server_exclusion.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/home/data/server_sort_mode_settings_repository.dart';
-import 'package:gorion_clean/features/home/model/server_sort_mode.dart';
-import 'package:gorion_clean/features/profiles/model/profile_connection_mode.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/auto_select/utils/auto_select_server_exclusion.dart';
+import 'package:gorion/features/home/application/dashboard_controller.dart';
+import 'package:gorion/features/home/data/server_sort_mode_settings_repository.dart';
+import 'package:gorion/features/home/model/server_sort_mode.dart';
+import 'package:gorion/features/profiles/model/profile_connection_mode.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
 
 final serverSortModeSettingsRepositoryProvider =
     Provider<ServerSortModeSettingsRepository>(

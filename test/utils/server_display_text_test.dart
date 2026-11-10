@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/utils/server_display_text.dart';
+import 'package:gorion/utils/server_display_text.dart';
 
 void main() {
   group('normalizeServerDisplayText', () {

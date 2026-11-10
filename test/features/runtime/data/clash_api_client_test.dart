@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
+import 'package:gorion/features/runtime/data/clash_api_client.dart';
 
 void main() {
   late HttpServer server;

@@ -1,4 +1,4 @@
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
 
 enum ConnectionStage { disconnected, starting, connected, stopping, failed }
 

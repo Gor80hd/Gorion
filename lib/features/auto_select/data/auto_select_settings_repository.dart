@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
-import 'package:gorion_clean/features/auto_select/utils/auto_select_server_exclusion.dart';
+import 'package:gorion/features/auto_select/model/auto_select_state.dart';
+import 'package:gorion/features/auto_select/utils/auto_select_server_exclusion.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:gorion_clean/app/app_router.dart';
-import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
-import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
+import 'package:gorion/app/app_router.dart';
+import 'package:gorion/core/windows/elevation_relaunch_prompt_service.dart';
+import 'package:gorion/features/proxy/model/outbound_models.dart';
 
 final appModalRouterProvider = Provider<AppModalRouter>((ref) {
   return GoRouterAppModalRouter(

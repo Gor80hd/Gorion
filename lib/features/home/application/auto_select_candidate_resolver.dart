@@ -1,12 +1,12 @@
 import 'dart:convert';
 
-import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
-import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
-import 'package:gorion_clean/features/home/application/server_lookup.dart';
-import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/features/settings/data/connection_tuning_config_overrides.dart';
-import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion/features/auto_select/model/auto_select_state.dart';
+import 'package:gorion/features/auto_select/utils/auto_select_server_config.dart';
+import 'package:gorion/features/home/application/server_lookup.dart';
+import 'package:gorion/features/profiles/data/profile_repository.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/settings/data/connection_tuning_config_overrides.dart';
+import 'package:gorion/features/settings/model/connection_tuning_settings.dart';
 
 /// Works out which servers of a profile auto-select may consider.
 ///

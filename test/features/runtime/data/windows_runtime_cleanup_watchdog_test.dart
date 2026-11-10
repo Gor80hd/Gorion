@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/runtime/data/windows_runtime_cleanup_watchdog.dart';
+import 'package:gorion/features/runtime/data/windows_runtime_cleanup_watchdog.dart';
 
 void main() {
   test('buildWindowsRuntimeCleanupWatchdogScript embeds pids and marker paths', () {

@@ -1,4 +1,4 @@
-import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
+import 'package:gorion/features/settings/model/split_tunnel_settings.dart';
 
 class ConnectionTuningSettings {
   const ConnectionTuningSettings({

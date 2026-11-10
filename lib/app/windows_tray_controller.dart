@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
 import 'package:tray_manager/tray_manager.dart';
 
 class WindowsTrayController with TrayListener {

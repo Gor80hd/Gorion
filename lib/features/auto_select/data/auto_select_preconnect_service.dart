@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
-import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
-import 'package:gorion_clean/features/auto_select/utils/auto_select_network_probe.dart';
-import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
+import 'package:gorion/features/auto_select/data/auto_select_settings_repository.dart';
+import 'package:gorion/features/auto_select/data/auto_selector_service.dart';
+import 'package:gorion/features/auto_select/model/auto_select_state.dart';
+import 'package:gorion/features/auto_select/utils/auto_select_network_probe.dart';
+import 'package:gorion/features/auto_select/utils/auto_select_server_config.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/runtime/data/singbox_runtime_support.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 

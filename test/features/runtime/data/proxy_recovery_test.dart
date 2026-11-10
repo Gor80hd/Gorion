@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/runtime/data/system_proxy_service.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
 
 const saved = MacosServiceProxyState(
   service: 'Wi-Fi',

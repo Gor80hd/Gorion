@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/core/http_client/http_client_provider.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion/core/http_client/http_client_provider.dart';
+import 'package:gorion/features/home/application/dashboard_controller.dart';
+import 'package:gorion/features/proxy/model/ip_info_entity.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
 
 final ipInfoLookupServiceProvider = Provider<IpInfoLookupService>(
   (ref) => const IpInfoLookupService(),

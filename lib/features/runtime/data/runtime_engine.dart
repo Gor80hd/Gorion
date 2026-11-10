@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
-import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion/features/runtime/data/system_proxy_service.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/settings/model/connection_tuning_settings.dart';
 
 typedef RuntimeExitCallback =
     void Function(RuntimeSession session, int exitCode);

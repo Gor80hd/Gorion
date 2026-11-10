@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/settings/data/connection_tuning_config_overrides.dart';
-import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion/features/settings/data/connection_tuning_config_overrides.dart';
+import 'package:gorion/features/settings/model/connection_tuning_settings.dart';
 
 void main() {
   group('applyConnectionTuningSettingsToTemplateConfig', () {

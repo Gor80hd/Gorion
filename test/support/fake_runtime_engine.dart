@@ -1,8 +1,8 @@
-import 'package:gorion_clean/features/runtime/data/runtime_engine.dart';
-import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
-import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion/features/runtime/data/runtime_engine.dart';
+import 'package:gorion/features/runtime/data/system_proxy_service.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/settings/model/connection_tuning_settings.dart';
 
 /// A [RuntimeEngine] that never touches processes, the network or the
 /// filesystem. Tests extend it and override only what they observe.

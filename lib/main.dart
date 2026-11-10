@@ -2,14 +2,14 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/app/app.dart';
-import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/core/privileged_helper/privileged_helper_protocol.dart';
-import 'package:gorion_clean/core/privileged_helper/privileged_helper_server.dart';
-import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
-import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
-import 'package:gorion_clean/features/settings/data/desktop_settings_repository.dart';
-import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
+import 'package:gorion/app/app.dart';
+import 'package:gorion/app/theme.dart';
+import 'package:gorion/core/privileged_helper/privileged_helper_protocol.dart';
+import 'package:gorion/core/privileged_helper/privileged_helper_server.dart';
+import 'package:gorion/core/windows/windows_elevation_service.dart';
+import 'package:gorion/features/settings/application/desktop_settings_controller.dart';
+import 'package:gorion/features/settings/data/desktop_settings_repository.dart';
+import 'package:gorion/features/settings/data/launch_at_startup_service.dart';
 import 'package:window_manager/window_manager.dart';
 
 void main(List<String> args) async {

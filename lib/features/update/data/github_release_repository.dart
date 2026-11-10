@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:gorion_clean/features/update/model/app_update_state.dart';
+import 'package:gorion/features/update/model/app_update_state.dart';
 
 abstract class AppUpdateRepository {
   Future<GithubRelease> fetchLatestRelease();

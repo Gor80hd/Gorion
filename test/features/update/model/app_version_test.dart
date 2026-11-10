@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/update/model/app_version.dart';
+import 'package:gorion/features/update/model/app_version.dart';
 
 void main() {
   test('parses GitHub-style version tags', () {

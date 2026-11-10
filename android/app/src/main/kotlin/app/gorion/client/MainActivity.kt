@@ -1,4 +1,4 @@
-package com.example.gorion_clean
+package app.gorion.client
 
 import io.flutter.embedding.android.FlutterActivity
 

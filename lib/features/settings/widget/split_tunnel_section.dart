@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/core/widget/glass_panel.dart';
-import 'package:gorion_clean/features/settings/data/split_tunnel_catalog.dart';
-import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
+import 'package:gorion/app/theme.dart';
+import 'package:gorion/core/widget/glass_panel.dart';
+import 'package:gorion/features/settings/data/split_tunnel_catalog.dart';
+import 'package:gorion/features/settings/model/split_tunnel_settings.dart';
 
 part 'split_tunnel_dialogs.dart';
 part 'split_tunnel_cards.dart';

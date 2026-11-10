@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/settings/data/desktop_settings_repository.dart';
-import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
+import 'package:gorion/features/settings/data/desktop_settings_repository.dart';
+import 'package:gorion/features/settings/model/desktop_settings.dart';
 
 void main() {
   late Directory tempDir;

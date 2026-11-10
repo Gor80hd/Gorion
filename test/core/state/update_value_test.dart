@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/core/state/update_value.dart';
-import 'package:gorion_clean/features/home/application/dashboard_state.dart';
+import 'package:gorion/core/state/update_value.dart';
+import 'package:gorion/features/home/application/dashboard_state.dart';
 
 void main() {
   test('absent update value keeps the original field untouched', () {

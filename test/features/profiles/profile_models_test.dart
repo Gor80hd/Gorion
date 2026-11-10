@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
 
 const _servers = [
   ServerEntry(

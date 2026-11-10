@@ -1,14 +1,14 @@
 import 'dart:async';
 
-import 'package:gorion_clean/core/privileged_helper/privileged_helper_client.dart';
-import 'package:gorion_clean/core/privileged_helper/privileged_helper_protocol.dart';
-import 'package:gorion_clean/features/runtime/data/privileged_helper_runtime_engine.dart';
-import 'package:gorion_clean/features/runtime/data/runtime_engine.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
-import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
-import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion/core/privileged_helper/privileged_helper_client.dart';
+import 'package:gorion/core/privileged_helper/privileged_helper_protocol.dart';
+import 'package:gorion/features/runtime/data/privileged_helper_runtime_engine.dart';
+import 'package:gorion/features/runtime/data/runtime_engine.dart';
+import 'package:gorion/features/runtime/data/singbox_runtime_service.dart';
+import 'package:gorion/features/runtime/data/system_proxy_service.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/settings/model/connection_tuning_settings.dart';
 
 enum RuntimeBackend { local, privilegedHelper }
 

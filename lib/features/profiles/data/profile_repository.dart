@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:gorion_clean/features/profiles/data/profile_parser.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/profiles/data/profile_parser.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';

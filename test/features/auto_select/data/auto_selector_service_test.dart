@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/auto_select/data/auto_selector_service.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
 
 const _domainProbeUrl = 'https://www.gstatic.com/generate_204';
 const _session = RuntimeSession(

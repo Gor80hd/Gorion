@@ -3,22 +3,22 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
-import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
-import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/home/application/dashboard_state.dart';
-import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
-import 'package:gorion_clean/features/runtime/data/runtime_engine.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
-import 'package:gorion_clean/features/settings/data/connection_tuning_settings_repository.dart';
-import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion/core/windows/elevation_relaunch_prompt_service.dart';
+import 'package:gorion/core/windows/windows_elevation_service.dart';
+import 'package:gorion/features/auto_select/data/auto_select_preconnect_service.dart';
+import 'package:gorion/features/auto_select/data/auto_select_settings_repository.dart';
+import 'package:gorion/features/auto_select/data/auto_selector_service.dart';
+import 'package:gorion/features/auto_select/model/auto_select_state.dart';
+import 'package:gorion/features/home/application/dashboard_controller.dart';
+import 'package:gorion/features/home/application/dashboard_state.dart';
+import 'package:gorion/features/profiles/data/profile_repository.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/runtime/data/clash_api_client.dart';
+import 'package:gorion/features/runtime/data/runtime_engine.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/settings/data/connection_tuning_settings_repository.dart';
+import 'package:gorion/features/settings/model/connection_tuning_settings.dart';
 
 import '../../../support/fake_runtime_engine.dart';
 

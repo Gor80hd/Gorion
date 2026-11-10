@@ -4,13 +4,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:gorion_clean/core/http_client/http_client_provider.dart';
-import 'package:gorion_clean/features/home/utils/auto_select_probe_utils.dart'
+import 'package:gorion/core/http_client/http_client_provider.dart';
+import 'package:gorion/features/home/utils/auto_select_probe_utils.dart'
     as probe_utils;
-import 'package:gorion_clean/features/profiles/model/profile_entity.dart';
-import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
-import 'package:gorion_clean/utils/link_parsers.dart';
+import 'package:gorion/features/profiles/model/profile_entity.dart';
+import 'package:gorion/features/proxy/model/outbound_models.dart';
+import 'package:gorion/features/runtime/data/singbox_runtime_support.dart';
+import 'package:gorion/utils/link_parsers.dart';
 import 'package:path/path.dart' as p;
 
 const throughputBenchmarkUrl =

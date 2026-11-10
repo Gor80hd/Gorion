@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/core/http_client/http_client_provider.dart';
-import 'package:gorion_clean/features/update/data/github_release_repository.dart';
-import 'package:gorion_clean/features/update/model/app_update_state.dart';
-import 'package:gorion_clean/features/update/model/app_version.dart';
+import 'package:gorion/core/http_client/http_client_provider.dart';
+import 'package:gorion/features/update/data/github_release_repository.dart';
+import 'package:gorion/features/update/model/app_update_state.dart';
+import 'package:gorion/features/update/model/app_version.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 typedef CurrentAppVersionLoader = Future<String> Function();

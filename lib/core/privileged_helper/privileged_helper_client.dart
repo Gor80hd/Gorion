@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:gorion_clean/core/privileged_helper/privileged_helper_protocol.dart';
-import 'package:gorion_clean/core/process/running_process_lookup.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
-import 'package:gorion_clean/features/runtime/data/windows_winhttp_proxy_service.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
-import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion/core/privileged_helper/privileged_helper_protocol.dart';
+import 'package:gorion/core/process/running_process_lookup.dart';
+import 'package:gorion/features/runtime/data/singbox_runtime_support.dart';
+import 'package:gorion/features/runtime/data/windows_winhttp_proxy_service.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/settings/model/connection_tuning_settings.dart';
 import 'package:uuid/uuid.dart';
 
 class PrivilegedHelperClient {

@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'package:gorion_clean/features/runtime/data/posix_runtime_cleanup_watchdog.dart';
-import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart'
+import 'package:gorion/features/runtime/data/posix_runtime_cleanup_watchdog.dart';
+import 'package:gorion/features/runtime/data/system_proxy_service.dart'
     show ProxyLogSink;
-import 'package:gorion_clean/features/runtime/data/windows_runtime_cleanup_watchdog.dart';
+import 'package:gorion/features/runtime/data/windows_runtime_cleanup_watchdog.dart';
 
 /// Platform-dispatching crash guard for the sing-box runtime. Windows keeps
 /// the PowerShell implementation (it also restores WinHTTP state); macOS and

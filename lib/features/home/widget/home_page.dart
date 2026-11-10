@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:gorion_clean/core/widget/page_reveal.dart';
-import 'package:gorion_clean/features/home/widget/map_view.dart';
-import 'package:gorion_clean/features/home/widget/servers_panel.dart';
+import 'package:gorion/core/widget/page_reveal.dart';
+import 'package:gorion/features/home/widget/map_view.dart';
+import 'package:gorion/features/home/widget/servers_panel.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key, this.animateOnMount = true});

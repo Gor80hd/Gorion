@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/home/utils/map_location_resolver.dart';
-import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
-import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
+import 'package:gorion/features/home/utils/map_location_resolver.dart';
+import 'package:gorion/features/proxy/model/ip_info_entity.dart';
+import 'package:gorion/features/proxy/model/outbound_models.dart';
 
 void main() {
   group('lookupCountryLatLon', () {

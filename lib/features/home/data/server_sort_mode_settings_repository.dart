@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:gorion_clean/features/home/model/server_sort_mode.dart';
+import 'package:gorion/features/home/model/server_sort_mode.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 

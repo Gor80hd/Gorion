@@ -2,7 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/home/utils/globe_country_codes.dart';
+import 'package:gorion/features/home/utils/globe_country_codes.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

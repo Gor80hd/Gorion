@@ -1,15 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/home/application/dashboard_state.dart';
-import 'package:gorion_clean/features/profiles/data/profile_data_providers.dart';
-import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/auto_select/data/auto_select_preconnect_service.dart';
+import 'package:gorion/features/auto_select/data/auto_select_settings_repository.dart';
+import 'package:gorion/features/auto_select/data/auto_selector_service.dart';
+import 'package:gorion/features/home/application/dashboard_controller.dart';
+import 'package:gorion/features/home/application/dashboard_state.dart';
+import 'package:gorion/features/profiles/data/profile_data_providers.dart';
+import 'package:gorion/features/profiles/data/profile_repository.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/runtime/data/singbox_runtime_service.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
 
 void main() {
   test(

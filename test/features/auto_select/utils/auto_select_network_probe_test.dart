@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/auto_select/utils/auto_select_network_probe.dart';
+import 'package:gorion/features/auto_select/utils/auto_select_network_probe.dart';
 
 void main() {
   test(

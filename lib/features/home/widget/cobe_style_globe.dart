@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
-import 'package:gorion_clean/features/home/utils/map_location_resolver.dart';
+import 'package:gorion/features/home/utils/map_location_resolver.dart';
 
 const Color _cobeArcColor = Color(0xFF4CD8F2);
 const Color _cobeLandColor = Color(0xFFDCE1E5);

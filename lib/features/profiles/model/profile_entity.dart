@@ -1,4 +1,4 @@
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
 
 /// Home-page-compatible profile view, wrapping [ProxyProfile].
 class ProfileEntity {
@@ -10,10 +10,10 @@ class ProfileEntity {
   String get name => _profile.name;
   DateTime get lastUpdate => _profile.updatedAt;
 
-  /// All profiles have a subscription URL in gorion_clean → always a remote profile.
+  /// All profiles have a subscription URL in Gorion → always a remote profile.
   bool get isRemote => true;
 
-  /// No per-profile show/hide override in gorion_clean; always visible.
+  /// No per-profile show/hide override in Gorion; always visible.
   UserOverride? get userOverride => null;
 
   @override

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/features/home/data/server_favorites_repository.dart';
+import 'package:gorion/features/home/data/server_favorites_repository.dart';
 
 final serverFavoritesRepositoryProvider = Provider<ServerFavoritesRepository>(
   (ref) => ServerFavoritesRepository(),

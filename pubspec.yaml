@@ -1,4 +1,4 @@
-name: gorion_clean
+name: gorion
 description: "Desktop VPN and proxy client built around sing-box."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.

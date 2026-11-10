@@ -1,4 +1,4 @@
-import 'package:gorion_clean/features/update/model/app_version.dart';
+import 'package:gorion/features/update/model/app_version.dart';
 
 enum AppUpdateStatus { idle, checking, upToDate, updateAvailable, failure }
 

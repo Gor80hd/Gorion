@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
+import 'package:gorion/features/home/application/dashboard_controller.dart';
 
 /// Fires when the runtime session changes (sing-box restart).
 /// Analogous to Gorion's coreRestartSignalProvider.

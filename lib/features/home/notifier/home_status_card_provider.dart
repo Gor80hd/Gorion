@@ -1,15 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/home/application/dashboard_state.dart';
-import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
-import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
-import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
-import 'package:gorion_clean/features/proxy/notifier/ip_info_notifier.dart';
-import 'package:gorion_clean/features/proxy/utils/ip_info_display.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
-import 'package:gorion_clean/utils/server_display_text.dart';
+import 'package:gorion/features/home/application/dashboard_controller.dart';
+import 'package:gorion/features/home/application/dashboard_state.dart';
+import 'package:gorion/features/home/notifier/auto_server_selection_progress.dart';
+import 'package:gorion/features/home/widget/selected_server_preview_provider.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/proxy/model/ip_info_entity.dart';
+import 'package:gorion/features/proxy/model/outbound_models.dart';
+import 'package:gorion/features/proxy/notifier/ip_info_notifier.dart';
+import 'package:gorion/features/proxy/utils/ip_info_display.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
+import 'package:gorion/utils/server_display_text.dart';
 
 class HomeStatusCardModel {
   const HomeStatusCardModel({

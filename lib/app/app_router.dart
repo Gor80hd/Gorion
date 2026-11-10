@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:gorion_clean/app/shell.dart';
-import 'package:gorion_clean/core/router/app_modal_router.dart';
-import 'package:gorion_clean/core/router/bottom_sheets/bottom_sheets_notifier.dart';
-import 'package:gorion_clean/core/router/dialog/dialog_notifier.dart';
-import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
-import 'package:gorion_clean/features/home/widget/home_page.dart';
-import 'package:gorion_clean/features/home/widget/servers_panel.dart';
-import 'package:gorion_clean/features/settings/widget/settings_page.dart';
+import 'package:gorion/app/shell.dart';
+import 'package:gorion/core/router/app_modal_router.dart';
+import 'package:gorion/core/router/bottom_sheets/bottom_sheets_notifier.dart';
+import 'package:gorion/core/router/dialog/dialog_notifier.dart';
+import 'package:gorion/core/windows/elevation_relaunch_prompt_service.dart';
+import 'package:gorion/features/home/widget/home_page.dart';
+import 'package:gorion/features/home/widget/servers_panel.dart';
+import 'package:gorion/features/settings/widget/settings_page.dart';
 
 abstract final class AppRoutePaths {
   static const home = '/';

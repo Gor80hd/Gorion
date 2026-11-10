@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:gorion_clean/features/auto_select/utils/auto_select_server_exclusion.dart';
+import 'package:gorion/features/auto_select/utils/auto_select_server_exclusion.dart';
 
 const defaultAutoSelectDomainProbeUrl = 'https://www.gstatic.com/generate_204';
 const defaultAutoSelectIpProbeUrl = 'http://1.1.1.1';

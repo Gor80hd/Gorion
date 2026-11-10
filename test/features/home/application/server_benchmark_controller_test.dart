@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/home/application/server_benchmark_controller.dart';
-import 'package:gorion_clean/features/home/data/server_benchmark_runtime_service.dart';
-import 'package:gorion_clean/features/profiles/model/profile_entity.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
+import 'package:gorion/features/home/application/server_benchmark_controller.dart';
+import 'package:gorion/features/home/data/server_benchmark_runtime_service.dart';
+import 'package:gorion/features/profiles/model/profile_entity.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/proxy/model/outbound_models.dart';
 
 void main() {
   test(

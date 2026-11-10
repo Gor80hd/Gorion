@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/runtime/data/posix_runtime_cleanup_watchdog.dart';
+import 'package:gorion/features/runtime/data/posix_runtime_cleanup_watchdog.dart';
 
 void main() {
   test(

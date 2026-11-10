@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
-import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion/features/auto_select/utils/auto_select_server_config.dart';
+import 'package:gorion/features/settings/model/connection_tuning_settings.dart';
 
 String applyConnectionTuningSettingsToTemplateConfig({
   required String templateConfig,

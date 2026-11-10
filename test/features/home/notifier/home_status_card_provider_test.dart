@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
-import 'package:gorion_clean/features/home/application/dashboard_state.dart';
-import 'package:gorion_clean/features/home/notifier/home_status_card_provider.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/auto_select/model/auto_select_state.dart';
+import 'package:gorion/features/home/application/dashboard_state.dart';
+import 'package:gorion/features/home/notifier/home_status_card_provider.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/proxy/model/ip_info_entity.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
 
 final _createdAt = DateTime(2026, 4, 4, 12);
 final _profile = ProxyProfile(

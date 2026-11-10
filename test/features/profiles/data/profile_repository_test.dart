@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/profiles/data/profile_repository.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

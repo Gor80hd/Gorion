@@ -7,7 +7,7 @@ class TrafficStats {
   final int downlink;
 }
 
-/// Stub – traffic stats are not yet collected in gorion_clean.
+/// Stub – traffic stats are not yet collected in Gorion.
 final statsNotifierProvider = Provider<AsyncValue<TrafficStats>>((ref) {
   return const AsyncData(TrafficStats());
 });

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/core/process/process_runner.dart';
+import 'package:gorion/core/process/process_runner.dart';
 
 void main() {
   group('runProcessWithTimeout', () {

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
-import 'package:gorion_clean/features/proxy/utils/ip_info_display.dart';
+import 'package:gorion/features/proxy/model/ip_info_entity.dart';
+import 'package:gorion/features/proxy/utils/ip_info_display.dart';
 
 void main() {
   group('bestIpInfoLocation', () {

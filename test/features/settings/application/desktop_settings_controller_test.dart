@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
-import 'package:gorion_clean/features/settings/data/desktop_settings_repository.dart';
-import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
-import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
+import 'package:gorion/features/settings/application/desktop_settings_controller.dart';
+import 'package:gorion/features/settings/data/desktop_settings_repository.dart';
+import 'package:gorion/features/settings/data/launch_at_startup_service.dart';
+import 'package:gorion/features/settings/model/desktop_settings.dart';
 
 void main() {
   group('DesktopSettingsController', () {

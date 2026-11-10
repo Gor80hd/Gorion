@@ -1,6 +1,6 @@
-import 'package:gorion_clean/features/proxy/model/ip_info_entity.dart';
-import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
-import 'package:gorion_clean/utils/server_display_text.dart';
+import 'package:gorion/features/proxy/model/ip_info_entity.dart';
+import 'package:gorion/features/proxy/model/outbound_models.dart';
+import 'package:gorion/utils/server_display_text.dart';
 
 typedef LatLon = (double, double);
 

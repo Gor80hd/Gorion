@@ -1,6 +1,6 @@
-import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/utils/server_display_text.dart';
+import 'package:gorion/features/auto_select/data/auto_selector_service.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
+import 'package:gorion/utils/server_display_text.dart';
 
 /// Drops servers whose outbound config is byte-for-byte identical to an
 /// earlier one. Servers without a fingerprint are always kept.

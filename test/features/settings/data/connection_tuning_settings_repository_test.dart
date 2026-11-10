@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/settings/data/connection_tuning_settings_repository.dart';
-import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
-import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
+import 'package:gorion/features/settings/data/connection_tuning_settings_repository.dart';
+import 'package:gorion/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion/features/settings/model/split_tunnel_settings.dart';
 
 void main() {
   late Directory tempDir;

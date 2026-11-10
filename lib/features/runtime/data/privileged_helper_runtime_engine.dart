@@ -1,11 +1,11 @@
 import 'dart:async';
 
-import 'package:gorion_clean/core/privileged_helper/privileged_helper_client.dart';
-import 'package:gorion_clean/features/runtime/data/runtime_engine.dart';
-import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
-import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion/core/privileged_helper/privileged_helper_client.dart';
+import 'package:gorion/features/runtime/data/runtime_engine.dart';
+import 'package:gorion/features/runtime/data/system_proxy_service.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/settings/model/connection_tuning_settings.dart';
 
 /// Drives a core that runs inside the privileged helper daemon. Used for
 /// TUN, which needs rights the GUI process does not have.

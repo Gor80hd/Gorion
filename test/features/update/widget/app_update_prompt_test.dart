@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/app/shell.dart';
-import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/home/application/dashboard_state.dart';
-import 'package:gorion_clean/features/home/widget/home_page.dart';
-import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
-import 'package:gorion_clean/features/update/application/app_update_controller.dart';
-import 'package:gorion_clean/features/update/data/github_release_repository.dart';
-import 'package:gorion_clean/features/update/model/app_update_state.dart';
+import 'package:gorion/app/shell.dart';
+import 'package:gorion/app/theme.dart';
+import 'package:gorion/features/auto_select/data/auto_select_preconnect_service.dart';
+import 'package:gorion/features/auto_select/data/auto_select_settings_repository.dart';
+import 'package:gorion/features/auto_select/data/auto_selector_service.dart';
+import 'package:gorion/features/home/application/dashboard_controller.dart';
+import 'package:gorion/features/home/application/dashboard_state.dart';
+import 'package:gorion/features/home/widget/home_page.dart';
+import 'package:gorion/features/profiles/data/profile_repository.dart';
+import 'package:gorion/features/update/application/app_update_controller.dart';
+import 'package:gorion/features/update/data/github_release_repository.dart';
+import 'package:gorion/features/update/model/app_update_state.dart';
 
 import '../../../support/fake_runtime_engine.dart';
 

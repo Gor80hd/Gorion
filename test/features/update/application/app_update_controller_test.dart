@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/update/application/app_update_controller.dart';
-import 'package:gorion_clean/features/update/data/github_release_repository.dart';
-import 'package:gorion_clean/features/update/model/app_update_state.dart';
+import 'package:gorion/features/update/application/app_update_controller.dart';
+import 'package:gorion/features/update/data/github_release_repository.dart';
+import 'package:gorion/features/update/model/app_update_state.dart';
 
 void main() {
   test('reports update when GitHub release is newer', () async {

@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/core/constants/singbox_assets.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_config_builder.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
-import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
+import 'package:gorion/core/constants/singbox_assets.dart';
+import 'package:gorion/features/runtime/data/singbox_config_builder.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/settings/model/split_tunnel_settings.dart';
 
 void main() {
   test(

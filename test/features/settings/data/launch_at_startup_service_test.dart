@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
-import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
-import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
+import 'package:gorion/core/windows/windows_elevation_service.dart';
+import 'package:gorion/features/settings/data/launch_at_startup_service.dart';
+import 'package:gorion/features/settings/model/desktop_settings.dart';
 
 void main() {
   group('DesktopLaunchAtStartupService', () {
@@ -14,7 +14,7 @@ void main() {
         final startupEntryService = _FakeLaunchAtStartupService(enabled: false);
         final service = DesktopLaunchAtStartupService(
           appName: 'Gorion',
-          appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+          appPath: r'C:\Program Files\Gorion\Gorion.exe',
           processRunner: processRunner.call,
           startupEntryService: startupEntryService,
         );
@@ -40,7 +40,7 @@ void main() {
       final startupEntryService = _FakeLaunchAtStartupService(enabled: false);
       final service = DesktopLaunchAtStartupService(
         appName: 'Gorion',
-        appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+        appPath: r'C:\Program Files\Gorion\Gorion.exe',
         args: const [gorionLaunchAtStartupArg],
         processRunner: processRunner.call,
         startupEntryService: startupEntryService,
@@ -69,7 +69,7 @@ void main() {
       final startupEntryService = _FakeLaunchAtStartupService(enabled: false);
       final service = DesktopLaunchAtStartupService(
         appName: 'Gorion',
-        appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+        appPath: r'C:\Program Files\Gorion\Gorion.exe',
         processRunner: processRunner.call,
         startupEntryService: startupEntryService,
       );
@@ -94,7 +94,7 @@ void main() {
         final startupEntryService = _FakeLaunchAtStartupService(enabled: true);
         final service = DesktopLaunchAtStartupService(
           appName: 'Gorion',
-          appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+          appPath: r'C:\Program Files\Gorion\Gorion.exe',
           args: const [gorionLaunchAtStartupArg],
           processRunner: processRunner.call,
           startupEntryService: startupEntryService,
@@ -133,7 +133,7 @@ void main() {
         );
         final service = DesktopLaunchAtStartupService(
           appName: 'Gorion',
-          appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+          appPath: r'C:\Program Files\Gorion\Gorion.exe',
           processRunner: processRunner.call,
           startupEntryService: startupEntryService,
         );
@@ -161,7 +161,7 @@ void main() {
         final startupEntryService = _FakeLaunchAtStartupService(enabled: false);
         final service = DesktopLaunchAtStartupService(
           appName: 'Gorion',
-          appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+          appPath: r'C:\Program Files\Gorion\Gorion.exe',
           processRunner: processRunner.call,
           startupEntryService: startupEntryService,
         );
@@ -184,7 +184,7 @@ void main() {
       final startupEntryService = _FakeLaunchAtStartupService(enabled: false);
       final service = DesktopLaunchAtStartupService(
         appName: 'Gorion',
-        appPath: r'C:\Program Files\Gorion\gorion_clean.exe',
+        appPath: r'C:\Program Files\Gorion\Gorion.exe',
         processRunner: processRunner.call,
         startupEntryService: startupEntryService,
       );

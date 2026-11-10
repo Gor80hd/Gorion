@@ -1,18 +1,18 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/app/theme_preferences.dart';
-import 'package:gorion_clean/app/theme_settings.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
-import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
-import 'package:gorion_clean/features/home/data/server_sort_mode_settings_repository.dart';
-import 'package:gorion_clean/features/home/model/server_sort_mode.dart';
-import 'package:gorion_clean/features/settings/data/app_settings_reset_service.dart';
-import 'package:gorion_clean/features/settings/data/connection_tuning_settings_repository.dart';
-import 'package:gorion_clean/features/settings/data/desktop_settings_repository.dart';
-import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
-import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
-import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
+import 'package:gorion/app/theme_preferences.dart';
+import 'package:gorion/app/theme_settings.dart';
+import 'package:gorion/features/auto_select/data/auto_select_settings_repository.dart';
+import 'package:gorion/features/auto_select/model/auto_select_state.dart';
+import 'package:gorion/features/home/data/server_sort_mode_settings_repository.dart';
+import 'package:gorion/features/home/model/server_sort_mode.dart';
+import 'package:gorion/features/settings/data/app_settings_reset_service.dart';
+import 'package:gorion/features/settings/data/connection_tuning_settings_repository.dart';
+import 'package:gorion/features/settings/data/desktop_settings_repository.dart';
+import 'package:gorion/features/settings/data/launch_at_startup_service.dart';
+import 'package:gorion/features/settings/model/connection_tuning_settings.dart';
+import 'package:gorion/features/settings/model/desktop_settings.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

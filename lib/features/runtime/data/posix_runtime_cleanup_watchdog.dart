@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:gorion_clean/core/process/process_runner.dart';
-import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart'
+import 'package:gorion/core/process/process_runner.dart';
+import 'package:gorion/features/runtime/data/system_proxy_service.dart'
     show ProxyLogSink;
 import 'package:path/path.dart' as p;
 

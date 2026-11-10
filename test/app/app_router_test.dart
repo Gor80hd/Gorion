@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/app/app_router.dart';
-import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/core/router/app_modal_router.dart';
-import 'package:gorion_clean/core/router/bottom_sheets/bottom_sheets_notifier.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/home/application/dashboard_state.dart';
-import 'package:gorion_clean/features/home/widget/home_page.dart';
-import 'package:gorion_clean/features/home/widget/servers_panel.dart';
-import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
-import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
-import 'package:gorion_clean/features/settings/widget/settings_page.dart';
+import 'package:gorion/app/app_router.dart';
+import 'package:gorion/app/theme.dart';
+import 'package:gorion/core/router/app_modal_router.dart';
+import 'package:gorion/core/router/bottom_sheets/bottom_sheets_notifier.dart';
+import 'package:gorion/features/auto_select/data/auto_select_preconnect_service.dart';
+import 'package:gorion/features/auto_select/data/auto_select_settings_repository.dart';
+import 'package:gorion/features/auto_select/data/auto_selector_service.dart';
+import 'package:gorion/features/home/application/dashboard_controller.dart';
+import 'package:gorion/features/home/application/dashboard_state.dart';
+import 'package:gorion/features/home/widget/home_page.dart';
+import 'package:gorion/features/home/widget/servers_panel.dart';
+import 'package:gorion/features/profiles/data/profile_repository.dart';
+import 'package:gorion/features/proxy/model/outbound_models.dart';
+import 'package:gorion/features/settings/widget/settings_page.dart';
 
 import '../support/fake_runtime_engine.dart';
 

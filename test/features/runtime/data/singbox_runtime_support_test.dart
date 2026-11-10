@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_support.dart';
+import 'package:gorion/features/runtime/data/singbox_runtime_support.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

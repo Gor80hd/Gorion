@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
-import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
+import 'package:gorion/core/windows/windows_elevation_service.dart';
+import 'package:gorion/features/settings/model/desktop_settings.dart';
 import 'package:launch_at_startup/launch_at_startup.dart';
 
 typedef LaunchAtStartupProcessRunner =

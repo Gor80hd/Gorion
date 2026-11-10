@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
 
 class ClashApiSnapshot {
   const ClashApiSnapshot({required this.selectedTag, required this.delayByTag});

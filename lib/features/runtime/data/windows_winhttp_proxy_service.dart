@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
+import 'package:gorion/features/runtime/data/system_proxy_service.dart';
 
 class WindowsWinHttpProxySettings {
   const WindowsWinHttpProxySettings({this.proxyServer, this.bypassList});

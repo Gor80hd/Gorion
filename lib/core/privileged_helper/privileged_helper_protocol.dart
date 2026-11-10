@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
 import 'package:path/path.dart' as p;
 
 const gorionPrivilegedHelperProtocolVersion = 2;
@@ -24,7 +24,7 @@ const gorionPrivilegedHelperBootstrapMaxAge = Duration(seconds: 30);
 /// unprivileged GUI meet in this shared directory: the daemon writes its
 /// connection state (including the auth token) here with root:admin 0640, so
 /// only admin users can drive the root helper.
-const gorionPrivilegedHelperMacosLabel = 'com.gorion.privileged-helper';
+const gorionPrivilegedHelperMacosLabel = 'app.gorion.privileged-helper';
 const gorionPrivilegedHelperMacosPlistPath =
     '/Library/LaunchDaemons/$gorionPrivilegedHelperMacosLabel.plist';
 const gorionPrivilegedHelperMacosSupportDir =

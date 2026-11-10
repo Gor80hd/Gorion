@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
-import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion/features/auto_select/data/auto_select_preconnect_service.dart';
+import 'package:gorion/features/auto_select/data/auto_select_settings_repository.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
 
 void main() {
   late Directory tempDir;

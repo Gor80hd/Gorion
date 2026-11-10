@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:gorion_clean/core/privileged_helper/privileged_helper_protocol.dart';
-import 'package:gorion_clean/core/process/process_runner.dart';
+import 'package:gorion/core/privileged_helper/privileged_helper_protocol.dart';
+import 'package:gorion/core/process/process_runner.dart';
 import 'package:path/path.dart' as p;
 
 /// The user declined the admin password prompt (osascript exit code -128) or

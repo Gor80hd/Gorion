@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:gorion_clean/features/runtime/data/macos_system_proxy.dart';
-import 'package:gorion_clean/features/runtime/data/windows_system_proxy.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/runtime/data/macos_system_proxy.dart';
+import 'package:gorion/features/runtime/data/windows_system_proxy.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
 import 'package:path/path.dart' as p;
 
-export 'package:gorion_clean/features/runtime/data/macos_system_proxy.dart'
+export 'package:gorion/features/runtime/data/macos_system_proxy.dart'
     show
         MacosProxyEndpointState,
         MacosServiceProxyState,
@@ -14,7 +14,7 @@ export 'package:gorion_clean/features/runtime/data/macos_system_proxy.dart'
         buildManagedMacosSystemProxyBypassDomains,
         managedMacosSteamProxyBypassEntries,
         managedMacosSystemProxyBypassEntries;
-export 'package:gorion_clean/features/runtime/data/windows_system_proxy.dart'
+export 'package:gorion/features/runtime/data/windows_system_proxy.dart'
     show
         WindowsProxySettings,
         WindowsSystemProxyBackend,

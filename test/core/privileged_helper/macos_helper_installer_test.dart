@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/core/privileged_helper/macos_helper_installer.dart';
-import 'package:gorion_clean/core/privileged_helper/privileged_helper_protocol.dart';
+import 'package:gorion/core/privileged_helper/macos_helper_installer.dart';
+import 'package:gorion/core/privileged_helper/privileged_helper_protocol.dart';
 
 void main() {
   group('MacosPrivilegedHelperInstaller.buildPlist', () {

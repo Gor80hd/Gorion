@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/features/settings/data/desktop_settings_repository.dart';
-import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
-import 'package:gorion_clean/features/settings/model/desktop_settings.dart';
+import 'package:gorion/features/settings/data/desktop_settings_repository.dart';
+import 'package:gorion/features/settings/data/launch_at_startup_service.dart';
+import 'package:gorion/features/settings/model/desktop_settings.dart';
 
 final desktopSettingsRepositoryProvider = Provider<DesktopSettingsRepository>(
   (ref) => DesktopSettingsRepository(),

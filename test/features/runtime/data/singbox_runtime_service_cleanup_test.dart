@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/core/constants/singbox_assets.dart';
-import 'package:gorion_clean/core/process/running_process_lookup.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
+import 'package:gorion/core/constants/singbox_assets.dart';
+import 'package:gorion/core/process/running_process_lookup.dart';
+import 'package:gorion/features/runtime/data/singbox_runtime_service.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

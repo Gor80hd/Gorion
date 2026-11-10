@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'package:gorion_clean/core/process/process_exception_utils.dart';
-import 'package:gorion_clean/features/home/application/dashboard_state.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion/core/process/process_exception_utils.dart';
+import 'package:gorion/features/home/application/dashboard_state.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
 
 // User-facing status and error texts shown on the dashboard.
 

@@ -1,10 +1,10 @@
 import 'dart:io';
 
-import 'package:gorion_clean/core/privileged_helper/macos_helper_installer.dart';
-import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
-import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
-import 'package:gorion_clean/features/runtime/data/runtime_engine.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
+import 'package:gorion/core/privileged_helper/macos_helper_installer.dart';
+import 'package:gorion/core/windows/elevation_relaunch_prompt_service.dart';
+import 'package:gorion/core/windows/windows_elevation_service.dart';
+import 'package:gorion/features/runtime/data/runtime_engine.dart';
+import 'package:gorion/features/runtime/model/runtime_mode.dart';
 
 /// What the connect flow should do after the privilege check.
 class TunPrivilegeOutcome {

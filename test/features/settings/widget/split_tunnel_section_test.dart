@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/settings/data/split_tunnel_catalog.dart';
-import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
-import 'package:gorion_clean/features/settings/widget/split_tunnel_section.dart';
+import 'package:gorion/features/settings/data/split_tunnel_catalog.dart';
+import 'package:gorion/features/settings/model/split_tunnel_settings.dart';
+import 'package:gorion/features/settings/widget/split_tunnel_section.dart';
 
 void main() {
   test('RU direct preset targets Russia rule sets', () {

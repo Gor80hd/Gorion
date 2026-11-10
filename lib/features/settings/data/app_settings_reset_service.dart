@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
-import 'package:gorion_clean/features/settings/data/launch_at_startup_service.dart';
+import 'package:gorion/features/settings/application/desktop_settings_controller.dart';
+import 'package:gorion/features/settings/data/launch_at_startup_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 

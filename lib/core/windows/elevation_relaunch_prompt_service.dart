@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
+import 'package:gorion/core/windows/windows_elevation_service.dart';
 import 'package:window_manager/window_manager.dart';
 
 final rootNavigatorKeyProvider = Provider<GlobalKey<NavigatorState>>(

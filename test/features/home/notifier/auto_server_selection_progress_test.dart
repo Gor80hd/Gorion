@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
-import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/auto_select/model/auto_select_state.dart';
+import 'package:gorion/features/home/notifier/auto_server_selection_progress.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
 
 void main() {
   group('auto-select status formatting', () {

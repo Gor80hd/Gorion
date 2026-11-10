@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
-import 'package:gorion_clean/features/runtime/model/connection_status.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion/features/home/application/dashboard_controller.dart';
+import 'package:gorion/features/proxy/model/outbound_models.dart';
+import 'package:gorion/features/runtime/model/connection_status.dart';
+import 'package:gorion/features/runtime/model/runtime_models.dart';
 
 class _ConnectionNotifier extends Notifier<ConnectionStatus> {
   @override

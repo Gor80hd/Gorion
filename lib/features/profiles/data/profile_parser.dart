@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
-import 'package:gorion_clean/features/profiles/model/profile_models.dart';
-import 'package:gorion_clean/utils/server_display_text.dart';
+import 'package:gorion/features/auto_select/utils/auto_select_server_config.dart';
+import 'package:gorion/features/profiles/model/profile_models.dart';
+import 'package:gorion/utils/server_display_text.dart';
 
 const _trueBooleanValues = {'1', 'true', 'yes', 'on'};
 const _falseBooleanValues = {'0', 'false', 'no', 'off'};

@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/home/data/server_favorites_repository.dart';
+import 'package:gorion/features/home/data/server_favorites_repository.dart';
 
 void main() {
   late Directory tempDir;

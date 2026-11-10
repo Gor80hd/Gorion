@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/core/process/process_exception_utils.dart';
+import 'package:gorion/core/process/process_exception_utils.dart';
 
 void main() {
   test('treats Windows elevation error code 740 as admin-required', () {

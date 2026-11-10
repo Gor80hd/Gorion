@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/profiles/data/profile_parser.dart';
+import 'package:gorion/features/profiles/data/profile_parser.dart';
 
 void main() {
   test('rejects XHTTP instead of silently importing it as TCP', () {

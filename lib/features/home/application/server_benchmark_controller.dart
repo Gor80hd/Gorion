@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gorion_clean/core/http_client/http_client_provider.dart';
-import 'package:gorion_clean/features/home/data/server_benchmark_runtime_service.dart';
-import 'package:gorion_clean/features/profiles/data/profile_data_providers.dart';
-import 'package:gorion_clean/features/profiles/model/profile_entity.dart';
+import 'package:gorion/core/http_client/http_client_provider.dart';
+import 'package:gorion/features/home/data/server_benchmark_runtime_service.dart';
+import 'package:gorion/features/profiles/data/profile_data_providers.dart';
+import 'package:gorion/features/profiles/model/profile_entity.dart';
 
 final serverBenchmarkConfigLoaderProvider =
     Provider<Future<String> Function(ProfileEntity profile)>((ref) {

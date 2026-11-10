@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
+import 'package:gorion/core/windows/windows_elevation_service.dart';
 
 void main() {
   test('parses a pending elevated launch action from startup args', () {

@@ -1,6 +1,6 @@
-import 'package:gorion_clean/features/profiles/model/profile_entity.dart';
+import 'package:gorion/features/profiles/model/profile_entity.dart';
 
-/// Returns profiles ordered for display. In gorion_clean there is no
+/// Returns profiles ordered for display. In Gorion there is no
 /// custom display order, so the list is returned as-is.
 List<ProfileEntity> sortProfilesForDisplay(
   List<ProfileEntity> profiles,
