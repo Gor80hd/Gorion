@@ -1,0 +1,55 @@
+{
+  "version": "1.13.5",
+  "releaseBaseUrl": "https://github.com/SagerNet/sing-box/releases/download",
+  "targets": [
+    {
+      "platform": "macos",
+      "archive": "sing-box-{version}-darwin-arm64.tar.gz",
+      "output": "macos/arm64",
+      "binary": "sing-box",
+      "sha256": "031a26917af3880cb8828cd9d97aac20f144fcdf4bd2b3dc697c1b58bd98c480"
+    },
+    {
+      "platform": "macos",
+      "archive": "sing-box-{version}-darwin-amd64.tar.gz",
+      "output": "macos/x64",
+      "binary": "sing-box",
+      "sha256": "c674416d2503e6c60dc0df0f7dd831f6c98f985b50c10c46e3e78a6eb7e79b5a"
+    },
+    {
+      "platform": "windows",
+      "archive": "sing-box-{version}-windows-amd64.zip",
+      "output": "windows/x64",
+      "binary": "sing-box.exe",
+      "sha256": "934a50aff42d38213e69ea220d8af5c20796f69b578426cf1396c1ad4ad9abc2"
+    },
+    {
+      "platform": "windows",
+      "archive": "sing-box-{version}-windows-arm64.zip",
+      "output": "windows/arm64",
+      "binary": "sing-box.exe",
+      "sha256": "80f334ea18c740862586b04e301439cae9650dbf915387726c03e13f2d583542"
+    },
+    {
+      "platform": "windows",
+      "archive": "sing-box-{version}-windows-386.zip",
+      "output": "windows/x86",
+      "binary": "sing-box.exe",
+      "sha256": "d47f97737e7d7e47092d5b74c46f829fc8f44567db8b5629fb7ec91b880aedeb"
+    },
+    {
+      "platform": "linux",
+      "archive": "sing-box-{version}-linux-amd64.tar.gz",
+      "output": "linux/x64",
+      "binary": "sing-box",
+      "sha256": "a8ab4c71962da9f96b2ab7f2d34ae570c1b920143e2c56c5fca0c1b47d5b5ea6"
+    },
+    {
+      "platform": "linux",
+      "archive": "sing-box-{version}-linux-arm64.tar.gz",
+      "output": "linux/arm64",
+      "binary": "sing-box",
+      "sha256": "167142f305e6bd64dfaee9242068556fa48f9adf94eb86ac428f762bd28b78b6"
+    }
+  ]
+}

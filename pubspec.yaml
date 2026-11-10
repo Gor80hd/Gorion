@@ -63,6 +63,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
+  crypto: ^3.0.6
 
 flutter_launcher_icons:
   android: true
@@ -99,18 +100,20 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
-    - assets/singbox/manifest.json
-    - assets/singbox/windows/x64/
-    - assets/singbox/windows/arm64/
-    - assets/singbox/windows/x86/
-    - assets/singbox/linux/x64/
-    - assets/singbox/linux/arm64/
-    - assets/singbox/macos/x64/
-    - assets/singbox/macos/arm64/
-    - assets/singbox/android/armeabi-v7a/
-    - assets/singbox/android/arm64-v8a/
-    - assets/singbox/android/x86/
-    - assets/singbox/android/x86_64/
+    - path: assets/singbox/windows/x64/
+      platforms: [windows]
+    - path: assets/singbox/windows/arm64/
+      platforms: [windows]
+    - path: assets/singbox/windows/x86/
+      platforms: [windows]
+    - path: assets/singbox/linux/x64/
+      platforms: [linux]
+    - path: assets/singbox/linux/arm64/
+      platforms: [linux]
+    - path: assets/singbox/macos/x64/
+      platforms: [macos]
+    - path: assets/singbox/macos/arm64/
+      platforms: [macos]
 
   fonts:
     - family: IBMPlexSans

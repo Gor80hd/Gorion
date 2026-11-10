@@ -51,3 +51,6 @@ app.*.map.json
 # Local debug dumps
 overflow_debug.txt
 tool/globe/*.geojson
+
+# sing-box binaries are fetched by: dart run tool/vendor_singbox.dart
+/assets/singbox/

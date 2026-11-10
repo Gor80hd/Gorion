@@ -43,22 +43,6 @@ SingboxAssetDescriptor resolveSingboxAsset() {
       assetPath: 'assets/singbox/macos/arm64/sing-box',
       fileName: 'sing-box',
     ),
-    Abi.androidArm => const SingboxAssetDescriptor(
-      assetPath: 'assets/singbox/android/armeabi-v7a/sing-box',
-      fileName: 'sing-box',
-    ),
-    Abi.androidArm64 => const SingboxAssetDescriptor(
-      assetPath: 'assets/singbox/android/arm64-v8a/sing-box',
-      fileName: 'sing-box',
-    ),
-    Abi.androidIA32 => const SingboxAssetDescriptor(
-      assetPath: 'assets/singbox/android/x86/sing-box',
-      fileName: 'sing-box',
-    ),
-    Abi.androidX64 => const SingboxAssetDescriptor(
-      assetPath: 'assets/singbox/android/x86_64/sing-box',
-      fileName: 'sing-box',
-    ),
     _ => throw UnsupportedError('No vendored sing-box binary for $abi'),
   };
 }
