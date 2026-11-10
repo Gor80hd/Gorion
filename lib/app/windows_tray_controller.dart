@@ -5,8 +5,7 @@ import 'package:tray_manager/tray_manager.dart';
 
 class WindowsTrayController with TrayListener {
   static const _defaultIconPath = 'assets/images/tray_icon.ico';
-  static const _connectedIconPath =
-      'assets/images/tray_icon_connected.ico';
+  static const _connectedIconPath = 'assets/images/tray_icon_connected.ico';
 
   WindowsTrayController({
     required Future<void> Function() showWindow,
@@ -106,10 +105,7 @@ class WindowsTrayController with TrayListener {
 
   Menu _buildMenu() {
     final items = <MenuItem>[
-      MenuItem(
-        label: 'Статус: ${_statusLabel(_stage)}',
-        disabled: true,
-      ),
+      MenuItem(label: 'Статус: ${_statusLabel(_stage)}', disabled: true),
       MenuItem(
         label: _activeServerLabel == null
             ? 'Сервер: не выбран'
@@ -132,10 +128,7 @@ class WindowsTrayController with TrayListener {
         onClick: (_) => unawaited(_reconnect()),
       ),
       MenuItem.separator(),
-      MenuItem(
-        label: 'Выход',
-        onClick: (_) => unawaited(_quit()),
-      ),
+      MenuItem(label: 'Выход', onClick: (_) => unawaited(_quit())),
     ];
 
     return Menu(items: items);

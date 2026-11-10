@@ -4,8 +4,9 @@
 // journal after a failed restore. Does not install a login LaunchAgent.
 import 'dart:convert';
 import 'dart:io';
-import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
+
 import 'package:gorion_clean/features/runtime/data/posix_runtime_cleanup_watchdog.dart';
+import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 
 class SelectedServiceBackend extends MacosSystemProxyBackend {

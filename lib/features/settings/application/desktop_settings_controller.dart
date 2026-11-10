@@ -195,12 +195,6 @@ class DesktopSettingsController extends StateNotifier<DesktopSettingsState> {
     }
   }
 
-  Future<void> setKeepRunningInTrayOnClose(bool enabled) async {
-    await _saveSettings(
-      state.settings.copyWith(keepRunningInTrayOnClose: enabled),
-    );
-  }
-
   Future<void> setAutoConnectOnLaunch(bool enabled) async {
     await _saveSettings(state.settings.copyWith(autoConnectOnLaunch: enabled));
   }

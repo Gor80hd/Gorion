@@ -39,56 +39,55 @@ void main() {
     await pumpAtSize(const Size(640, 420));
   });
 
-  testWidgets(
-    'settings page stays stable inside app shell during resize',
-    (WidgetTester tester) async {
-      final controller = DashboardController(
-        repository: _FakeProfileRepository(),
-        runtimeService: _FakeRuntimeService(),
-        autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
-        autoSelectPreconnectService: AutoSelectPreconnectService(
-          settingsRepository: _FakeAutoSelectSettingsRepository(),
-        ),
-        autoSelectorService: AutoSelectorService(),
-        initialState: const DashboardState(bootstrapping: false),
-        loadOnInit: false,
-      );
-      final container = ProviderContainer(
-        overrides: [
-          dashboardControllerProvider.overrideWith((ref) => controller),
-        ],
-      );
-      addTearDown(container.dispose);
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets('settings page stays stable inside app shell during resize', (
+    WidgetTester tester,
+  ) async {
+    final controller = DashboardController(
+      repository: _FakeProfileRepository(),
+      runtimeService: _FakeRuntimeService(),
+      autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
+      autoSelectPreconnectService: AutoSelectPreconnectService(
+        settingsRepository: _FakeAutoSelectSettingsRepository(),
+      ),
+      autoSelectorService: AutoSelectorService(),
+      initialState: const DashboardState(bootstrapping: false),
+      loadOnInit: false,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        dashboardControllerProvider.overrideWith((ref) => controller),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      Future<void> pumpAtSize(Size size) async {
-        await tester.binding.setSurfaceSize(size);
-        await tester.pumpWidget(
-          UncontrolledProviderScope(
-            container: container,
-            child: MaterialApp(
-              theme: buildGorionTheme(brightness: Brightness.dark),
-              home: const AppShell(child: HomePage(animateOnMount: false)),
-            ),
+    Future<void> pumpAtSize(Size size) async {
+      await tester.binding.setSurfaceSize(size);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: buildGorionTheme(brightness: Brightness.dark),
+            home: const AppShell(child: HomePage(animateOnMount: false)),
           ),
-        );
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 250));
-        expect(tester.takeException(), isNull);
-      }
-
-      await pumpAtSize(const Size(1440, 900));
-      await tester.tap(find.byTooltip('Настройки'));
+        ),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 250));
-      expect(find.text('Настройки'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
 
-      await pumpAtSize(const Size(1100, 760));
-      await pumpAtSize(const Size(900, 560));
-      await pumpAtSize(const Size(780, 520));
-      await pumpAtSize(const Size(640, 420));
-    },
-  );
+    await pumpAtSize(const Size(1440, 900));
+    await tester.tap(find.byTooltip('Настройки'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('Настройки'), findsOneWidget);
+
+    await pumpAtSize(const Size(1100, 760));
+    await pumpAtSize(const Size(900, 560));
+    await pumpAtSize(const Size(780, 520));
+    await pumpAtSize(const Size(640, 420));
+  });
 }
 
 class _FakeAutoSelectSettingsRepository extends AutoSelectSettingsRepository {}

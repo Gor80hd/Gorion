@@ -48,7 +48,9 @@ class _ProfilesUpdateNotifier extends Notifier<ProfilesUpdateState> {
       lastRun: null,
     );
     try {
-      await ref.read(dashboardControllerProvider.notifier).refreshActiveProfile();
+      await ref
+          .read(dashboardControllerProvider.notifier)
+          .refreshActiveProfile();
       state = (
         running: false,
         force: false,
@@ -78,5 +80,5 @@ class _ProfilesUpdateNotifier extends Notifier<ProfilesUpdateState> {
 
 final foregroundProfilesUpdateNotifierProvider =
     NotifierProvider<_ProfilesUpdateNotifier, ProfilesUpdateState>(
-  _ProfilesUpdateNotifier.new,
-);
+      _ProfilesUpdateNotifier.new,
+    );

@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
+import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
 
 void main() {

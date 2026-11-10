@@ -47,7 +47,10 @@ const _proxySchemes = {
 String buildServerBenchmarkKey(String profileId, String serverTag) =>
     '$profileId::$serverTag';
 
-Map<String, dynamic>? extractOutboundDefinition(String generatedConfig, String tag) {
+Map<String, dynamic>? extractOutboundDefinition(
+  String generatedConfig,
+  String tag,
+) {
   try {
     final config = jsonDecode(generatedConfig) as Map<String, dynamic>;
     final outbounds = config['outbounds'];
@@ -127,11 +130,7 @@ typedef BenchmarkRuntimeStarter =
       required String scope,
     });
 typedef BenchmarkLogger =
-    void Function(
-      String message, {
-      String level,
-      String source,
-    });
+    void Function(String message, {String level, String source});
 
 class ServerBenchmarkRuntimeService {
   ServerBenchmarkRuntimeService({
@@ -141,8 +140,7 @@ class ServerBenchmarkRuntimeService {
     Future<bool> Function(int port, {bool Function()? isCancelled})?
     waitForPortReady,
     BenchmarkLogger? logger,
-  }) : _httpClientFactory =
-           httpClientFactory ?? _defaultHttpClientFactory,
+  }) : _httpClientFactory = httpClientFactory ?? _defaultHttpClientFactory,
        _runtimeStarter = runtimeStarter ?? _defaultRuntimeStarter,
        _portAllocator = portAllocator ?? probe_utils.allocateFreePort,
        _waitForPortReady = waitForPortReady ?? _defaultWaitForPortReady,
@@ -238,9 +236,7 @@ class ServerBenchmarkRuntimeService {
         return;
       }
 
-      _logger(
-        'start active-profile batch on ${runtimePorts.length} ports',
-      );
+      _logger('start active-profile batch on ${runtimePorts.length} ports');
       for (final reservedPort in reservedPorts) {
         await reservedPort.socket.close();
       }
@@ -255,10 +251,8 @@ class ServerBenchmarkRuntimeService {
 
       final readiness = await Future.wait(
         runtimePorts.map(
-          (runtimePort) => _waitForPortReady(
-            runtimePort.port,
-            isCancelled: isCancelled,
-          ),
+          (runtimePort) =>
+              _waitForPortReady(runtimePort.port, isCancelled: isCancelled),
         ),
       );
       if (isCancelled() || readiness.any((isReady) => !isReady)) {
@@ -576,7 +570,9 @@ String _normalizeType(String type) {
   };
 }
 
-String _buildBatchSpeedtestSingboxConfig(List<_BenchmarkRuntimePort> runtimePorts) {
+String _buildBatchSpeedtestSingboxConfig(
+  List<_BenchmarkRuntimePort> runtimePorts,
+) {
   return jsonEncode({
     'log': {'level': 'info'},
     'inbounds': [
@@ -656,9 +652,7 @@ void _defaultLogger(
   String level = 'Info',
   String source = 'batch-speed',
 }) {
-  debugPrint(
-    '${formatBenchmarkDebugTimestamp()} [$level] $source: $message',
-  );
+  debugPrint('${formatBenchmarkDebugTimestamp()} [$level] $source: $message');
 }
 
 class _Semaphore {

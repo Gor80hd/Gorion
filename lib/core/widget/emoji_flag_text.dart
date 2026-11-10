@@ -56,13 +56,12 @@ List<InlineSpan> _buildEmojiFlagSpans(String text, TextStyle flagStyle) {
   for (var index = 0; index < runes.length; index += 1) {
     final current = runes[index];
     final next = index + 1 < runes.length ? runes[index + 1] : null;
-    if (next != null && _isRegionalIndicator(current) && _isRegionalIndicator(next)) {
+    if (next != null &&
+        _isRegionalIndicator(current) &&
+        _isRegionalIndicator(next)) {
       flushBuffer();
       spans.add(
-        TextSpan(
-          text: String.fromCharCodes([current, next]),
-          style: flagStyle,
-        ),
+        TextSpan(text: String.fromCharCodes([current, next]), style: flagStyle),
       );
       index += 1;
       continue;
@@ -75,5 +74,4 @@ List<InlineSpan> _buildEmojiFlagSpans(String text, TextStyle flagStyle) {
   return spans;
 }
 
-bool _isRegionalIndicator(int value) =>
-    value >= 0x1F1E6 && value <= 0x1F1FF;
+bool _isRegionalIndicator(int value) => value >= 0x1F1E6 && value <= 0x1F1FF;

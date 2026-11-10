@@ -8,7 +8,9 @@ List<ProfileEntity> sortProfilesForDisplay(
 ) {
   if (storedOrder.isEmpty) return profiles;
 
-  final indexed = {for (var i = 0; i < storedOrder.length; i++) storedOrder[i]: i};
+  final indexed = {
+    for (var i = 0; i < storedOrder.length; i++) storedOrder[i]: i,
+  };
   return [...profiles]..sort((a, b) {
     final ia = indexed[a.id] ?? 9999;
     final ib = indexed[b.id] ?? 9999;

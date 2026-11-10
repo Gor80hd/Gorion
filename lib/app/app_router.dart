@@ -36,10 +36,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: AppRoutePaths.home,
     routes: [
       ShellRoute(
-        builder: (context, state, child) => AppShell(
-          location: state.uri.path,
-          child: child,
-        ),
+        builder: (context, state, child) =>
+            AppShell(location: state.uri.path, child: child),
         routes: [
           GoRoute(
             path: AppRoutePaths.home,
@@ -61,17 +59,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         parentNavigatorKey: rootNavigatorKey,
         path: AppRoutePaths.addProfile,
         name: AppRouteNames.addProfile,
-        pageBuilder: (context, state) => const AppDialogPage<void>(
-          child: AddSubscriptionDialog(),
-        ),
+        pageBuilder: (context, state) =>
+            const AppDialogPage<void>(child: AddSubscriptionDialog()),
       ),
       GoRoute(
         parentNavigatorKey: rootNavigatorKey,
         path: AppRoutePaths.profilesOverview,
         name: AppRouteNames.profilesOverview,
-        pageBuilder: (context, state) => const AppDialogPage<void>(
-          child: ProfilesOverviewDialog(),
-        ),
+        pageBuilder: (context, state) =>
+            const AppDialogPage<void>(child: ProfilesOverviewDialog()),
       ),
       GoRoute(
         parentNavigatorKey: rootNavigatorKey,

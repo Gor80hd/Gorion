@@ -64,7 +64,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    final addProfileFuture = container.read(appModalRouterProvider).showAddProfile();
+    final addProfileFuture = container
+        .read(appModalRouterProvider)
+        .showAddProfile();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(AddSubscriptionDialog), findsOneWidget);
@@ -85,10 +87,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await profilesOverviewFuture;
 
-    final alertFuture = container.read(appModalRouterProvider).showCustomAlert(
-      title: 'Проверка',
-      message: 'Маршрут модального окна работает.',
-    );
+    final alertFuture = container
+        .read(appModalRouterProvider)
+        .showCustomAlert(
+          title: 'Проверка',
+          message: 'Маршрут модального окна работает.',
+        );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Проверка'), findsOneWidget);
@@ -98,18 +102,20 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await alertFuture;
 
-    final serverSettingsFuture = container.read(appModalRouterProvider).showServerSettings(
-      server: OutboundInfo(
-        tag: 'server-a',
-        tagDisplay: '[NL] Amsterdam',
-        type: 'vless',
-        isVisible: true,
-        isGroup: false,
-        host: 'amsterdam.example.com',
-        port: 443,
-      ),
-      outbound: <String, dynamic>{'tag': 'server-a', 'type': 'vless'},
-    );
+    final serverSettingsFuture = container
+        .read(appModalRouterProvider)
+        .showServerSettings(
+          server: OutboundInfo(
+            tag: 'server-a',
+            tagDisplay: '[NL] Amsterdam',
+            type: 'vless',
+            isVisible: true,
+            isGroup: false,
+            host: 'amsterdam.example.com',
+            port: 443,
+          ),
+          outbound: <String, dynamic>{'tag': 'server-a', 'type': 'vless'},
+        );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Сырые настройки сервера'), findsOneWidget);

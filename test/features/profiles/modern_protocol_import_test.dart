@@ -25,19 +25,26 @@ void main() {
   ];
 
   test('imports modern protocols with credentials, TLS and options intact', () {
-    final hy2 = (parse(links[0])['outbounds'] as List).single;
+    final hy2 =
+        (parse(links[0])['outbounds'] as List).single as Map<String, dynamic>;
     expect(hy2['password'], 'test:pass');
     expect(hy2['server_port'], 443);
-    expect(hy2['tls']['server_name'], 'example.com');
-    expect(hy2['tls']['insecure'], isNull);
+    expect((hy2['tls'] as Map<String, dynamic>)['server_name'], 'example.com');
+    expect((hy2['tls'] as Map<String, dynamic>)['insecure'], isNull);
     expect(hy2['obfs'], {'type': 'salamander', 'password': 'secret'});
-    final hopping = (parse(links[1])['outbounds'] as List).single;
+    final hopping =
+        (parse(links[1])['outbounds'] as List).single as Map<String, dynamic>;
     expect(hopping['server_ports'], ['443:443', '8443:8450']);
-    final tuic = (parse(links[2])['outbounds'] as List).single;
+    final tuic =
+        (parse(links[2])['outbounds'] as List).single as Map<String, dynamic>;
     expect(tuic['password'], 'pass:word');
     expect(tuic['congestion_control'], 'bbr');
-    expect(tuic['tls']['alpn'], ['h3']);
-    expect((parse(links[3])['outbounds'] as List).single['type'], 'anytls');
+    expect((tuic['tls'] as Map<String, dynamic>)['alpn'], ['h3']);
+    expect(
+      ((parse(links[3])['outbounds'] as List).single
+          as Map<String, dynamic>)['type'],
+      'anytls',
+    );
   });
 
   test(

@@ -15,16 +15,19 @@ class OutboundInfo {
     this.port = 0,
   });
 
-  OutboundInfo.fromServerEntry(ServerEntry entry, {int delay = 0, bool selected = false})
-    : tag = entry.tag,
-      tagDisplay = entry.displayName,
-      type = entry.type,
-      isVisible = true,
-      isGroup = false,
-      urlTestDelay = delay,
-      isSelected = selected,
-      host = entry.host ?? '',
-      port = entry.port ?? 0;
+  OutboundInfo.fromServerEntry(
+    ServerEntry entry, {
+    int delay = 0,
+    bool selected = false,
+  }) : tag = entry.tag,
+       tagDisplay = entry.displayName,
+       type = entry.type,
+       isVisible = true,
+       isGroup = false,
+       urlTestDelay = delay,
+       isSelected = selected,
+       host = entry.host ?? '',
+       port = entry.port ?? 0;
 
   final String tag;
   final String tagDisplay;

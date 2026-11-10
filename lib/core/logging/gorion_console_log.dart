@@ -93,6 +93,8 @@ class GorionConsoleLog {
     bool subtle = false,
     bool highlight = false,
   }) {
+    // stdout/stderr are process-wide and must stay open.
+    // ignore: close_sinks
     final sink = isError ? stderr : stdout;
     final ansi = isError
         ? stderr.supportsAnsiEscapes

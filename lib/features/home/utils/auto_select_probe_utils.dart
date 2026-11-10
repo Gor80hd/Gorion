@@ -1,21 +1,5 @@
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-
-/// Returns the path to the sing-box binary used by gorion_clean.
-String hiddifyCliPath() {
-  final execDir = File(Platform.resolvedExecutable).parent.path;
-  if (Platform.isWindows) {
-    final prod = p.join(execDir, 'singbox.exe');
-    if (File(prod).existsSync()) return prod;
-    // Fallback to sing-box naming convention
-    return p.join(execDir, 'sing-box.exe');
-  }
-  final prod = p.join(execDir, 'singbox');
-  if (File(prod).existsSync()) return prod;
-  return p.join(execDir, 'sing-box');
-}
-
 Future<({ServerSocket socket, int port})> allocateFreePort() async {
   final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
   return (socket: socket, port: socket.port);

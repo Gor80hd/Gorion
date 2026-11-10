@@ -21,7 +21,8 @@ class _ConnectionNotifier extends Notifier<ConnectionStatus> {
   Future<void> toggleConnection() async {
     final notifier = ref.read(dashboardControllerProvider.notifier);
     final stage = ref.read(dashboardControllerProvider).connectionStage;
-    if (stage == ConnectionStage.connected || stage == ConnectionStage.starting) {
+    if (stage == ConnectionStage.connected ||
+        stage == ConnectionStage.starting) {
       await notifier.disconnect();
     } else {
       await notifier.connect();
@@ -30,12 +31,9 @@ class _ConnectionNotifier extends Notifier<ConnectionStatus> {
 }
 
 final connectionNotifierProvider =
-    NotifierProvider<_ConnectionNotifier, ConnectionStatus>(_ConnectionNotifier.new);
-
-final serviceRunningProvider = Provider<AsyncValue<bool>>((ref) {
-  final state = ref.watch(dashboardControllerProvider);
-  return AsyncData(state.connectionStage == ConnectionStage.connected);
-});
+    NotifierProvider<_ConnectionNotifier, ConnectionStatus>(
+      _ConnectionNotifier.new,
+    );
 
 /// Provides the active proxy as [OutboundInfo] based on dashboard state.
 final activeProxyNotifierProvider = Provider<AsyncValue<OutboundInfo>>((ref) {
@@ -52,5 +50,7 @@ final activeProxyNotifierProvider = Provider<AsyncValue<OutboundInfo>>((ref) {
     }
   }
 
-  return AsyncData(OutboundInfo(tag: tag, tagDisplay: tag, type: 'unknown', isVisible: true));
+  return AsyncData(
+    OutboundInfo(tag: tag, tagDisplay: tag, type: 'unknown', isVisible: true),
+  );
 });

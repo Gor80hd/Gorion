@@ -272,11 +272,11 @@ class WindowsProxySettings {
 class WindowsSystemProxyBackend {
   const WindowsSystemProxyBackend({
     Future<ProcessResult> Function(
-      String executable,
-      List<String> arguments, {
-      Duration timeout,
-    })
-    processRunner =
+          String executable,
+          List<String> arguments, {
+          Duration timeout,
+        })
+        processRunner =
         _defaultProcessRunner,
   }) : _processRunner = processRunner;
 
@@ -358,11 +358,14 @@ $_winInetRefreshScript
   }
 
   Future<String> _runPowerShell(String script) async {
-    final result = await _processRunner(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
-      timeout: _commandTimeout,
-    );
+    final result = await _processRunner('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      script,
+    ], timeout: _commandTimeout);
 
     final stdoutText = result.stdout.toString().trim();
     final stderrText = result.stderr.toString().trim();

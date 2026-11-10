@@ -17,11 +17,15 @@ void main() {
     });
 
     test('map png encodes land pixels for common server countries', () async {
-      final data = await rootBundle.load('assets/images/world_map_countries.png');
+      final data = await rootBundle.load(
+        'assets/images/world_map_countries.png',
+      );
       final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
       final frame = await codec.getNextFrame();
       final image = frame.image;
-      final rawData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final rawData = await image.toByteData(
+        format: ui.ImageByteFormat.rawRgba,
+      );
       expect(rawData, isNotNull);
 
       final bytes = rawData!.buffer.asUint8List();

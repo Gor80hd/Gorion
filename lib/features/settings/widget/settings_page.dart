@@ -152,10 +152,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           const SizedBox(height: 12),
           _buildVlessSection(),
           const SizedBox(height: 16),
-          _buildResetSection(
-            dashboardState: dashboardState,
-            busy: pageBusy,
-          ),
+          _buildResetSection(dashboardState: dashboardState, busy: pageBusy),
         ],
       ),
     );
@@ -403,9 +400,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   ? null
                   : (value) {
                       _updateAutoSelectIntervalDraft(value.round());
-                      _scheduleAutoSelectIntervalSave(
-                        debounce: Duration.zero,
-                      );
+                      _scheduleAutoSelectIntervalSave(debounce: Duration.zero);
                     },
             ),
             rangeStart: '$autoSelectBestServerCheckIntervalMinMinutes мин',
@@ -1307,7 +1302,9 @@ class _SettingsHeader extends StatelessWidget {
                     ),
                   )
                 : const Icon(Icons.refresh_rounded, size: 16),
-            label: Text(updateCheckBusy ? 'Проверяем…' : 'Проверить обновления'),
+            label: Text(
+              updateCheckBusy ? 'Проверяем…' : 'Проверить обновления',
+            ),
           ),
         ];
 

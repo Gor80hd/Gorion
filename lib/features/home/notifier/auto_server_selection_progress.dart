@@ -372,16 +372,6 @@ final autoServerSelectionProgressProvider =
       return AutoServerSelectionProgress(value: activity.progressValue);
     });
 
-class RecentAutoSelectedServer {
-  const RecentAutoSelectedServer({required this.tag, required this.until});
-  final String tag;
-  final DateTime until;
-  bool get isActive => until.isAfter(DateTime.now());
-}
-
-final recentAutoSelectedServerProvider =
-    StateProvider<RecentAutoSelectedServer?>((ref) => null);
-
 bool _isPreConnectAutoSelectLabel(String? label) {
   return switch (label?.trim()) {
     'Pre-connect auto-select' || 'Автовыбор перед подключением' => true,

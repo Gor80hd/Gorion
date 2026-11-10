@@ -151,13 +151,6 @@ Future<ReservedLoopbackPort> reserveLoopbackPort() async {
   return ReservedLoopbackPort._(socket);
 }
 
-Future<int> findFreePort() async {
-  final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-  final port = socket.port;
-  await socket.close();
-  return port;
-}
-
 Future<void> _cleanupDetachedRuntimeDirectoriesIfNeeded(
   Directory runtimeRoot,
 ) async {

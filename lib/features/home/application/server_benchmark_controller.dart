@@ -77,7 +77,9 @@ class ServerBenchmarkState {
       speedResults: speedResults ?? this.speedResults,
       completed: completed ?? this.completed,
       total: total ?? this.total,
-      status: identical(status, _statusSentinel) ? this.status : status as String?,
+      status: identical(status, _statusSentinel)
+          ? this.status
+          : status as String?,
       startedAt: identical(startedAt, _startedAtSentinel)
           ? this.startedAt
           : startedAt as DateTime?,
@@ -85,16 +87,13 @@ class ServerBenchmarkState {
       benchmarkingKeys: benchmarkingKeys ?? this.benchmarkingKeys,
     );
   }
-
-  bool isBenchmarkingKey(String key) => benchmarkingKeys.contains(key);
 }
 
 const _statusSentinel = Object();
 const _startedAtSentinel = Object();
 
 class ServerBenchmarkController extends StateNotifier<ServerBenchmarkState> {
-  ServerBenchmarkController(
-    {
+  ServerBenchmarkController({
     required ServerBenchmarkRuntimeService runtimeService,
     required Future<String> Function(ProfileEntity profile) loadGeneratedConfig,
     required String userAgent,
@@ -118,11 +117,12 @@ class ServerBenchmarkController extends StateNotifier<ServerBenchmarkState> {
 
     final future = _runActiveProfileBatch(activeProfile);
     _activeRun = future;
+    // The caller observes errors through the returned future.
     future.whenComplete(() {
       if (identical(_activeRun, future)) {
         _activeRun = null;
       }
-    });
+    }).ignore();
     return future;
   }
 
@@ -243,9 +243,7 @@ class ServerBenchmarkController extends StateNotifier<ServerBenchmarkState> {
       if (!mounted || !state.active) {
         return;
       }
-      state = state.copyWith(
-        elapsed: DateTime.now().difference(startedAt),
-      );
+      state = state.copyWith(elapsed: DateTime.now().difference(startedAt));
     }
 
     updateElapsed();

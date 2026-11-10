@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'package:path/path.dart' as p;
 
-import 'package:gorion_clean/core/process/process_runner.dart';
 import 'package:gorion_clean/core/privileged_helper/privileged_helper_protocol.dart';
+import 'package:gorion_clean/core/process/process_runner.dart';
+import 'package:path/path.dart' as p;
 
 /// The user declined the admin password prompt (osascript exit code -128) or
 /// cancelled the dialog in another way.
@@ -45,10 +45,6 @@ class MacosPrivilegedHelperInstaller {
     Duration timeout = const Duration(seconds: 15),
   }) {
     return runProcessWithTimeout(executable, arguments, timeout: timeout);
-  }
-
-  bool isInstalledSync() {
-    return File(gorionPrivilegedHelperMacosPlistPath).existsSync();
   }
 
   /// Builds the launchd plist for the helper pointing at [executablePath].

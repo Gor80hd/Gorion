@@ -830,45 +830,42 @@ void main() {
       },
     );
 
-    test(
-      'connect stops the runtime when a post-start step fails',
-      () async {
-        final runtimeService = _FakeRuntimeService(startSession: _session);
-        final controller = DashboardController(
-          repository: _FakeProfileRepository(initialStorage: _manualStorage),
-          runtimeService: runtimeService,
-          autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
-          autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
-          autoSelectorService: _ScriptedAutoSelectorService(),
-          clashApiClientFactory: (_) => _FakeClashApiClient(
-            snapshot: const ClashApiSnapshot(
-              selectedTag: 'server-a',
-              delayByTag: {'server-a': 48},
-            ),
-            delays: const {'server-a': 48},
-            snapshotError: StateError('snapshot failed'),
+    test('connect stops the runtime when a post-start step fails', () async {
+      final runtimeService = _FakeRuntimeService(startSession: _session);
+      final controller = DashboardController(
+        repository: _FakeProfileRepository(initialStorage: _manualStorage),
+        runtimeService: runtimeService,
+        autoSelectSettingsRepository: _FakeAutoSelectSettingsRepository(),
+        autoSelectPreconnectService: _FakeAutoSelectPreconnectService(),
+        autoSelectorService: _ScriptedAutoSelectorService(),
+        clashApiClientFactory: (_) => _FakeClashApiClient(
+          snapshot: const ClashApiSnapshot(
+            selectedTag: 'server-a',
+            delayByTag: {'server-a': 48},
           ),
-          initialState: DashboardState(
-            bootstrapping: false,
-            runtimeMode: RuntimeMode.systemProxy,
-            autoSelectSettings: AutoSelectSettings(enabled: false),
-            storage: _manualStorage,
-            selectedServerTag: 'server-a',
-            activeServerTag: 'server-a',
-          ),
-          loadOnInit: false,
-        );
-        addTearDown(controller.dispose);
+          delays: const {'server-a': 48},
+          snapshotError: StateError('snapshot failed'),
+        ),
+        initialState: DashboardState(
+          bootstrapping: false,
+          runtimeMode: RuntimeMode.systemProxy,
+          autoSelectSettings: AutoSelectSettings(enabled: false),
+          storage: _manualStorage,
+          selectedServerTag: 'server-a',
+          activeServerTag: 'server-a',
+        ),
+        loadOnInit: false,
+      );
+      addTearDown(controller.dispose);
 
-        await controller.connect();
+      await controller.connect();
 
-        expect(runtimeService.startCallCount, 1);
-        expect(runtimeService.stopCallCount, 1);
-        expect(controller.state.connectionStage, ConnectionStage.failed);
-        expect(controller.state.runtimeSession, isNull);
-        expect(controller.state.errorMessage, isNotNull);
-      },
-    );
+      expect(runtimeService.startCallCount, 1);
+      expect(runtimeService.stopCallCount, 1);
+      expect(controller.state.connectionStage, ConnectionStage.failed);
+      expect(controller.state.runtimeSession, isNull);
+      expect(controller.state.errorMessage, isNotNull);
+    });
 
     test(
       'disconnect during pre-connect probing cancels the pending connect attempt',

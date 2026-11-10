@@ -2,7 +2,6 @@ sealed class ConnectionStatus {
   const ConnectionStatus();
 
   bool get isConnected => this is Connected;
-  bool get isDisconnected => this is Disconnected;
   bool get isSwitching => this is Connecting || this is Disconnecting;
 }
 

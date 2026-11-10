@@ -1,10 +1,9 @@
 import 'dart:io';
+
 import 'package:gorion_clean/core/process/process_runner.dart';
-
-import 'package:path/path.dart' as p;
-
 import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart'
     show ProxyLogSink;
+import 'package:path/path.dart' as p;
 
 /// Crash guard for the sing-box runtime on macOS and Linux.
 ///

@@ -12,13 +12,13 @@ import 'package:gorion_clean/core/router/app_modal_router.dart';
 import 'package:gorion_clean/core/widget/emoji_flag_text.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
 import 'package:gorion_clean/core/widget/page_reveal.dart';
+import 'package:gorion_clean/features/auto_select/utils/auto_select_server_exclusion.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
 import 'package:gorion_clean/features/home/application/server_benchmark_controller.dart';
 import 'package:gorion_clean/features/home/application/server_favorites_controller.dart';
 import 'package:gorion_clean/features/home/data/server_benchmark_runtime_service.dart';
 import 'package:gorion_clean/features/home/model/server_sort_mode.dart';
 import 'package:gorion_clean/features/home/notifier/auto_server_selection_progress.dart';
-import 'package:gorion_clean/features/auto_select/utils/auto_select_server_exclusion.dart';
 import 'package:gorion_clean/features/home/widget/selected_server_preview_provider.dart';
 import 'package:gorion_clean/features/profiles/data/profile_data_providers.dart';
 import 'package:gorion_clean/features/profiles/model/profile_connection_mode.dart';
@@ -31,8 +31,8 @@ import 'package:gorion_clean/features/profiles/notifier/profiles_update_notifier
 import 'package:gorion_clean/features/profiles/utils/profile_display_order.dart';
 import 'package:gorion_clean/features/proxy/data/proxy_data_providers.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
-import 'package:gorion_clean/features/runtime/notifier/core_restart_signal.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
+import 'package:gorion_clean/features/runtime/notifier/core_restart_signal.dart';
 import 'package:gorion_clean/utils/link_parsers.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -213,10 +213,7 @@ class ServersPanelWidget extends HookConsumerWidget {
       autoServerSelectionProgressProvider,
     );
     final groupAsync = useStream(
-      useMemoized(() => proxyRepo.watchProxies(), [
-        proxyRepo,
-        coreRestartSignal,
-      ]),
+      useMemoized(proxyRepo.watchProxies, [proxyRepo, coreRestartSignal]),
     );
 
     final onlineGroup = groupAsync.data?.fold((_) => null, (g) => g);
@@ -477,7 +474,7 @@ class ServersPanelWidget extends HookConsumerWidget {
     Future<void> setActiveSubscription(ProfileEntity profile) async {
       final repo = await ref.read(profileRepoFacadeProvider.future);
       final result = await repo.setAsActive(profile.id).run();
-      result.match(
+      await result.match<Future<void>?>(
         (err) => ref
             .read(appModalRouterProvider)
             .showCustomAlert(
@@ -553,12 +550,14 @@ class ServersPanelWidget extends HookConsumerWidget {
                         onUpdate: updateState?.running == true
                             ? null
                             : () {
-                                ref
-                                    .read(
-                                      foregroundProfilesUpdateNotifierProvider
-                                          .notifier,
-                                    )
-                                    .trigger();
+                                unawaited(
+                                  ref
+                                      .read(
+                                        foregroundProfilesUpdateNotifierProvider
+                                            .notifier,
+                                      )
+                                      .trigger(),
+                                );
                               },
                       ),
                     ],
@@ -570,9 +569,11 @@ class ServersPanelWidget extends HookConsumerWidget {
                         child: _SortDropdown(
                           value: sortMode,
                           onChanged: (mode) {
-                            ref
-                                .read(Preferences.serverSortMode.notifier)
-                                .update(mode);
+                            unawaited(
+                              ref
+                                  .read(Preferences.serverSortMode.notifier)
+                                  .update(mode),
+                            );
                           },
                         ),
                       ),

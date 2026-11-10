@@ -10,18 +10,18 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gorion_clean/app/app_router.dart';
 import 'package:gorion_clean/app/theme.dart';
-import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/app/windows_tray_controller.dart';
 import 'package:gorion_clean/core/widget/glass_panel.dart';
+import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/home/application/dashboard_controller.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
+import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/application/desktop_settings_controller.dart';
 import 'package:gorion_clean/features/settings/widget/settings_page.dart';
 import 'package:gorion_clean/features/update/application/app_update_controller.dart';
 import 'package:gorion_clean/features/update/model/app_update_state.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
 const _dockLeftMargin = 10.0;
@@ -438,10 +438,7 @@ class _AppShellState extends ConsumerState<AppShell> with WindowListener {
                 rightInset,
                 bottomInset,
               ),
-              child: KeyedSubtree(
-                key: ValueKey(currentPage),
-                child: pageChild,
-              ),
+              child: KeyedSubtree(key: ValueKey(currentPage), child: pageChild),
             ),
             Positioned(
               top: 0,
@@ -873,9 +870,11 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
   void initState() {
     super.initState();
     windowManager.addListener(this);
-    windowManager.isMaximized().then((v) {
-      if (mounted) setState(() => _isMaximized = v);
-    });
+    unawaited(
+      windowManager.isMaximized().then((v) {
+        if (mounted) setState(() => _isMaximized = v);
+      }),
+    );
   }
 
   @override
@@ -918,7 +917,7 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
         mainAxisSize: MainAxisSize.min,
         children: [
           _WinBtn(
-            onTap: () => windowManager.minimize(),
+            onTap: windowManager.minimize,
             child: Container(width: 10, height: 1.5, color: iconColor),
           ),
           _WinBtn(
@@ -941,7 +940,7 @@ class _WindowControlsState extends State<_WindowControls> with WindowListener {
           ),
           _WinBtn(
             isClose: true,
-            onTap: () => windowManager.close(),
+            onTap: windowManager.close,
             child: Icon(Icons.close_rounded, size: 14, color: iconColor),
           ),
         ],

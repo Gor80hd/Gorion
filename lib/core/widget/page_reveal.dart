@@ -22,8 +22,12 @@ class PageReveal extends StatefulWidget {
   State<PageReveal> createState() => _PageRevealState();
 }
 
-class _PageRevealState extends State<PageReveal> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(duration: widget.duration, vsync: this);
+class _PageRevealState extends State<PageReveal>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    duration: widget.duration,
+    vsync: this,
+  );
   Timer? _delayTimer;
   bool? _lastTickerModeEnabled;
 
@@ -70,7 +74,10 @@ class _PageRevealState extends State<PageReveal> with SingleTickerProviderStateM
     return FadeTransition(
       opacity: animation,
       child: SlideTransition(
-        position: Tween<Offset>(begin: widget.offset, end: Offset.zero).animate(animation),
+        position: Tween<Offset>(
+          begin: widget.offset,
+          end: Offset.zero,
+        ).animate(animation),
         child: widget.child,
       ),
     );

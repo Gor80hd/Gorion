@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
@@ -40,7 +41,7 @@ void main() {
       final parent = await Process.start('/bin/sleep', ['60']);
       final child = await Process.start('/bin/sleep', ['60']);
       var exited = false;
-      child.exitCode.then((_) => exited = true);
+      unawaited(child.exitCode.then((_) => exited = true));
       addTearDown(() async {
         parent.kill(ProcessSignal.sigkill);
         child.kill(ProcessSignal.sigkill);

@@ -10,7 +10,8 @@ import 'package:gorion_clean/features/runtime/data/windows_runtime_cleanup_watch
 /// Linux use the detached shell watchdog.
 class RuntimeCleanupWatchdog {
   const RuntimeCleanupWatchdog({
-    WindowsRuntimeCleanupWatchdog windows = const WindowsRuntimeCleanupWatchdog(),
+    WindowsRuntimeCleanupWatchdog windows =
+        const WindowsRuntimeCleanupWatchdog(),
     PosixRuntimeCleanupWatchdog posix = const PosixRuntimeCleanupWatchdog(),
   }) : _windows = windows,
        _posix = posix;

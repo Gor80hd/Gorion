@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 
 class AppAlertDialog extends StatelessWidget {
-  const AppAlertDialog({
-    super.key,
-    required this.title,
-    required this.message,
-  });
+  const AppAlertDialog({super.key, required this.title, required this.message});
 
   final String title;
   final String message;

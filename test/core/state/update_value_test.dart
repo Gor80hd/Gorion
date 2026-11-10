@@ -16,18 +16,21 @@ void main() {
     expect(value.value, isNull);
   });
 
-  test('DashboardState copyWith clears nullable fields through update values', () {
-    final state = DashboardState(
-      selectedServerTag: 'server-a',
-      statusMessage: 'ready',
-    );
+  test(
+    'DashboardState copyWith clears nullable fields through update values',
+    () {
+      final state = DashboardState(
+        selectedServerTag: 'server-a',
+        statusMessage: 'ready',
+      );
 
-    final next = state.copyWith(
-      selectedServerTagUpdate: const UpdateValue<String?>.value(null),
-      statusMessageUpdate: const UpdateValue<String?>.value(null),
-    );
+      final next = state.copyWith(
+        selectedServerTagUpdate: const UpdateValue<String?>.value(null),
+        statusMessageUpdate: const UpdateValue<String?>.value(null),
+      );
 
-    expect(next.selectedServerTag, isNull);
-    expect(next.statusMessage, isNull);
-  });
+      expect(next.selectedServerTag, isNull);
+      expect(next.statusMessage, isNull);
+    },
+  );
 }

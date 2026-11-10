@@ -3,27 +3,27 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gorion_clean/core/logging/gorion_console_log.dart';
 import 'package:gorion_clean/core/privileged_helper/macos_helper_installer.dart';
 import 'package:gorion_clean/core/process/process_exception_utils.dart';
 import 'package:gorion_clean/core/state/update_value.dart';
-import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/core/windows/elevation_relaunch_prompt_service.dart';
-import 'package:gorion_clean/core/logging/gorion_console_log.dart';
+import 'package:gorion_clean/core/windows/windows_elevation_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
-import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';
+import 'package:gorion_clean/features/auto_select/model/auto_select_state.dart';
 import 'package:gorion_clean/features/auto_select/utils/auto_select_server_config.dart';
 import 'package:gorion_clean/features/profiles/data/profile_repository.dart';
 import 'package:gorion_clean/features/profiles/model/profile_models.dart';
+import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
+import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
+import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
+import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/features/settings/data/connection_tuning_config_overrides.dart';
 import 'package:gorion_clean/features/settings/data/connection_tuning_settings_repository.dart';
 import 'package:gorion_clean/features/settings/model/connection_tuning_settings.dart';
 import 'package:gorion_clean/features/settings/model/split_tunnel_settings.dart';
-import 'package:gorion_clean/features/runtime/data/clash_api_client.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
-import 'package:gorion_clean/features/runtime/data/singbox_runtime_service.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_models.dart';
 import 'package:gorion_clean/utils/server_display_text.dart';
 
 const _preConnectAutoSelectLabel = 'Автовыбор перед подключением';
@@ -346,9 +346,9 @@ class DashboardController extends StateNotifier<DashboardState> {
            elevationPromptService ?? const NoopElevationRelaunchPromptService(),
        _macosHelperInstaller =
            macosHelperInstaller ?? const MacosPrivilegedHelperInstaller(),
-        _createClashApiClient =
-            clashApiClientFactory ?? ClashApiClient.fromSession,
-        _createTimer = createTimer ?? _defaultCreateTimer,
+       _createClashApiClient =
+           clashApiClientFactory ?? ClashApiClient.fromSession,
+       _createTimer = createTimer ?? _defaultCreateTimer,
        super(
          _normalizeDashboardState(
            initialState ?? DashboardState(runtimeMode: _defaultRuntimeMode()),
@@ -804,49 +804,6 @@ class DashboardController extends StateNotifier<DashboardState> {
         _stopAutoSelectionMonitoring();
         return;
       }
-
-      if (shouldKickMonitor) {
-        _runAutomaticAutoSelectNow(
-          allowSwitchDuringCooldown: true,
-          surfaceFailures: true,
-        );
-      }
-    } on Object catch (error) {
-      state = state.copyWith(busy: false, errorMessage: error.toString());
-    }
-  }
-
-  Future<void> setAutoSelectIpCheck(bool checkIp) async {
-    final currentSettings = state.autoSelectSettings;
-    if (state.busy || currentSettings.checkIp == checkIp) {
-      return;
-    }
-
-    final profile = state.activeProfile;
-    final shouldKickMonitor =
-        currentSettings.enabled &&
-        state.connectionStage == ConnectionStage.connected &&
-        state.runtimeSession != null &&
-        profile != null &&
-        profile.prefersAutoSelection;
-
-    state = state.copyWith(
-      busy: true,
-      clearErrorMessage: true,
-      clearStatusMessage: true,
-    );
-    try {
-      final stored = await _autoSelectSettingsRepository.saveSettings(
-        currentSettings.copyWith(checkIp: checkIp),
-      );
-      state = state.copyWith(
-        busy: false,
-        autoSelectSettings: stored.settings,
-        recentSuccessfulAutoConnect: stored.recentSuccessfulAutoConnect,
-        statusMessage: checkIp
-            ? 'IP-only probe is required during automatic selection.'
-            : 'IP-only probe is optional during automatic selection.',
-      );
 
       if (shouldKickMonitor) {
         _runAutomaticAutoSelectNow(
@@ -1851,19 +1808,6 @@ class DashboardController extends StateNotifier<DashboardState> {
     } on Object catch (error) {
       state = state.copyWith(busy: false, errorMessage: error.toString());
     }
-  }
-
-  Future<void> removeActiveProfile() async {
-    final profile = state.activeProfile;
-    if (profile == null) {
-      state = state.copyWith(
-        errorMessage: 'Select a profile first.',
-        clearStatusMessage: true,
-      );
-      return;
-    }
-
-    await removeProfile(profile.id);
   }
 
   Future<void> _clearRecentSuccessfulAutoConnect({

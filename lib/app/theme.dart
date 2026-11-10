@@ -127,21 +127,6 @@ extension GorionThemeDataX on ThemeData {
 
   Color get brandAccent => colorScheme.primary;
 
-  Color surfaceTextColor({double darkAlpha = 1.0, double lightAlpha = 1.0}) {
-    return colorScheme.onSurface.withValues(
-      alpha: brightness == Brightness.dark ? darkAlpha : lightAlpha,
-    );
-  }
-
-  Color surfaceMutedTextColor({
-    double darkAlpha = 1.0,
-    double lightAlpha = 0.92,
-  }) {
-    return gorionTokens.onSurfaceMuted.withValues(
-      alpha: brightness == Brightness.dark ? darkAlpha : lightAlpha,
-    );
-  }
-
   Color surfaceStrokeColor({
     double darkAlpha = 0.08,
     double lightAlpha = 0.14,
@@ -165,9 +150,7 @@ GorionThemeTokens _fallbackGorionTokens(ThemeData theme) {
     atmosphereSecondary: scheme.secondary.withValues(
       alpha: isDark ? 0.10 : 0.04,
     ),
-    atmosphereTertiary: scheme.tertiary.withValues(
-      alpha: isDark ? 0.08 : 0.03,
-    ),
+    atmosphereTertiary: scheme.tertiary.withValues(alpha: isDark ? 0.08 : 0.03),
   );
 }
 
@@ -479,7 +462,9 @@ ThemeData buildGorionTheme({required Brightness brightness}) {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
     ),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: isDark ? const Color(0xFF16281E) : const Color(0xFF12201A),
+      backgroundColor: isDark
+          ? const Color(0xFF16281E)
+          : const Color(0xFF12201A),
       contentTextStyle: TextStyle(
         fontFamily: _fontFamily,
         fontSize: 13,
@@ -492,9 +477,7 @@ ThemeData buildGorionTheme({required Brightness brightness}) {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF16281E) : const Color(0xFF12201A),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isDark ? outline : Colors.transparent,
-        ),
+        border: Border.all(color: isDark ? outline : Colors.transparent),
       ),
       textStyle: const TextStyle(
         fontFamily: _fontFamily,

@@ -32,9 +32,7 @@ class DesktopLaunchAtStartupService implements LaunchAtStartupService {
        _args = List.unmodifiable(args),
        _hasLegacyStartupEntryMigration = args.isNotEmpty,
        _legacyStartupEntryValue = _buildRegistryValue(appPath, const []),
-       _processRunner =
-           processRunner ??
-           ((executable, arguments) => Process.run(executable, arguments)),
+       _processRunner = processRunner ?? (Process.run),
        _startupEntryService =
            startupEntryService ?? const NoopLaunchAtStartupService();
 

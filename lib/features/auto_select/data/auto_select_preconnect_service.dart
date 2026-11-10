@@ -738,11 +738,13 @@ class _DetachedAutoSelectPreconnectProbe {
               .transform(utf8.decoder)
               .transform(const LineSplitter())
               .listen((_) {});
-          startedProcess.exitCode.then((code) {
-            if (identical(process, startedProcess)) {
-              startupExitCode = code;
-            }
-          });
+          unawaited(
+            startedProcess.exitCode.then((code) {
+              if (identical(process, startedProcess)) {
+                startupExitCode = code;
+              }
+            }),
+          );
 
           String? exitOrAbortReason() {
             final externalAbort = abortReason?.call();

@@ -9,8 +9,8 @@ void main() {
       childPid: 5678,
     );
 
-    expect(script, contains(r"$parentPid = 1234"));
-    expect(script, contains(r"$childPid = 5678"));
+    expect(script, contains(r'$parentPid = 1234'));
+    expect(script, contains(r'$childPid = 5678'));
     expect(script, contains("O''Brien"));
     expect(script, contains('runtime-process.json'));
     expect(script, contains('system-proxy.json'));
@@ -39,14 +39,14 @@ void main() {
       ),
     );
     expect(script, contains('Get-WinHttpProxySettings'));
-    expect(script, contains(r"if ($LASTEXITCODE -ne 0) {"));
+    expect(script, contains(r'if ($LASTEXITCODE -ne 0) {'));
     expect(script, contains(r'function Invoke-Netsh([string[]] $arguments) {'));
     expect(script, contains(r'^\s+\S.*?:\s*(.*?)\s*$'));
-    expect(script, contains("if (\$null -eq \$current) {\n      return"));
+    expect(script, contains('if (\$null -eq \$current) {\n      return'));
     expect(
       script,
       contains(
-        "if (Apply-WinHttpProxySettings \$marker.previousSettings) {\n        \$shouldDeleteMarker = \$true",
+        'if (Apply-WinHttpProxySettings \$marker.previousSettings) {\n        \$shouldDeleteMarker = \$true',
       ),
     );
     expect(script, contains('Cleanup-OwnedRuntimeState'));
@@ -54,53 +54,53 @@ void main() {
     expect(
       script,
       contains(
-        "if (\$shouldDeleteMarker) {\n      Remove-Item \$systemProxyMarkerPath -Force -ErrorAction SilentlyContinue\n    }",
+        'if (\$shouldDeleteMarker) {\n      Remove-Item \$systemProxyMarkerPath -Force -ErrorAction SilentlyContinue\n    }',
       ),
     );
     expect(
       script,
       contains(
-        "if (\$shouldDeleteMarker) {\n      Remove-Item \$winHttpProxyMarkerPath -Force -ErrorAction SilentlyContinue\n    }",
+        'if (\$shouldDeleteMarker) {\n      Remove-Item \$winHttpProxyMarkerPath -Force -ErrorAction SilentlyContinue\n    }',
       ),
     );
     expect(
       script,
       contains(
-        "function Cleanup-OwnedRuntimeState([object] \$markerPid) {\n  if (\$null -ne \$markerPid -and \$markerPid -ne \$childPid) {\n    return",
+        'function Cleanup-OwnedRuntimeState([object] \$markerPid) {\n  if (\$null -ne \$markerPid -and \$markerPid -ne \$childPid) {\n    return',
       ),
     );
     expect(
       script,
       contains(
-        "Cleanup-ProxyState\n  Cleanup-WinHttpProxyState\n  if (\$markerPid -eq \$childPid) {\n    Remove-Item \$runtimeProcessMarkerPath",
+        'Cleanup-ProxyState\n  Cleanup-WinHttpProxyState\n  if (\$markerPid -eq \$childPid) {\n    Remove-Item \$runtimeProcessMarkerPath',
       ),
     );
     expect(script, contains(r'Stop-Process -Id $childPid -Force'));
     expect(
       script,
       contains(
-        "if (!(Test-ProcessAlive \$childPid)) {\n    Cleanup-OwnedRuntimeState \$markerPid\n    break",
+        'if (!(Test-ProcessAlive \$childPid)) {\n    Cleanup-OwnedRuntimeState \$markerPid\n    break',
       ),
     );
     expect(
       script,
       contains(
-        "if (!(Test-ProcessAlive \$parentPid)) {\n    if (Test-ProcessAlive \$childPid) {\n      Stop-Process -Id \$childPid -Force -ErrorAction SilentlyContinue\n    }\n    Cleanup-OwnedRuntimeState \$markerPid",
+        'if (!(Test-ProcessAlive \$parentPid)) {\n    if (Test-ProcessAlive \$childPid) {\n      Stop-Process -Id \$childPid -Force -ErrorAction SilentlyContinue\n    }\n    Cleanup-OwnedRuntimeState \$markerPid',
       ),
     );
     expect(
-      script.indexOf(r"if (!(Test-ProcessAlive $parentPid)) {"),
+      script.indexOf(r'if (!(Test-ProcessAlive $parentPid)) {'),
       lessThan(
         script.indexOf(
-          "if (\$null -ne \$markerPid -and \$markerPid -ne \$childPid) {\n    break",
+          'if (\$null -ne \$markerPid -and \$markerPid -ne \$childPid) {\n    break',
         ),
       ),
     );
     expect(
-      script.indexOf(r"if (!(Test-ProcessAlive $childPid)) {"),
+      script.indexOf(r'if (!(Test-ProcessAlive $childPid)) {'),
       lessThan(
         script.indexOf(
-          "if (\$null -ne \$markerPid -and \$markerPid -ne \$childPid) {\n    break",
+          'if (\$null -ne \$markerPid -and \$markerPid -ne \$childPid) {\n    break',
         ),
       ),
     );

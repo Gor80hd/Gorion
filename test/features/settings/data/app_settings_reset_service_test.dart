@@ -36,11 +36,9 @@ void main() {
       () async {
         final launchAtStartup = _FakeLaunchAtStartupService(enabled: true);
 
-        await AppThemeSettingsRepository(storageRootLoader: loadTempRoot).save(
-          const AppThemeSettings(
-            mode: AppThemeModePreference.light,
-          ),
-        );
+        await AppThemeSettingsRepository(
+          storageRootLoader: loadTempRoot,
+        ).save(const AppThemeSettings(mode: AppThemeModePreference.light));
         await DesktopSettingsRepository(storageRootLoader: loadTempRoot).save(
           const DesktopSettings(
             launchMinimized: true,

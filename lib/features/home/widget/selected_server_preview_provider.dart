@@ -2,7 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gorion_clean/features/home/application/server_benchmark_controller.dart';
 import 'package:gorion_clean/features/proxy/model/outbound_models.dart';
 
-final selectedServerPreviewProvider = StateProvider<OutboundInfo?>((ref) => null);
+final selectedServerPreviewProvider = StateProvider<OutboundInfo?>(
+  (ref) => null,
+);
 
 final benchmarkActiveProvider = Provider<bool>((ref) {
   return ref.watch(
@@ -24,6 +26,6 @@ class PendingServerSelection {
   final String outboundTag;
 }
 
-final pendingServerSelectionProvider = StateProvider<PendingServerSelection?>((ref) => null);
-
-final pendingAutoServerSelectionProvider = StateProvider<PendingServerSelection?>((ref) => null);
+final pendingServerSelectionProvider = StateProvider<PendingServerSelection?>(
+  (ref) => null,
+);

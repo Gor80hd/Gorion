@@ -5,7 +5,12 @@ import 'package:gorion_clean/core/process/process_exception_utils.dart';
 
 void main() {
   test('treats Windows elevation error code 740 as admin-required', () {
-    final error = ProcessException('run', const <String>[], 'Access denied', 740);
+    final error = ProcessException(
+      'run',
+      const <String>[],
+      'Access denied',
+      740,
+    );
 
     expect(isProcessElevationRequired(error), isTrue);
   });

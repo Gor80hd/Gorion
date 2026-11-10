@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 import 'package:gorion_clean/features/runtime/data/system_proxy_service.dart';
+import 'package:gorion_clean/features/runtime/model/runtime_mode.dart';
 
 class _FakeProcessRunner {
   _FakeProcessRunner(this.handler);

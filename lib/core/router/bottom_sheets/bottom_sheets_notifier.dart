@@ -18,8 +18,7 @@ class AddSubscriptionDialog extends ConsumerStatefulWidget {
       _AddSubscriptionDialogState();
 }
 
-class _AddSubscriptionDialogState
-    extends ConsumerState<AddSubscriptionDialog> {
+class _AddSubscriptionDialogState extends ConsumerState<AddSubscriptionDialog> {
   final _ctrl = TextEditingController();
   bool _attemptedSubmit = false;
 

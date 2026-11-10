@@ -378,7 +378,8 @@ class _CobeStyleGlobePainter extends CustomPainter {
       if (projection == null) {
         continue;
       }
-      if (dot.countryIndex != 0 && dot.countryIndex == destinationCountryIndex) {
+      if (dot.countryIndex != 0 &&
+          dot.countryIndex == destinationCountryIndex) {
         destinationDots.add(projection.offset);
       } else if (dot.countryIndex != 0 &&
           dot.countryIndex == sourceCountryIndex) {
@@ -396,9 +397,7 @@ class _CobeStyleGlobePainter extends CustomPainter {
         ui.PointMode.points,
         baseDots,
         Paint()
-          ..color = baseLandColor.withValues(
-            alpha: isLightTheme ? 0.42 : 0.66,
-          )
+          ..color = baseLandColor.withValues(alpha: isLightTheme ? 0.42 : 0.66)
           ..strokeCap = StrokeCap.round
           ..strokeWidth = baseDotWidth,
       );
@@ -684,7 +683,9 @@ Future<List<_GlobeLandDot>> _parseGlobeLandDots() async {
       continue;
     }
 
-    dots.add(_GlobeLandDot(vector: _Vector3(x, y, z), countryIndex: countryIndex));
+    dots.add(
+      _GlobeLandDot(vector: _Vector3(x, y, z), countryIndex: countryIndex),
+    );
   }
 
   image.dispose();

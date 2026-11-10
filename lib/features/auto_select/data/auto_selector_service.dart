@@ -1454,11 +1454,13 @@ class _DetachedAutoSelectProbe {
               .transform(utf8.decoder)
               .transform(const LineSplitter())
               .listen((_) {});
-          startedProcess.exitCode.then((code) {
-            if (identical(process, startedProcess)) {
-              startupExitCode = code;
-            }
-          });
+          unawaited(
+            startedProcess.exitCode.then((code) {
+              if (identical(process, startedProcess)) {
+                startupExitCode = code;
+              }
+            }),
+          );
 
           // Wait for the local proxy port to accept connections rather than
           // polling the Clash API — the minimal config has no Clash API at all.

@@ -6,9 +6,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 class DesktopSettingsRepository {
-  DesktopSettingsRepository({
-    Future<Directory> Function()? storageRootLoader,
-  }) : _storageRootLoader = storageRootLoader ?? _defaultStorageRoot;
+  DesktopSettingsRepository({Future<Directory> Function()? storageRootLoader})
+    : _storageRootLoader = storageRootLoader ?? _defaultStorageRoot;
 
   final Future<Directory> Function() _storageRootLoader;
 

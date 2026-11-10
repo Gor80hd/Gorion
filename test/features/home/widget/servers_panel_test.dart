@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_preconnect_service.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_select_settings_repository.dart';
 import 'package:gorion_clean/features/auto_select/data/auto_selector_service.dart';

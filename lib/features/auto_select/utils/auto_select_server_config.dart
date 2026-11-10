@@ -35,9 +35,9 @@ const selectableOutboundTypes = {
   'xsocks',
 };
 
-const _selectorLikeTypes = {'selector', 'urltest'};
-
-List<AutoSelectConfigCandidate> extractAutoSelectConfigCandidates(String generatedConfig) {
+List<AutoSelectConfigCandidate> extractAutoSelectConfigCandidates(
+  String generatedConfig,
+) {
   final config = _decodeConfig(generatedConfig);
   if (config == null) return const [];
 
@@ -98,7 +98,10 @@ String buildMinimalProbeConfig({
   });
 }
 
-Map<String, dynamic>? extractAutoSelectConfigOutbound(String generatedConfig, String serverTag) {
+Map<String, dynamic>? extractAutoSelectConfigOutbound(
+  String generatedConfig,
+  String serverTag,
+) {
   final config = _decodeConfig(generatedConfig);
   if (config == null) return null;
 
@@ -117,15 +120,6 @@ Map<String, dynamic>? extractAutoSelectConfigOutbound(String generatedConfig, St
   return null;
 }
 
-String? applyAutoSelectConfigSelection(String generatedConfig, String serverTag) {
-  final config = _decodeConfig(generatedConfig);
-  if (config == null) return null;
-  if (extractAutoSelectConfigOutbound(generatedConfig, serverTag) == null) return null;
-
-  final updated = _rewriteSelectedOutbound(config, serverTag);
-  return jsonEncode(updated);
-}
-
 Map<String, dynamic>? _decodeConfig(String generatedConfig) {
   try {
     final decoded = jsonDecode(generatedConfig);
@@ -140,7 +134,10 @@ Map<String, dynamic>? _decodeConfig(String generatedConfig) {
 }
 
 String? _extractCandidateHost(Map<String, dynamic> outbound) {
-  final host = outbound['server']?.toString().trim() ?? outbound['address']?.toString().trim() ?? '';
+  final host =
+      outbound['server']?.toString().trim() ??
+      outbound['address']?.toString().trim() ??
+      '';
   return host.isEmpty ? null : host;
 }
 
@@ -182,33 +179,4 @@ String _fnv1a64Hex(String value) {
     hash = (hash * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF;
   }
   return hash.toUnsigned(64).toRadixString(16).padLeft(16, '0');
-}
-
-dynamic _rewriteSelectedOutbound(dynamic node, String serverTag) {
-  if (node is List) {
-    return [for (final item in node) _rewriteSelectedOutbound(item, serverTag)];
-  }
-
-  if (node is! Map) {
-    return node;
-  }
-
-  final map = Map<String, dynamic>.from(node.cast<String, dynamic>());
-  final rewritten = <String, dynamic>{};
-  for (final entry in map.entries) {
-    rewritten[entry.key] = _rewriteSelectedOutbound(entry.value, serverTag);
-  }
-
-  final type = rewritten['type']?.toString().trim().toLowerCase();
-  final outbounds = rewritten['outbounds'];
-  final containsServer = outbounds is List && outbounds.any((item) => item?.toString() == serverTag);
-  if (containsServer &&
-      (rewritten.containsKey('selected') || rewritten.containsKey('default') || _selectorLikeTypes.contains(type))) {
-    rewritten['selected'] = serverTag;
-    if (rewritten.containsKey('default')) {
-      rewritten['default'] = serverTag;
-    }
-  }
-
-  return rewritten;
 }

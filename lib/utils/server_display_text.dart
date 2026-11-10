@@ -45,9 +45,9 @@ String? extractCountryCodeFromDisplayText(String value) {
     return null;
   }
 
-  final bracketMatch = RegExp(r'^\[([A-Za-z]{2})\](?:\s+|$)').firstMatch(
-    sanitized,
-  );
+  final bracketMatch = RegExp(
+    r'^\[([A-Za-z]{2})\](?:\s+|$)',
+  ).firstMatch(sanitized);
   if (bracketMatch != null) {
     return _normalizeCountryCode(bracketMatch.group(1));
   }
@@ -57,9 +57,9 @@ String? extractCountryCodeFromDisplayText(String value) {
     return leadingFlag;
   }
 
-  final plainPrefix = RegExp(r'^([A-Za-z]{2})([\s_\-:|/]+)(.+)$').firstMatch(
-    sanitized,
-  );
+  final plainPrefix = RegExp(
+    r'^([A-Za-z]{2})([\s_\-:|/]+)(.+)$',
+  ).firstMatch(sanitized);
   if (plainPrefix == null) {
     return null;
   }
@@ -92,9 +92,9 @@ String stripCountryPrefixFromDisplayText(String value) {
     return sanitized.substring(flagPrefixLength).trimLeft();
   }
 
-  final plainPrefix = RegExp(r'^([A-Za-z]{2})([\s_\-:|/]+)(.+)$').firstMatch(
-    sanitized,
-  );
+  final plainPrefix = RegExp(
+    r'^([A-Za-z]{2})([\s_\-:|/]+)(.+)$',
+  ).firstMatch(sanitized);
   if (plainPrefix == null) {
     return sanitized;
   }
@@ -178,7 +178,8 @@ bool _looksLikeCountryPrefixedLabel(
     return true;
   }
 
-  final hasStructuredSeparator = separator.contains('_') ||
+  final hasStructuredSeparator =
+      separator.contains('_') ||
       separator.contains('-') ||
       separator.contains(':') ||
       separator.contains('|') ||
@@ -192,8 +193,7 @@ bool _looksLikeCountryPrefixedLabel(
   return !isAsciiLowercase;
 }
 
-bool _isRegionalIndicator(int value) =>
-    value >= 0x1F1E6 && value <= 0x1F1FF;
+bool _isRegionalIndicator(int value) => value >= 0x1F1E6 && value <= 0x1F1FF;
 
 const Set<String> _supportedCountryCodes = {
   'AD',

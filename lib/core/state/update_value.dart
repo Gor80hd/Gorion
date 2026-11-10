@@ -1,7 +1,5 @@
 class UpdateValue<T> {
-  const UpdateValue.absent()
-    : _isPresent = false,
-      value = null;
+  const UpdateValue.absent() : _isPresent = false, value = null;
 
   const UpdateValue.value(this.value) : _isPresent = true;
 

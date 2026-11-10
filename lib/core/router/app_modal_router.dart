@@ -12,20 +12,14 @@ final appModalRouterProvider = Provider<AppModalRouter>((ref) {
 });
 
 class AppAlertRouteData {
-  const AppAlertRouteData({
-    required this.title,
-    required this.message,
-  });
+  const AppAlertRouteData({required this.title, required this.message});
 
   final String title;
   final String message;
 }
 
 class ServerSettingsRouteData {
-  const ServerSettingsRouteData({
-    required this.server,
-    required this.outbound,
-  });
+  const ServerSettingsRouteData({required this.server, required this.outbound});
 
   final OutboundInfo server;
   final Map<String, dynamic>? outbound;

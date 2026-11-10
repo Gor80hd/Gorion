@@ -182,8 +182,6 @@ class AutoSelectActivityState {
   final int? totalSteps;
   final List<String> logLines;
 
-  bool get hasTrace => label != null || message != null || logLines.isNotEmpty;
-
   double? get progressValue {
     final completed = completedSteps;
     final total = totalSteps;
@@ -195,19 +193,6 @@ class AutoSelectActivityState {
         ? 0
         : (completed > total ? total : completed);
     return boundedCompleted / total;
-  }
-
-  String? get progressLabel {
-    final completed = completedSteps;
-    final total = totalSteps;
-    if (completed == null || total == null || total <= 0) {
-      return null;
-    }
-
-    final boundedCompleted = completed < 0
-        ? 0
-        : (completed > total ? total : completed);
-    return '$boundedCompleted / $total';
   }
 
   AutoSelectActivityState copyWith({

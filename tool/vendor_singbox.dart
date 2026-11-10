@@ -15,7 +15,9 @@ Future<void> main(List<String> args) async {
   final repoRoot = File.fromUri(Platform.script).parent.parent;
   final lock =
       jsonDecode(
-            await File('${repoRoot.path}/tool/singbox.lock.json').readAsString(),
+            await File(
+              '${repoRoot.path}/tool/singbox.lock.json',
+            ).readAsString(),
           )
           as Map<String, dynamic>;
   final version = lock['version'] as String;
