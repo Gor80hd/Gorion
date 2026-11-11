@@ -66,6 +66,9 @@ class _TitleBar extends StatelessWidget {
   static const double _height = _titleBarHeight;
   static const double _windowControlsWidth = 122;
 
+  /// Width reserved for the native macOS traffic-light buttons.
+  static const double _macTrafficLightsWidth = 70;
+
   final double topInset;
   final double leftInset;
   final double rightInset;
@@ -75,6 +78,12 @@ class _TitleBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDesktop =
         Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+    // macOS keeps its native traffic lights (top left); only Windows and
+    // Linux draw their own window buttons.
+    final usesNativeControls = Platform.isMacOS;
+    final customControlsWidth = usesNativeControls ? 0.0 : _windowControlsWidth;
+    final titleLeft =
+        leftInset + (usesNativeControls ? _macTrafficLightsWidth : 0.0);
     return SizedBox(
       height: topInset + _height,
       child: Stack(
@@ -85,8 +94,8 @@ class _TitleBar extends StatelessWidget {
                 child: Padding(
                   padding: EdgeInsets.only(
                     top: topInset,
-                    left: leftInset,
-                    right: rightInset + _windowControlsWidth,
+                    left: titleLeft,
+                    right: rightInset + customControlsWidth,
                   ),
                   child: Align(
                     alignment: Alignment.topLeft,
@@ -107,7 +116,7 @@ class _TitleBar extends StatelessWidget {
                 child: _TitleContent(versionLabel: versionLabel),
               ),
             ),
-          if (isDesktop)
+          if (isDesktop && !usesNativeControls)
             Positioned(
               top: topInset,
               right: rightInset,

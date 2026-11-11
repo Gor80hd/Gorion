@@ -795,13 +795,19 @@ class SingboxRuntimeService implements RuntimeEngine {
     }
   }
 
+  /// WinHTTP exists only on Windows. On other platforms the helper client
+  /// must stay out of the system-proxy path, otherwise a missing TUN helper
+  /// would break a mode that needs no privileges at all.
+  PrivilegedHelperClient? get _winHttpHelperClient =>
+      Platform.isWindows ? _privilegedHelperClient : null;
+
   Future<void> _cleanupOrphanedWinHttpProxyState(Directory runtimeDir) async {
     final marker = await _readWinHttpProxyMarker(runtimeDir);
     if (marker == null) {
       return;
     }
 
-    final helperClient = _privilegedHelperClient;
+    final helperClient = _winHttpHelperClient;
     if (helperClient == null) {
       return;
     }
@@ -838,7 +844,7 @@ class SingboxRuntimeService implements RuntimeEngine {
     required int mixedPort,
     required bool bypassSteam,
   }) async {
-    final helperClient = _privilegedHelperClient;
+    final helperClient = _winHttpHelperClient;
     if (helperClient == null) {
       return;
     }
@@ -864,7 +870,7 @@ class SingboxRuntimeService implements RuntimeEngine {
     required Directory runtimeDir,
     _WinHttpProxyLease? lease,
   }) async {
-    final helperClient = _privilegedHelperClient;
+    final helperClient = _winHttpHelperClient;
     final marker = lease?._marker ?? await _readWinHttpProxyMarker(runtimeDir);
     if (helperClient == null || marker == null) {
       return;
