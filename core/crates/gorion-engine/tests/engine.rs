@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use gorion_engine::{
     EngineConfig, EngineError, Flow, Method, Outbound, RealityConfig, Security, ShadowsocksConfig,
-    TargetAddr, VlessConfig,
+    Ss2022Config, Ss2022Method, TargetAddr, TlsConfig, TrojanConfig, VlessConfig,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -628,4 +628,248 @@ async fn singbox_vless_interop() {
     let mut buf = [0u8; 4];
     let read = tokio::time::timeout(Duration::from_secs(3), stream.read(&mut buf)).await;
     assert!(!matches!(read, Ok(Ok(4))), "unknown user must not echo");
+}
+
+// --- Trojan, VLESS поверх TLS, Shadowsocks 2022 -----------------------------
+
+const TLS_NAME: &str = "server.test";
+const TROJAN_PASSWORD: &str = "gorion-trojan";
+
+fn b64(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// Сервер, который говорит первым: шлёт приветствие и ждёт закрытия.
+async fn greeting_server() -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let _ = stream.write_all(b"220 hello\r\n").await;
+                let mut buf = [0u8; 64];
+                let _ = stream.read(&mut buf).await;
+            });
+        }
+    });
+    addr
+}
+
+/// Клиент молчит, пока сервер назначения не заговорит (заголовок
+/// протокола уходит по `flush_header`).
+async fn assert_server_speaks_first(engine: &gorion_engine::EngineHandle, target: SocketAddr) {
+    let mut stream = socks_connect(engine.local_addr(), target).await;
+    let mut buf = [0u8; 11];
+    tokio::time::timeout(Duration::from_secs(5), stream.read_exact(&mut buf))
+        .await
+        .expect("server-first greeting timed out")
+        .unwrap();
+    assert_eq!(&buf, b"220 hello\r\n");
+}
+
+/// Никакого эха: сервер не пустил клиента.
+async fn assert_no_echo(outbound: Outbound, echo: SocketAddr, what: &str) {
+    let engine = start(outbound).await;
+    let mut stream = socks_connect(engine.local_addr(), echo).await;
+    stream.write_all(b"ping").await.unwrap();
+    let mut buf = [0u8; 4];
+    let read = tokio::time::timeout(Duration::from_secs(3), stream.read(&mut buf)).await;
+    assert!(!matches!(read, Ok(Ok(4))), "{what} must not echo");
+}
+
+#[tokio::test]
+async fn singbox_trojan_tls_and_ss2022_interop() {
+    let Some(binary) = singbox_path() else {
+        eprintln!("GORION_SINGBOX не задан — проверка Trojan и SS 2022 с sing-box пропущена");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let pair = generate(&binary, &["tls-keypair", TLS_NAME]).await;
+    let cert_start = pair.find("-----BEGIN CERTIFICATE-----").unwrap();
+    let certificate = pair[cert_start..].to_owned();
+    let (cert_path, key_path) = (dir.path().join("s.crt"), dir.path().join("s.key"));
+    std::fs::write(&key_path, &pair[..cert_start]).unwrap();
+    std::fs::write(&cert_path, &certificate).unwrap();
+    let tls = serde_json::json!({
+        "enabled": true, "server_name": TLS_NAME,
+        "certificate_path": cert_path, "key_path": key_path
+    });
+
+    let key16 = b64(&[0x11; 16]);
+    let key32 = b64(&[0x22; 32]);
+    let server_key = b64(&[0x33; 32]);
+    let user_key = b64(&[0x44; 32]);
+    let [trojan, vless_tls, ss128, ss256, ss_chacha, ss_multi] = [
+        free_port().await,
+        free_port().await,
+        free_port().await,
+        free_port().await,
+        free_port().await,
+        free_port().await,
+    ];
+    let ss = |port: u16, method: &str, password: &str| {
+        serde_json::json!({
+            "type": "shadowsocks", "listen": "127.0.0.1", "listen_port": port,
+            "method": method, "password": password
+        })
+    };
+    let mut multi = ss(ss_multi, "2022-blake3-aes-256-gcm", &server_key);
+    multi["users"] = serde_json::json!([{ "name": "u", "password": user_key }]);
+    let config = serde_json::json!({
+        "log": { "level": "error" },
+        "inbounds": [
+            {
+                "type": "trojan", "listen": "127.0.0.1", "listen_port": trojan,
+                "users": [{ "password": TROJAN_PASSWORD }], "tls": tls
+            },
+            {
+                "type": "vless", "listen": "127.0.0.1", "listen_port": vless_tls,
+                "users": [{ "uuid": USER, "flow": "xtls-rprx-vision" }], "tls": tls
+            },
+            ss(ss128, "2022-blake3-aes-128-gcm", &key16),
+            ss(ss256, "2022-blake3-aes-256-gcm", &key32),
+            ss(ss_chacha, "2022-blake3-chacha20-poly1305", &key32),
+            multi
+        ],
+        "outbounds": [{ "type": "direct", "tag": "direct" }]
+    });
+    let _singbox = run_singbox(&binary, &dir.path().join("mixed.json"), &config, ss_multi).await;
+    let local = |port: u16| TargetAddr::Ip(SocketAddr::from(([127, 0, 0, 1], port)));
+    let echo = echo_server().await;
+    let greeting = greeting_server().await;
+
+    let pinned =
+        |name: &str| Security::Tls(TlsConfig::new(name, false, Some(&certificate)).unwrap());
+    let trojan_with = |password: &str, security: Security| {
+        Outbound::Trojan(Box::new(TrojanConfig::new(
+            local(trojan),
+            password,
+            security,
+        )))
+    };
+
+    // Trojan: свой сертификат сервера и режим без проверки.
+    for (name, security) in [
+        ("pinned", pinned(TLS_NAME)),
+        (
+            "insecure",
+            Security::Tls(TlsConfig::new(TLS_NAME, true, None).unwrap()),
+        ),
+    ] {
+        eprintln!("trojan {name}");
+        let engine = start(trojan_with(TROJAN_PASSWORD, security)).await;
+        assert_echo(socks_connect(engine.local_addr(), echo).await).await;
+        assert_server_speaks_first(&engine, greeting).await;
+    }
+    // Сертификат не от доверенного корня или на другое имя — отказ.
+    for security in [
+        Security::Tls(TlsConfig::new(TLS_NAME, false, None).unwrap()),
+        pinned("other.test"),
+    ] {
+        let error = trojan_with(TROJAN_PASSWORD, security)
+            .connect(&TargetAddr::Ip(echo), b"ping")
+            .await
+            .err()
+            .expect("untrusted certificate must fail");
+        assert!(
+            matches!(error, EngineError::UntrustedCertificate(_)),
+            "{error}"
+        );
+    }
+    assert_no_echo(
+        trojan_with("wrong", pinned(TLS_NAME)),
+        echo,
+        "trojan wrong password",
+    )
+    .await;
+
+    // VLESS + Vision поверх обычного TLS: поток и прямое копирование.
+    let vless_vision = vless(&local(vless_tls), USER, Flow::Vision, pinned(TLS_NAME));
+    let engine = start(vless_vision.clone()).await;
+    assert_echo(socks_connect(engine.local_addr(), echo).await).await;
+    let inner = tls_echo_server(&binary).await;
+    assert!(
+        inner_tls_echo(&vless_vision, inner).await,
+        "vision over TLS did not switch to direct copy"
+    );
+
+    // Shadowsocks 2022: три шифра и цепочка ключей (iPSK:uPSK).
+    for (name, port, method, password) in [
+        ("aes-128", ss128, Ss2022Method::Aes128, key16.clone()),
+        ("aes-256", ss256, Ss2022Method::Aes256, key32.clone()),
+        ("chacha20", ss_chacha, Ss2022Method::Chacha20, key32.clone()),
+        (
+            "multi-user",
+            ss_multi,
+            Ss2022Method::Aes256,
+            format!("{server_key}:{user_key}"),
+        ),
+    ] {
+        eprintln!("ss2022 {name}");
+        let outbound = Outbound::Shadowsocks2022(Box::new(
+            Ss2022Config::new(local(port), method, &password).unwrap(),
+        ));
+        let engine = start(outbound).await;
+        assert_echo(socks_connect(engine.local_addr(), echo).await).await;
+        assert_server_speaks_first(&engine, greeting).await;
+    }
+    for (what, port, password) in [
+        ("ss2022 wrong key", ss128, b64(&[0x55; 16])),
+        (
+            "ss2022 unknown user",
+            ss_multi,
+            format!("{server_key}:{key32}"),
+        ),
+    ] {
+        let method = if port == ss128 {
+            Ss2022Method::Aes128
+        } else {
+            Ss2022Method::Aes256
+        };
+        let outbound = Outbound::Shadowsocks2022(Box::new(
+            Ss2022Config::new(local(port), method, &password).unwrap(),
+        ));
+        assert_no_echo(outbound, echo, what).await;
+    }
+}
+
+/// Свой клиент TLS на настоящих сайтах: цепочки до общих корней, RSA-PSS и
+/// ECDSA, сжатые сертификаты. Нужна сеть, поэтому только с
+/// `GORION_NET_TLS=1`. Отказы проверяет `singbox_trojan_tls_and_ss2022_interop`.
+#[tokio::test]
+async fn own_tls_client_on_real_sites() {
+    if std::env::var_os("GORION_NET_TLS").is_none() {
+        eprintln!("GORION_NET_TLS не задан — проверка на настоящих сайтах пропущена");
+        return;
+    }
+    for host in [
+        "www.cloudflare.com",
+        "www.google.com",
+        "www.microsoft.com",
+        "www.wikipedia.org",
+        "github.com",
+    ] {
+        let stream = TcpStream::connect((host, 443)).await.unwrap();
+        let config = TlsConfig::new(host, false, None).unwrap();
+        let (mut reader, mut writer) = gorion_engine::tls::connect(
+            stream,
+            &gorion_engine::tls::Auth::Certificate(&config),
+            &["http/1.1".to_owned()],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{host}: {e}"));
+        writer
+            .write_all(
+                format!("HEAD / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").as_bytes(),
+            )
+            .await
+            .unwrap();
+        let first = reader.read_record().await.unwrap().unwrap();
+        assert!(first.starts_with(b"HTTP/1.1 "), "{host}");
+        eprintln!("{host}: {}", String::from_utf8_lossy(&first[..12]));
+    }
 }

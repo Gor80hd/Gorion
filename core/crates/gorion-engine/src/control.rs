@@ -86,7 +86,8 @@ impl Control {
         for tag in &self.members {
             let kind = match self.outbounds.get(tag).map(AsRef::as_ref) {
                 Some(Outbound::Direct) => "Direct",
-                Some(Outbound::Shadowsocks(_)) => "Shadowsocks",
+                Some(Outbound::Shadowsocks(_) | Outbound::Shadowsocks2022(_)) => "Shadowsocks",
+                Some(Outbound::Trojan(_)) => "Trojan",
                 Some(Outbound::Vless(_)) => "VLESS",
                 None => "Unknown",
             };

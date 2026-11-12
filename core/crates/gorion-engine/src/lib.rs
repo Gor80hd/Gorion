@@ -12,7 +12,10 @@ pub mod reality;
 pub mod relay;
 pub mod selector;
 pub mod shadowsocks;
+pub mod shadowsocks2022;
+pub mod stream;
 pub mod tls;
+pub mod trojan;
 pub mod urltest;
 pub mod vision;
 pub mod vless;
@@ -29,6 +32,9 @@ pub use outbound::Outbound;
 pub use reality::RealityConfig;
 pub use selector::{Selector, Traffic};
 pub use shadowsocks::{Method, ShadowsocksConfig};
+pub use shadowsocks2022::{Method as Ss2022Method, Ss2022Config};
+pub use tls::TlsConfig;
+pub use trojan::TrojanConfig;
 pub use vless::{Flow, Security, VlessConfig};
 
 #[derive(Debug, Clone)]

@@ -1,5 +1,5 @@
 //! VLESS: заголовок запроса с UUID и адресом, дальше — сырой поток.
-//! Поверх TCP или REALITY, с Vision или без. Эталон: sing-vmess `vless/`.
+//! Поверх TCP, TLS или REALITY, с Vision или без. Эталон: sing-vmess `vless/`.
 //!
 //! Запрос: [версия 0] [UUID 16] [длина дополнений] [дополнения: protobuf,
 //! поле 1 — flow] [команда: 1 — TCP] [порт u16] [тип адреса: 1 — IPv4,
@@ -9,16 +9,13 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use sha1::{Digest, Sha1};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-
 use crate::address::TargetAddr;
 use crate::error::{EngineError, Result};
-use crate::reality::RealityConfig;
 use crate::relay::{ChunkRead, PayloadWrite};
-use crate::tls::{self, TlsReader, TlsWriter};
+pub use crate::stream::Security;
+use crate::stream::{self, Down, Up};
 use crate::vision::{SharedFilter, VisionReader, VisionWriter};
+use sha1::{Digest, Sha1};
 
 const VERSION: u8 = 0;
 const COMMAND_TCP: u8 = 1;
@@ -26,8 +23,6 @@ const ATYP_IPV4: u8 = 1;
 const ATYP_DOMAIN: u8 = 2;
 const ATYP_IPV6: u8 = 3;
 pub const FLOW_VISION: &str = "xtls-rprx-vision";
-/// Кусок чтения без TLS.
-const READ_SIZE: usize = 16 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flow {
@@ -43,12 +38,6 @@ impl Flow {
             _ => Err(EngineError::Protocol("vless: unsupported flow")),
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Security {
-    None,
-    Reality(RealityConfig),
 }
 
 #[derive(Clone)]
@@ -160,28 +149,6 @@ impl DirectCopy {
     }
 }
 
-enum Down {
-    Tcp(OwnedReadHalf),
-    Tls(Box<TlsReader<OwnedReadHalf>>),
-    Switching,
-}
-
-enum Up {
-    Tcp(OwnedWriteHalf),
-    Tls(Box<TlsWriter<OwnedWriteHalf>>),
-    Switching,
-}
-
-impl Up {
-    async fn write_all(&mut self, data: &[u8]) -> Result<()> {
-        match self {
-            Self::Tcp(w) => Ok(w.write_all(data).await?),
-            Self::Tls(w) => w.write_all(data).await,
-            Self::Switching => Err(EngineError::Protocol("vless: writer is gone")),
-        }
-    }
-}
-
 pub struct VlessReader {
     down: Down,
     /// Ответ сервера ещё не дочитан: копим байты.
@@ -204,20 +171,11 @@ pub async fn connect(
     target: &TargetAddr,
     initial: &[u8],
 ) -> Result<(VlessReader, VlessWriter, Arc<DirectCopy>)> {
-    if config.flow == Flow::Vision && config.security == Security::None {
+    if config.flow == Flow::Vision && config.security.is_none() {
         return Err(EngineError::Protocol("vless: vision requires TLS"));
     }
-    let stream = crate::outbound::dial(&config.server).await?;
-    let (down, up) = match &config.security {
-        Security::None => {
-            let (read, write) = stream.into_split();
-            (Down::Tcp(read), Up::Tcp(write))
-        }
-        Security::Reality(reality) => {
-            let (read, write) = tls::connect_reality(stream, reality, &config.alpn).await?;
-            (Down::Tls(Box::new(read)), Up::Tls(Box::new(write)))
-        }
-    };
+    let tcp = crate::outbound::dial(&config.server).await?;
+    let (down, up) = stream::secure(tcp, &config.security, &config.alpn).await?;
     let direct = Arc::new(DirectCopy::default());
     let filter = SharedFilter::default();
     let vision = config.flow == Flow::Vision;
@@ -242,17 +200,7 @@ pub async fn connect(
 impl ChunkRead for VlessReader {
     async fn read_chunk(&mut self) -> Result<Option<Vec<u8>>> {
         loop {
-            let chunk = match &mut self.down {
-                Down::Tls(reader) => reader.read_record().await?,
-                Down::Tcp(reader) => {
-                    let mut buf = vec![0u8; READ_SIZE];
-                    let n = reader.read(&mut buf).await?;
-                    buf.truncate(n);
-                    (n > 0).then_some(buf)
-                }
-                Down::Switching => return Err(EngineError::Protocol("vless: reader is gone")),
-            };
-            let Some(mut chunk) = chunk else {
+            let Some(mut chunk) = self.down.read_chunk().await? else {
                 return Ok(None);
             };
             if let Some(pending) = &mut self.response {

@@ -4,12 +4,14 @@
 //! рукопожатие, которого требует REALITY (подпись session_id ключом обмена).
 //! Поэтому рукопожатие — своё, а примитивы — из RustCrypto (ADR-0005).
 //! Поддержано то, что нужно клиенту: X25519, AES-GCM и ChaCha20-Poly1305,
-//! сертификат Ed25519 сервера REALITY. HelloRetryRequest, вход по
-//! сертификату клиента и 0-RTT не поддерживаются.
+//! сертификат Ed25519 сервера REALITY или обычная цепочка сертификатов
+//! (`verify`). HelloRetryRequest, TLS 1.2, вход по сертификату клиента и
+//! 0-RTT не поддерживаются.
 
 pub mod cert;
 pub mod hello;
 pub mod keys;
+pub mod verify;
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use subtle::ConstantTimeEq;
@@ -26,6 +28,8 @@ use self::keys::{RecordKey, Schedule, Suite, TAG_LEN};
 use crate::error::{EngineError, Result};
 use crate::reality::RealityConfig;
 
+pub use self::verify::TlsConfig;
+
 pub const CONTENT_CHANGE_CIPHER_SPEC: u8 = 20;
 pub const CONTENT_ALERT: u8 = 21;
 pub const CONTENT_HANDSHAKE: u8 = 22;
@@ -39,6 +43,9 @@ const HANDSHAKE_CERTIFICATE_REQUEST: u8 = 13;
 const HANDSHAKE_CERTIFICATE_VERIFY: u8 = 15;
 const HANDSHAKE_FINISHED: u8 = 20;
 const HANDSHAKE_KEY_UPDATE: u8 = 24;
+const HANDSHAKE_COMPRESSED_CERTIFICATE: u8 = 25;
+/// Сжатие сертификата brotli — единственное, что предлагает ClientHello.
+const CERT_COMPRESSION_BROTLI: u16 = 2;
 
 const SIGNATURE_ED25519: u16 = 0x0807;
 const ALERT_CLOSE_NOTIFY: u8 = 0;
@@ -236,8 +243,8 @@ fn parse_server_hello(message: &[u8], session_id: &[u8]) -> Result<ServerHello> 
     })
 }
 
-/// Первый сертификат из сообщения Certificate.
-fn leaf_certificate(message: &[u8]) -> Result<Vec<u8>> {
+/// Сертификаты из сообщения Certificate: первый — сервера, дальше цепочка.
+fn certificates(message: &[u8]) -> Result<Vec<Vec<u8>>> {
     let mut c = Cursor {
         data: &message[4..],
     };
@@ -247,29 +254,74 @@ fn leaf_certificate(message: &[u8]) -> Result<Vec<u8>> {
     let mut list = Cursor {
         data: c.take(list_len)?,
     };
-    let len = list.u24()?;
-    Ok(list.take(len)?.to_vec())
+    let mut out = Vec::new();
+    while !list.data.is_empty() {
+        let len = list.u24()?;
+        out.push(list.take(len)?.to_vec());
+        let extensions = usize::from(list.u16()?);
+        list.take(extensions)?;
+    }
+    if out.is_empty() {
+        return Err(protocol("tls: empty certificate list"));
+    }
+    Ok(out)
 }
 
-fn check_certificate_verify(
-    message: &[u8],
-    key: &VerifyingKey,
-    transcript_hash: &[u8],
-) -> Result<()> {
+/// Сообщение Certificate из CompressedCertificate (RFC 8879).
+fn decompress_certificate(message: &[u8]) -> Result<Vec<u8>> {
+    use std::io::Read;
     let mut c = Cursor {
         data: &message[4..],
     };
-    if c.u16()? != SIGNATURE_ED25519 {
-        return Err(protocol("tls: unexpected signature scheme"));
+    if c.u16()? != CERT_COMPRESSION_BROTLI {
+        return Err(protocol("tls: unexpected certificate compression"));
     }
+    let size = c.u24()?;
+    if size > MAX_HANDSHAKE_MESSAGE {
+        return Err(protocol("tls: certificate too large"));
+    }
+    let compressed_len = c.u24()?;
+    let compressed = c.take(compressed_len)?;
+    let mut body = Vec::with_capacity(size);
+    brotli_decompressor::Decompressor::new(compressed, 4096)
+        .take(size as u64 + 1)
+        .read_to_end(&mut body)
+        .map_err(|_| protocol("tls: bad compressed certificate"))?;
+    if body.len() != size {
+        return Err(protocol("tls: bad compressed certificate"));
+    }
+    Ok(handshake_message(HANDSHAKE_CERTIFICATE, &body))
+}
+
+/// Схема и подпись из CertificateVerify.
+fn certificate_verify(message: &[u8]) -> Result<(u16, &[u8])> {
+    let mut c = Cursor {
+        data: &message[4..],
+    };
+    let scheme = c.u16()?;
     let len = usize::from(c.u16()?);
-    let signature =
-        Signature::from_slice(c.take(len)?).map_err(|_| protocol("tls: bad signature"))?;
+    Ok((scheme, c.take(len)?))
+}
+
+/// Что подписывает сервер в CertificateVerify (RFC 8446, 4.4.3).
+fn signed_content(transcript_hash: &[u8]) -> Vec<u8> {
     let mut signed = vec![0x20u8; 64];
     signed.extend_from_slice(b"TLS 1.3, server CertificateVerify\0");
     signed.extend_from_slice(transcript_hash);
-    key.verify(&signed, &signature)
-        .map_err(|_| protocol("tls: CertificateVerify signature is invalid"))
+    signed
+}
+
+/// Как клиент убеждается, что говорит с нужным сервером.
+pub enum Auth<'a> {
+    /// Метка в session_id и временный сертификат сервера REALITY.
+    Reality(&'a RealityConfig),
+    /// Обычный TLS: цепочка сертификатов до корня.
+    Certificate(&'a TlsConfig),
+}
+
+enum ServerKey {
+    Ed25519(VerifyingKey),
+    Certificate(Vec<u8>),
 }
 
 fn handshake_message(kind: u8, body: &[u8]) -> Vec<u8> {
@@ -288,11 +340,12 @@ enum Stage {
     Finished,
 }
 
-/// Рукопожатие REALITY поверх TCP: ClientHello Chrome с подписанным
-/// session_id, проверка временного сертификата сервера, обычный TLS 1.3.
-pub async fn connect_reality(
+/// Рукопожатие TLS 1.3 поверх TCP с ClientHello Chrome. Для REALITY
+/// session_id несёт подписанную метку, а сертификат сервера временный;
+/// для обычного TLS session_id случайный, а цепочка проверяется до корня.
+pub async fn connect(
     stream: TcpStream,
-    config: &RealityConfig,
+    auth: &Auth<'_>,
     alpn: &[String],
 ) -> Result<(TlsReader<OwnedReadHalf>, TlsWriter<OwnedWriteHalf>)> {
     let (read, mut write) = stream.into_split();
@@ -301,14 +354,26 @@ pub async fn connect_reality(
     let secret = StaticSecret::from(random_bytes::<32>()?);
     let public = PublicKey::from(&secret);
     let random = random_bytes::<32>()?;
+    let server_name = match auth {
+        Auth::Reality(config) => config.server_name.as_str(),
+        Auth::Certificate(config) => config.server_name.as_str(),
+    };
     let mut client_hello = hello::chrome(&HelloParams {
-        server_name: &config.server_name,
+        server_name,
         alpn,
         random,
-        session_id: [0; 32],
+        session_id: match auth {
+            Auth::Reality(_) => [0; 32],
+            Auth::Certificate(_) => random_bytes::<32>()?,
+        },
         x25519_public: public.to_bytes(),
     })?;
-    let auth_key = config.seal_session_id(&mut client_hello, &random, &secret)?;
+    let auth_key = match auth {
+        Auth::Reality(config) => {
+            Some(config.seal_session_id(&mut client_hello, &random, &secret)?)
+        }
+        Auth::Certificate(_) => None,
+    };
     let session_id = client_hello[SESSION_ID_OFFSET..SESSION_ID_OFFSET + 32].to_vec();
 
     // Первая запись — с версией 0x0301, как у браузеров.
@@ -354,7 +419,7 @@ pub async fn connect_reality(
     let mut read_key = RecordKey::new(suite, server_hs.clone());
 
     let mut stage = Stage::EncryptedExtensions;
-    let mut server_key: Option<VerifyingKey> = None;
+    let mut server_key: Option<ServerKey> = None;
     loop {
         let message = loop {
             if let Some(message) = messages.next()? {
@@ -386,22 +451,52 @@ pub async fn connect_reality(
             (Stage::EncryptedExtensions, HANDSHAKE_ENCRYPTED_EXTENSIONS) => {
                 stage = Stage::Certificate;
             }
-            (Stage::Certificate, HANDSHAKE_CERTIFICATE) => {
-                let leaf = leaf_certificate(&message)?;
-                let key = RealityConfig::verify_certificate(&auth_key, &leaf)?;
-                server_key = Some(
-                    VerifyingKey::from_bytes(&key).map_err(|_| protocol("tls: bad server key"))?,
-                );
+            (Stage::Certificate, HANDSHAKE_CERTIFICATE | HANDSHAKE_COMPRESSED_CERTIFICATE) => {
+                // В журнал рукопожатия идёт сообщение как есть, сжатое тоже.
+                let mut chain = if message[0] == HANDSHAKE_COMPRESSED_CERTIFICATE {
+                    certificates(&decompress_certificate(&message)?)?
+                } else {
+                    certificates(&message)?
+                };
+                server_key = Some(match (auth, &auth_key) {
+                    (Auth::Reality(_), Some(auth_key)) => {
+                        let key = RealityConfig::verify_certificate(auth_key, &chain[0])?;
+                        ServerKey::Ed25519(
+                            VerifyingKey::from_bytes(&key)
+                                .map_err(|_| protocol("tls: bad server key"))?,
+                        )
+                    }
+                    (Auth::Certificate(config), _) => {
+                        config.verify_chain(&chain)?;
+                        ServerKey::Certificate(chain.swap_remove(0))
+                    }
+                    (Auth::Reality(_), None) => return Err(protocol("tls: reality state")),
+                });
                 stage = Stage::CertificateVerify;
             }
             (Stage::Certificate, HANDSHAKE_CERTIFICATE_REQUEST) => {
                 return Err(protocol("tls: client certificates are not supported"));
             }
             (Stage::CertificateVerify, HANDSHAKE_CERTIFICATE_VERIFY) => {
-                let key = server_key
+                let (scheme, signature) = certificate_verify(&message)?;
+                let signed = signed_content(&suite.hash(&transcript));
+                match server_key
                     .as_ref()
-                    .ok_or(protocol("tls: missing certificate"))?;
-                check_certificate_verify(&message, key, &suite.hash(&transcript))?;
+                    .ok_or(protocol("tls: missing certificate"))?
+                {
+                    ServerKey::Ed25519(key) => {
+                        if scheme != SIGNATURE_ED25519 {
+                            return Err(protocol("tls: unexpected signature scheme"));
+                        }
+                        let signature = Signature::from_slice(signature)
+                            .map_err(|_| protocol("tls: bad signature"))?;
+                        key.verify(&signed, &signature)
+                            .map_err(|_| protocol("tls: CertificateVerify signature is invalid"))?;
+                    }
+                    ServerKey::Certificate(leaf) => {
+                        verify::verify_signature(leaf, scheme, &signed, signature)?;
+                    }
+                }
                 stage = Stage::Finished;
             }
             (Stage::Finished, HANDSHAKE_FINISHED) => {

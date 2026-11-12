@@ -15,12 +15,16 @@ use crate::error::Result;
 use crate::relay::{ChunkRead, PayloadWrite, relay};
 use crate::selector::Traffic;
 use crate::shadowsocks::{self, MAX_PAYLOAD, ShadowsocksConfig, SsReader, SsWriter};
+use crate::shadowsocks2022::{self, Ss2022Config, Ss2022Reader, Ss2022Writer};
+use crate::trojan::{self, TrojanConfig, TrojanReader, TrojanWriter};
 use crate::vless::{self, DirectCopy, VlessConfig, VlessReader, VlessWriter};
 
 #[derive(Debug, Clone)]
 pub enum Outbound {
     Direct,
     Shadowsocks(ShadowsocksConfig),
+    Shadowsocks2022(Box<Ss2022Config>),
+    Trojan(Box<TrojanConfig>),
     Vless(Box<VlessConfig>),
 }
 
@@ -28,6 +32,8 @@ pub enum Outbound {
 pub enum Connection {
     Direct(TcpStream),
     Shadowsocks(SsReader<OwnedReadHalf>, SsWriter<OwnedWriteHalf>),
+    Shadowsocks2022(Box<(Ss2022Reader<OwnedReadHalf>, Ss2022Writer<OwnedWriteHalf>)>),
+    Trojan(Box<(TrojanReader, TrojanWriter)>),
     Vless(Box<(VlessReader, VlessWriter, Arc<DirectCopy>)>),
 }
 
@@ -54,6 +60,14 @@ impl Outbound {
             Self::Shadowsocks(config) => {
                 let (reader, writer) = shadowsocks::connect(config, target, initial).await?;
                 Ok(Connection::Shadowsocks(reader, writer))
+            }
+            Self::Shadowsocks2022(config) => {
+                let parts = shadowsocks2022::connect(config, target, initial).await?;
+                Ok(Connection::Shadowsocks2022(Box::new(parts)))
+            }
+            Self::Trojan(config) => {
+                let parts = trojan::connect(config, target, initial).await?;
+                Ok(Connection::Trojan(Box::new(parts)))
             }
             Self::Vless(config) => {
                 let parts = vless::connect(config, target, initial).await?;
@@ -82,6 +96,14 @@ impl Connection {
             }
             Self::Shadowsocks(reader, writer) => {
                 relay(client, reader, writer, MAX_PAYLOAD, traffic).await
+            }
+            Self::Shadowsocks2022(parts) => {
+                let (reader, writer) = *parts;
+                relay(client, reader, writer, STREAM_READ_SIZE, traffic).await
+            }
+            Self::Trojan(parts) => {
+                let (reader, writer) = *parts;
+                relay(client, reader, writer, STREAM_READ_SIZE, traffic).await
             }
             Self::Vless(parts) => {
                 let (reader, writer, direct) = *parts;
@@ -137,6 +159,8 @@ impl AsyncWrite for Counted<'_> {
 
 /// Кусок чтения от клиента для VLESS: Vision сам делит его на кадры.
 const VLESS_READ_SIZE: usize = 16 * 1024;
+/// Кусок чтения от клиента для потоковых протоколов: одна запись TLS.
+const STREAM_READ_SIZE: usize = 16 * 1024;
 
 impl ChunkRead for SsReader<OwnedReadHalf> {
     async fn read_chunk(&mut self) -> Result<Option<Vec<u8>>> {

@@ -14,7 +14,11 @@ use crate::error::{EngineError, Result};
 use crate::outbound::Outbound;
 use crate::reality::RealityConfig;
 use crate::shadowsocks::{Method, ShadowsocksConfig};
-use crate::vless::{Flow, Security, VlessConfig};
+use crate::shadowsocks2022::{self as ss2022, Ss2022Config};
+use crate::stream::Security;
+use crate::tls::TlsConfig;
+use crate::trojan::TrojanConfig;
+use crate::vless::{Flow, VlessConfig};
 
 /// Разобранные настройки.
 #[derive(Debug)]
@@ -226,6 +230,96 @@ fn check_common(outbound: &Map<String, Value>) -> Result<()> {
     Ok(())
 }
 
+/// Поля `tls`, которые движок понимает. `utls` принимается с любым
+/// отпечатком: ClientHello движка всегда как у Chrome.
+const TLS_FIELDS: [&str; 7] = [
+    "enabled",
+    "server_name",
+    "insecure",
+    "alpn",
+    "utls",
+    "reality",
+    "certificate",
+];
+
+/// Защита потока из `tls` и ALPN, если он задан.
+fn security(
+    outbound: &Map<String, Value>,
+    server: &TargetAddr,
+) -> Result<(Security, Option<Vec<String>>)> {
+    let Some(tls) = outbound
+        .get("tls")
+        .and_then(Value::as_object)
+        .filter(|tls| tls.get("enabled").and_then(Value::as_bool).unwrap_or(false))
+    else {
+        return Ok((Security::None, None));
+    };
+    if let Some((key, _)) = tls
+        .iter()
+        .find(|(key, value)| !TLS_FIELDS.contains(&key.as_str()) && non_empty(Some(value)))
+    {
+        return Err(unsupported(format!("tls {key}")));
+    }
+    let alpn = tls
+        .get("alpn")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|alpn| !alpn.is_empty());
+    let server_name = str_field(tls, "server_name").filter(|name| !name.is_empty());
+    if is_enabled(tls, "reality") {
+        let reality = tls
+            .get("reality")
+            .and_then(Value::as_object)
+            .ok_or_else(|| unsupported("reality"))?;
+        let key =
+            str_field(reality, "public_key").ok_or_else(|| unsupported("reality public_key"))?;
+        let key = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(key.trim_end_matches('='))
+            .ok()
+            .and_then(|k| <[u8; 32]>::try_from(k).ok())
+            .ok_or_else(|| unsupported("reality public_key"))?;
+        let server_name = server_name.ok_or_else(|| unsupported("reality server_name"))?;
+        let reality = RealityConfig::new(
+            server_name,
+            key,
+            str_field(reality, "short_id").unwrap_or_default(),
+        )
+        .map_err(|_| unsupported("reality short_id"))?;
+        return Ok((Security::Reality(reality), alpn));
+    }
+    let server_name = match (server_name, server) {
+        (Some(name), _) => name.to_owned(),
+        (None, TargetAddr::Domain(host, _)) => host.clone(),
+        (None, TargetAddr::Ip(addr)) => addr.ip().to_string(),
+    };
+    // sing-box принимает сертификат строкой или массивом строк PEM.
+    let certificate = match tls.get("certificate") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(pem)) => Some(pem.clone()),
+        Some(Value::Array(lines)) => Some(
+            lines
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        Some(_) => return Err(unsupported("tls certificate")),
+    };
+    let insecure = tls
+        .get("insecure")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let config = TlsConfig::new(server_name, insecure, certificate.as_deref())
+        .map_err(|_| unsupported("tls certificate"))?;
+    Ok((Security::Tls(config), alpn))
+}
+
 fn translate(outbound: &Map<String, Value>) -> Result<Outbound> {
     match str_field(outbound, "type") {
         Some("direct") => {
@@ -239,63 +333,53 @@ fn translate(outbound: &Map<String, Value>) -> Result<Outbound> {
             if non_empty(outbound.get("plugin")) {
                 return Err(unsupported("shadowsocks plugin"));
             }
-            let method = Method::parse(str_field(outbound, "method").unwrap_or_default())
-                .map_err(|_| unsupported("shadowsocks method"))?;
+            let method = str_field(outbound, "method").unwrap_or_default();
             let password = str_field(outbound, "password").unwrap_or_default();
+            if ss2022::Method::is_2022(method) {
+                let method =
+                    ss2022::Method::parse(method).map_err(|_| unsupported("shadowsocks method"))?;
+                let config = Ss2022Config::new(server(outbound)?, method, password)
+                    .map_err(|_| unsupported("shadowsocks 2022 key"))?;
+                return Ok(Outbound::Shadowsocks2022(Box::new(config)));
+            }
+            let method = Method::parse(method).map_err(|_| unsupported("shadowsocks method"))?;
             Ok(Outbound::Shadowsocks(ShadowsocksConfig::new(
                 server(outbound)?,
                 method,
                 password,
             )))
         }
+        Some("trojan") => {
+            check_common(outbound)?;
+            let password = str_field(outbound, "password").unwrap_or_default();
+            let server = server(outbound)?;
+            let (security, alpn) = security(outbound, &server)?;
+            if matches!(security, Security::Reality(_)) {
+                return Err(unsupported("trojan with reality"));
+            }
+            let mut config = TrojanConfig::new(server, password, security);
+            if let Some(alpn) = alpn {
+                config.alpn = alpn;
+            }
+            Ok(Outbound::Trojan(Box::new(config)))
+        }
         Some("vless") => {
             check_common(outbound)?;
             let uuid = str_field(outbound, "uuid").ok_or_else(|| unsupported("vless uuid"))?;
             let flow = Flow::parse(str_field(outbound, "flow").unwrap_or_default())
                 .map_err(|_| unsupported("vless flow"))?;
-            let tls = outbound
-                .get("tls")
-                .and_then(Value::as_object)
-                .filter(|tls| tls.get("enabled").and_then(Value::as_bool).unwrap_or(false));
-            let mut alpn = None;
-            let security = match tls {
-                None => Security::None,
-                Some(tls) => {
-                    if !is_enabled(tls, "reality") {
-                        return Err(unsupported("vless tls without reality"));
-                    }
-                    let reality = tls
-                        .get("reality")
-                        .and_then(Value::as_object)
-                        .ok_or_else(|| unsupported("reality"))?;
-                    let key = str_field(reality, "public_key")
-                        .ok_or_else(|| unsupported("reality public_key"))?;
-                    let key = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                        .decode(key.trim_end_matches('='))
-                        .ok()
-                        .and_then(|k| <[u8; 32]>::try_from(k).ok())
-                        .ok_or_else(|| unsupported("reality public_key"))?;
-                    let server_name = str_field(tls, "server_name")
-                        .ok_or_else(|| unsupported("reality server_name"))?;
-                    alpn = tls.get("alpn").and_then(Value::as_array).map(|items| {
-                        items
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_owned)
-                            .collect::<Vec<_>>()
-                    });
-                    Security::Reality(
-                        RealityConfig::new(
-                            server_name,
-                            key,
-                            str_field(reality, "short_id").unwrap_or_default(),
-                        )
-                        .map_err(|_| unsupported("reality short_id"))?,
-                    )
-                }
-            };
-            let mut config = VlessConfig::new(server(outbound)?, uuid, flow, security);
-            if let Some(alpn) = alpn.filter(|a| !a.is_empty()) {
+            if non_empty(outbound.get("packet_encoding"))
+                && str_field(outbound, "packet_encoding") != Some("xudp")
+            {
+                return Err(unsupported("vless packet_encoding"));
+            }
+            let server = server(outbound)?;
+            let (security, alpn) = security(outbound, &server)?;
+            if flow == Flow::Vision && security.is_none() {
+                return Err(unsupported("vision without tls"));
+            }
+            let mut config = VlessConfig::new(server, uuid, flow, security);
+            if let Some(alpn) = alpn {
                 config.alpn = alpn;
             }
             Ok(Outbound::Vless(Box::new(config)))
@@ -358,6 +442,53 @@ mod tests {
     }
 
     #[test]
+    fn reads_trojan_shadowsocks_2022_and_plain_tls() {
+        let key = base64::engine::general_purpose::STANDARD.encode([1u8; 16]);
+        let list = json!([
+            {"type": "trojan", "tag": "T", "server": "t.example.com", "server_port": 443,
+             "password": "p", "tls": {"enabled": true, "alpn": ["http/1.1"],
+                                      "utls": {"enabled": true, "fingerprint": "firefox"}}},
+            {"type": "shadowsocks", "tag": "S", "server": "10.0.0.1", "server_port": 8388,
+             "method": "2022-blake3-aes-128-gcm", "password": format!("{key}:{key}")},
+            {"type": "vless", "tag": "V", "server": "10.0.0.2", "server_port": 443,
+             "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811", "flow": "xtls-rprx-vision",
+             "tls": {"enabled": true, "server_name": "v.example.com", "insecure": true}},
+            {"type": "selector", "tag": "gorion-manual", "outbounds": ["T", "S", "V"]}
+        ]);
+        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let Outbound::Trojan(trojan) = &**plan.outbound("T").unwrap() else {
+            panic!("trojan")
+        };
+        assert_eq!(trojan.alpn, ["http/1.1"]);
+        let Security::Tls(tls) = &trojan.security else {
+            panic!("tls")
+        };
+        // Имя сервера по умолчанию — его адрес.
+        assert_eq!(tls.server_name, "t.example.com");
+        assert!(!tls.insecure);
+        assert!(matches!(
+            **plan.outbound("S").unwrap(),
+            Outbound::Shadowsocks2022(_)
+        ));
+        let Outbound::Vless(vless) = &**plan.outbound("V").unwrap() else {
+            panic!("vless")
+        };
+        let Security::Tls(tls) = &vless.security else {
+            panic!("tls")
+        };
+        assert_eq!(tls.server_name, "v.example.com");
+        assert!(tls.insecure);
+
+        // Ключ 2022 не той длины — профиль идёт через sing-box.
+        let list = json!([
+            {"type": "shadowsocks", "tag": "S", "server": "10.0.0.1", "server_port": 8388,
+             "method": "2022-blake3-aes-256-gcm", "password": key},
+            {"type": "selector", "tag": "gorion-manual", "outbounds": ["S"]}
+        ]);
+        assert!(from_singbox(&built(list, json!([]))).is_err());
+    }
+
+    #[test]
     fn refuses_what_the_engine_cannot_do() {
         let rules = json!([{"domain_suffix": [".ru"], "outbound": "direct"}]);
         assert!(from_singbox(&built(servers(), rules)).is_err());
@@ -371,8 +502,18 @@ mod tests {
         let error = from_singbox(&built(list, json!([]))).unwrap_err();
         assert!(error.to_string().contains("server #2"), "{error}");
 
+        // Настройки TLS, которых движок не умеет: ECH, только TLS 1.2.
         let mut list = servers();
         list[0]["tls"]["reality"] = json!({"enabled": false});
+        list[0]["tls"]["ech"] = json!({"enabled": true});
+        assert!(from_singbox(&built(list, json!([]))).is_err());
+        let mut list = servers();
+        list[0]["tls"]["max_version"] = json!("1.2");
+        assert!(from_singbox(&built(list, json!([]))).is_err());
+
+        // Vision без TLS sing-box не примет — и движок тоже.
+        let mut list = servers();
+        list[0]["tls"] = json!({"enabled": false});
         assert!(from_singbox(&built(list, json!([]))).is_err());
 
         let mut config = built(servers(), json!([]));

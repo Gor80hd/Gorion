@@ -21,7 +21,7 @@ use crate::error::{EngineError, Result};
 
 /// Наибольшая длина данных в куске по спецификации.
 pub const MAX_PAYLOAD: usize = 0x3FFF;
-const TAG_LEN: usize = 16;
+pub(crate) const TAG_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,7 +108,7 @@ enum Aead {
 }
 
 /// Шифр одного направления: ключ куска и счётчик nonce.
-struct Crypter {
+pub(crate) struct Crypter {
     aead: Aead,
     nonce: [u8; NONCE_LEN],
 }
@@ -119,16 +119,21 @@ impl Crypter {
         Hkdf::<Sha1>::new(Some(salt), key)
             .expand(b"ss-subkey", &mut subkey)
             .map_err(|_| EngineError::Protocol("hkdf length"))?;
+        Self::with_subkey(method, &subkey)
+    }
+
+    /// Шифр с готовым ключом сессии (Shadowsocks 2022 выводит его иначе).
+    pub(crate) fn with_subkey(method: Method, subkey: &[u8]) -> Result<Self> {
         let invalid = |_| EngineError::Protocol("key length");
         let aead = match method {
             Method::Aes128Gcm => Aead::Aes128(Box::new(
-                Aes128Gcm::new_from_slice(&subkey).map_err(invalid)?,
+                Aes128Gcm::new_from_slice(subkey).map_err(invalid)?,
             )),
             Method::Aes256Gcm => Aead::Aes256(Box::new(
-                Aes256Gcm::new_from_slice(&subkey).map_err(invalid)?,
+                Aes256Gcm::new_from_slice(subkey).map_err(invalid)?,
             )),
             Method::Chacha20Poly1305 => Aead::Chacha(Box::new(
-                ChaCha20Poly1305::new_from_slice(&subkey).map_err(invalid)?,
+                ChaCha20Poly1305::new_from_slice(subkey).map_err(invalid)?,
             )),
         };
         Ok(Self {
@@ -138,7 +143,7 @@ impl Crypter {
     }
 
     /// Шифрует буфер на месте и дописывает тег.
-    fn seal(&mut self, buf: &mut Vec<u8>) -> Result<()> {
+    pub(crate) fn seal(&mut self, buf: &mut Vec<u8>) -> Result<()> {
         let nonce = GenericArray::from_slice(&self.nonce);
         let tag = match &self.aead {
             Aead::Aes128(c) => c.encrypt_in_place_detached(nonce, b"", buf),
@@ -152,7 +157,7 @@ impl Crypter {
     }
 
     /// Расшифровывает `данные + тег` на месте; возвращает длину данных.
-    fn open(&mut self, buf: &mut [u8]) -> Result<usize> {
+    pub(crate) fn open(&mut self, buf: &mut [u8]) -> Result<usize> {
         let len = buf.len().checked_sub(TAG_LEN).ok_or(EngineError::Decrypt)?;
         let (data, tag) = buf.split_at_mut(len);
         let nonce = GenericArray::from_slice(&self.nonce);
@@ -274,7 +279,10 @@ impl<R: AsyncRead + Unpin> SsReader<R> {
 
 /// Читает буфер целиком. `false` — поток закончился до первого байта;
 /// обрыв посередине — ошибка.
-async fn read_exact_or_eof<R: AsyncRead + Unpin>(reader: &mut R, buf: &mut [u8]) -> Result<bool> {
+pub(crate) async fn read_exact_or_eof<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    buf: &mut [u8],
+) -> Result<bool> {
     let mut filled = 0;
     while filled < buf.len() {
         let n = reader.read(&mut buf[filled..]).await?;

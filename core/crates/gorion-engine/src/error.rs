@@ -16,6 +16,9 @@ pub enum EngineError {
     Protocol(&'static str),
     #[error("tls alert {0}")]
     TlsAlert(u8),
+    /// Сертификат сервера не прошёл проверку (цепочка, имя, срок).
+    #[error("tls: untrusted certificate: {0}")]
+    UntrustedCertificate(String),
     #[error("reality: server did not prove the key (wrong public key or short id?)")]
     RealityRejected,
     /// Настройки, которых движок не умеет: такой профиль идёт через sing-box.
