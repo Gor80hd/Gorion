@@ -1,12 +1,17 @@
 //! Движок подключения Gorion (ADR-0005): локальный вход, маршрутизатор и
 //! исходящие протоколы на своём коде. Пока — локальный SOCKS5/HTTP-вход,
-//! прямое подключение и Shadowsocks AEAD.
+//! прямое подключение, Shadowsocks AEAD и VLESS (TCP, REALITY, Vision).
 
 pub mod address;
 pub mod error;
 pub mod inbound;
 pub mod outbound;
+pub mod reality;
+pub mod relay;
 pub mod shadowsocks;
+pub mod tls;
+pub mod vision;
+pub mod vless;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -17,7 +22,9 @@ use tokio::task::JoinHandle;
 pub use address::TargetAddr;
 pub use error::{EngineError, Result};
 pub use outbound::Outbound;
+pub use reality::RealityConfig;
 pub use shadowsocks::{Method, ShadowsocksConfig};
+pub use vless::{Flow, Security, VlessConfig};
 
 #[derive(Debug, Clone)]
 pub struct EngineConfig {

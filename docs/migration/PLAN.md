@@ -104,8 +104,8 @@ lib/, macos/, windows/ …   Flutter — живёт до этапа 6, толь�
 - [x] Shadowsocks AEAD (aes-128-gcm, aes-256-gcm, chacha20-ietf-poly1305), direct, локальный вход SOCKS5/HTTP — совместимость с сервером sing-box проверена тестом (`GORION_SINGBOX`) и вживую через интернет; скорость наравне с клиентом sing-box, память 3,5 МБ против 34 МБ
 - [ ] Движок в приложении: серверы с готовыми протоколами — через `gorion-engine`, остальные — через sing-box
 - [ ] Shadowsocks 2022, Trojan (TLS)
-- [ ] VLESS (TCP/TLS), транспорты ws, grpc, httpupgrade
-- [ ] Маскировка TLS под Chrome, REALITY, Vision
+- [~] VLESS: TCP и REALITY — готово, проверено тестом против сервера sing-box (`singbox_vless_interop`) и вживую через пример `mixed_proxy` со ссылкой `vless://`; обычный TLS с проверкой сертификата (webpki) и транспорты ws, grpc, httpupgrade — нет
+- [x] Маскировка TLS под Chrome (свой клиент TLS 1.3, ClientHello как у Chrome 133 без X25519MLKEM768 — как REALITY-клиент sing-box), REALITY, Vision с прямым копированием — внутренний TLS 1.3 через сервер sing-box идёт напрямую в обе стороны; чужой ключ или short id — отказ, а не подключение к настоящему сайту
 - [ ] Hysteria2, TUIC (QUIC), AnyTLS, VMess
 - [ ] UDP через прокси
 - [ ] TUN: устройство, свой стек TCP/IP, DNS, раздельное туннелирование
@@ -206,6 +206,14 @@ lib/, macos/, windows/ …   Flutter — живёт до этапа 6, толь�
   ссылка с XHTTP больше не роняет всю подписку — пропускается только она;
   REALITY без отпечатка получает Chrome. Переведённые конфигурации
   проверяются настоящим `sing-box check` в режимах «Вручную» и TUN.
+
+- **2026-11-12.** В свой движок добавлен VLESS: без защиты, через REALITY,
+  с Vision. Для REALITY написан свой клиент TLS 1.3 с отпечатком Chrome
+  (перемешанные расширения, GREASE, ECH GREASE, выравнивание BoringSSL):
+  готовые библиотеки не дают подписать session_id ключом обмена. Сервер
+  sing-box принимает клиента, Vision переходит на прямое копирование на
+  внутреннем TLS 1.3. В приложение движок ещё не подключён — все серверы
+  пока идут через sing-box.
 
 ## Открытые вопросы владельцу
 

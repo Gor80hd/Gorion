@@ -62,7 +62,11 @@ quinn, tokio); протоколы и их форматы пишем сами.
 1. Shadowsocks AEAD (aes-128-gcm, aes-256-gcm, chacha20-ietf-poly1305), direct.
 2. Shadowsocks 2022, Trojan (TLS).
 3. VLESS (TCP/TLS), транспорты ws, grpc, httpupgrade.
-4. Маскировка TLS под Chrome (BoringSSL), REALITY, Vision.
+4. Маскировка TLS под Chrome, REALITY, Vision. *Уточнение 2026-11-12:*
+   вместо BoringSSL — свой клиент TLS 1.3 на RustCrypto (`tls/` в
+   `gorion-engine`): REALITY требует вмешаться в ClientHello, а отпечаток
+   проще держать в своём коде, чем тянуть C-библиотеку. Обычный TLS с
+   проверкой цепочки получит webpki поверх того же клиента.
 5. Hysteria2, TUIC (QUIC), AnyTLS, VMess.
 6. TUN: устройство + свой стек TCP/IP, DNS, раздельное туннелирование.
 

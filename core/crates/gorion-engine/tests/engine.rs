@@ -11,7 +11,12 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use gorion_engine::{EngineConfig, Method, Outbound, ShadowsocksConfig, TargetAddr};
+use std::sync::Arc;
+
+use gorion_engine::{
+    EngineConfig, EngineError, Flow, Method, Outbound, RealityConfig, Security, ShadowsocksConfig,
+    TargetAddr, VlessConfig,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -209,10 +214,20 @@ async fn start_singbox_ss(
         "outbounds": [{ "type": "direct", "tag": "direct" }]
     });
     let path = dir.join(format!("ss-{}.json", method.name()));
-    std::fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    (run_singbox(binary, &path, &config, port).await, port)
+}
+
+/// Пишет конфигурацию, запускает `sing-box run` и ждёт открытия порта.
+async fn run_singbox(
+    binary: &PathBuf,
+    path: &std::path::Path,
+    config: &serde_json::Value,
+    port: u16,
+) -> SingBox {
+    std::fs::write(path, serde_json::to_vec(config).unwrap()).unwrap();
     let child = tokio::process::Command::new(binary)
         .args(["run", "-c"])
-        .arg(&path)
+        .arg(path)
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
         .kill_on_drop(true)
@@ -220,7 +235,7 @@ async fn start_singbox_ss(
         .unwrap();
     for _ in 0..100 {
         if TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
-            return (SingBox(child), port);
+            return SingBox(child);
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
@@ -266,4 +281,347 @@ async fn singbox_interop() {
             method.name()
         );
     }
+}
+
+/// Вывод `sing-box generate …`: строки «Имя: значение».
+async fn generate(binary: &PathBuf, args: &[&str]) -> String {
+    let output = tokio::process::Command::new(binary)
+        .arg("generate")
+        .args(args)
+        .output()
+        .await
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8(output.stdout).unwrap()
+}
+
+fn field<'a>(text: &'a str, name: &str) -> &'a str {
+    text.lines()
+        .find_map(|line| line.strip_prefix(name)?.strip_prefix(": "))
+        .unwrap()
+}
+
+fn pem_blocks(text: &str, label: &str) -> Vec<u8> {
+    use base64::Engine as _;
+    let begin = format!("-----BEGIN {label}-----");
+    let end = format!("-----END {label}-----");
+    let start = text.find(&begin).unwrap() + begin.len();
+    let stop = start + text[start..].find(&end).unwrap();
+    let body: String = text[start..stop].split_whitespace().collect();
+    base64::engine::general_purpose::STANDARD
+        .decode(body)
+        .unwrap()
+}
+
+fn base64url(text: &str) -> [u8; 32] {
+    use base64::Engine as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(text)
+        .unwrap()
+        .try_into()
+        .unwrap()
+}
+
+struct VlessServer {
+    _singbox: SingBox,
+    plain: TargetAddr,
+    reality: TargetAddr,
+    vision: TargetAddr,
+    public_key: [u8; 32],
+}
+
+const USER: &str = "b831381d-6324-4d53-ad4f-8cda48b30811";
+const SHORT_ID: &str = "0123abcd";
+const DEST_NAME: &str = "dest.test";
+
+/// sing-box с тремя входами VLESS (без защиты, REALITY, REALITY + Vision)
+/// и обычным TLS-сайтом, за которым прячется REALITY.
+async fn start_singbox_vless(binary: &PathBuf, dir: &std::path::Path) -> VlessServer {
+    let keys = generate(binary, &["reality-keypair"]).await;
+    let pair = generate(binary, &["tls-keypair", DEST_NAME]).await;
+    let cert_path = dir.join("dest.crt");
+    let key_path = dir.join("dest.key");
+    let cert_start = pair.find("-----BEGIN CERTIFICATE-----").unwrap();
+    std::fs::write(&key_path, &pair[..cert_start]).unwrap();
+    std::fs::write(&cert_path, &pair[cert_start..]).unwrap();
+
+    let [dest, plain, reality, vision] = [
+        free_port().await,
+        free_port().await,
+        free_port().await,
+        free_port().await,
+    ];
+    let reality_tls = |port: u16| {
+        serde_json::json!({
+            "enabled": true,
+            "server_name": DEST_NAME,
+            "reality": {
+                "enabled": true,
+                "handshake": { "server": "127.0.0.1", "server_port": dest },
+                "private_key": field(&keys, "PrivateKey"),
+                "short_id": [SHORT_ID]
+            },
+            "_port": port
+        })
+    };
+    let strip = |mut v: serde_json::Value| {
+        v.as_object_mut().unwrap().remove("_port");
+        v
+    };
+    let config = serde_json::json!({
+        "log": { "level": "error" },
+        "inbounds": [
+            {
+                "type": "trojan", "tag": "dest", "listen": "127.0.0.1", "listen_port": dest,
+                "users": [{ "password": "unused" }],
+                "tls": {
+                    "enabled": true, "server_name": DEST_NAME,
+                    "certificate_path": cert_path, "key_path": key_path
+                }
+            },
+            {
+                "type": "vless", "tag": "plain", "listen": "127.0.0.1", "listen_port": plain,
+                "users": [{ "uuid": USER }]
+            },
+            {
+                "type": "vless", "tag": "reality", "listen": "127.0.0.1", "listen_port": reality,
+                "users": [{ "uuid": USER }],
+                "tls": strip(reality_tls(reality))
+            },
+            {
+                "type": "vless", "tag": "vision", "listen": "127.0.0.1", "listen_port": vision,
+                "users": [{ "uuid": USER, "flow": "xtls-rprx-vision" }],
+                "tls": strip(reality_tls(vision))
+            }
+        ],
+        "outbounds": [{ "type": "direct", "tag": "direct" }]
+    });
+    let singbox = run_singbox(binary, &dir.join("vless.json"), &config, vision).await;
+    let local = |port: u16| TargetAddr::Ip(SocketAddr::from(([127, 0, 0, 1], port)));
+    VlessServer {
+        _singbox: singbox,
+        plain: local(plain),
+        reality: local(reality),
+        vision: local(vision),
+        public_key: base64url(field(&keys, "PublicKey")),
+    }
+}
+
+fn reality(public_key: [u8; 32], short_id: &str) -> Security {
+    Security::Reality(RealityConfig::new(DEST_NAME, public_key, short_id).unwrap())
+}
+
+fn vless(server: &TargetAddr, user: &str, flow: Flow, security: Security) -> Outbound {
+    Outbound::Vless(Box::new(VlessConfig::new(
+        server.clone(),
+        user,
+        flow,
+        security,
+    )))
+}
+
+/// Эхо-сервер TLS 1.3 (rustls): внутренний TLS, на котором Vision должен
+/// перейти на прямое копирование.
+async fn tls_echo_server(binary: &PathBuf) -> SocketAddr {
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+    let pair = generate(binary, &["tls-keypair", "inner.test"]).await;
+    let cert = CertificateDer::from(pem_blocks(&pair, "CERTIFICATE"));
+    let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(pem_blocks(&pair, "PRIVATE KEY")));
+    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let config = rustls::ServerConfig::builder_with_provider(provider)
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert], key)
+        .unwrap();
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                let Ok(mut tls) = acceptor.accept(stream).await else {
+                    return;
+                };
+                let mut buf = vec![0u8; 32 * 1024];
+                loop {
+                    match tls.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            if tls.write_all(&buf[..n]).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                let _ = tls.shutdown().await;
+            });
+        }
+    });
+    addr
+}
+
+/// Клиент TLS без проверки сертификата — для внутреннего тестового TLS.
+#[derive(Debug)]
+struct AcceptAnyCert(Arc<rustls::crypto::CryptoProvider>);
+
+impl rustls::client::danger::ServerCertVerifier for AcceptAnyCert {
+    fn verify_server_cert(
+        &self,
+        _: &rustls::pki_types::CertificateDer<'_>,
+        _: &[rustls::pki_types::CertificateDer<'_>],
+        _: &rustls::pki_types::ServerName<'_>,
+        _: &[u8],
+        _: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
+    }
+}
+
+/// Внутренний TLS через исходящее подключение движка: 1 МБ туда и обратно.
+/// Возвращает, перешёл ли Vision на прямое копирование в обе стороны.
+async fn inner_tls_echo(outbound: &Outbound, target: SocketAddr) -> bool {
+    let connection = outbound
+        .connect(&TargetAddr::Ip(target), &[])
+        .await
+        .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let client = TcpStream::connect(listener.local_addr().unwrap())
+        .await
+        .unwrap();
+    let (proxy_side, _) = listener.accept().await.unwrap();
+    let relay = tokio::spawn(connection.relay(proxy_side));
+
+    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(Arc::clone(&provider))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .unwrap()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(AcceptAnyCert(provider)))
+        .with_no_client_auth();
+    let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
+    let name = rustls::pki_types::ServerName::try_from("inner.test").unwrap();
+    let tls = connector.connect(name, client).await.unwrap();
+    let (mut read, mut write) = tokio::io::split(tls);
+    let payload: Vec<u8> = (0..1_000_000u32).map(|i| (i % 251) as u8).collect();
+    let expected = payload.clone();
+    let writer = tokio::spawn(async move {
+        write.write_all(&payload).await.unwrap();
+        write
+    });
+    let mut received = vec![0u8; expected.len()];
+    tokio::time::timeout(Duration::from_secs(20), read.read_exact(&mut received))
+        .await
+        .expect("inner TLS echo timed out")
+        .unwrap();
+    assert!(received == expected, "inner TLS payload corrupted");
+    let write = writer.await.unwrap();
+    drop(read.unsplit(write));
+    let transferred = relay.await.unwrap().unwrap();
+    transferred.direct
+}
+
+#[tokio::test]
+async fn singbox_vless_interop() {
+    let Some(binary) = singbox_path() else {
+        eprintln!("GORION_SINGBOX не задан — проверка VLESS с sing-box пропущена");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let server = start_singbox_vless(&binary, dir.path()).await;
+    let echo = echo_server().await;
+    let key = server.public_key;
+
+    // VLESS без защиты, REALITY, REALITY + Vision: обычный поток в обе стороны.
+    for (name, outbound) in [
+        (
+            "plain",
+            vless(&server.plain, USER, Flow::None, Security::None),
+        ),
+        (
+            "reality",
+            vless(&server.reality, USER, Flow::None, reality(key, SHORT_ID)),
+        ),
+        (
+            "vision",
+            vless(&server.vision, USER, Flow::Vision, reality(key, SHORT_ID)),
+        ),
+    ] {
+        eprintln!("vless {name}");
+        let engine = start(outbound).await;
+        assert_echo(socks_connect(engine.local_addr(), echo).await).await;
+    }
+
+    // Внутри TLS 1.3: Vision обязан перейти на прямое копирование.
+    let inner = tls_echo_server(&binary).await;
+    let vision = vless(&server.vision, USER, Flow::Vision, reality(key, SHORT_ID));
+    assert!(
+        inner_tls_echo(&vision, inner).await,
+        "vision did not switch to direct copy"
+    );
+    // Без Vision тот же внутренний TLS просто идёт через REALITY.
+    let plain_reality = vless(&server.reality, USER, Flow::None, reality(key, SHORT_ID));
+    assert!(!inner_tls_echo(&plain_reality, inner).await);
+
+    // Чужой ключ или short id: сервер не подтверждает себя — ошибка, а не
+    // подключение к настоящему сайту.
+    let mut wrong_key = key;
+    wrong_key[0] ^= 1;
+    for security in [reality(wrong_key, SHORT_ID), reality(key, "ffff")] {
+        let outbound = vless(&server.reality, USER, Flow::None, security);
+        let error = outbound
+            .connect(&TargetAddr::Ip(echo), b"ping")
+            .await
+            .err()
+            .expect("unauthenticated REALITY must fail");
+        assert!(matches!(error, EngineError::RealityRejected), "{error}");
+    }
+
+    // Чужой UUID: рукопожатие проходит, но эха нет.
+    let stranger = start(vless(
+        &server.reality,
+        "00000000-0000-0000-0000-000000000000",
+        Flow::None,
+        reality(key, SHORT_ID),
+    ))
+    .await;
+    let mut stream = socks_connect(stranger.local_addr(), echo).await;
+    stream.write_all(b"ping").await.unwrap();
+    let mut buf = [0u8; 4];
+    let read = tokio::time::timeout(Duration::from_secs(3), stream.read(&mut buf)).await;
+    assert!(!matches!(read, Ok(Ok(4))), "unknown user must not echo");
 }

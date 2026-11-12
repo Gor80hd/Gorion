@@ -14,6 +14,10 @@ pub enum EngineError {
     Decrypt,
     #[error("protocol violation: {0}")]
     Protocol(&'static str),
+    #[error("tls alert {0}")]
+    TlsAlert(u8),
+    #[error("reality: server did not prove the key (wrong public key or short id?)")]
+    RealityRejected,
 }
 
 pub type Result<T> = std::result::Result<T, EngineError>;

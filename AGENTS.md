@@ -46,6 +46,10 @@ cargo clippy --workspace --all-targets --manifest-path core/Cargo.toml -- -D war
 cargo fmt --all --manifest-path core/Cargo.toml
 # Совместимость своего движка с сервером sing-box (ADR-0005)
 GORION_SINGBOX=/путь/к/sing-box cargo test -p gorion-engine --manifest-path core/Cargo.toml
+# Свой движок на своём сервере: ссылка только из окружения (правило 6)
+#   read -rs GORION_VLESS && export GORION_VLESS      # вставить vless://…
+#   cargo run -p gorion-engine --example mixed_proxy --manifest-path core/Cargo.toml
+#   curl -x socks5h://127.0.0.1:2080 https://cloudflare.com/cdn-cgi/trace
 # Помощник TUN (ADR-0005): тесты без root — ядро в режиме «Вручную»
 cargo test -p gorion-helper --manifest-path core/Cargo.toml
 # Ставит его только владелец (пароль): кнопка «Установить» в приложении или
