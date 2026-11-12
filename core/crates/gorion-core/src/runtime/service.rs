@@ -1,5 +1,10 @@
-//! Жизненный цикл локального sing-box: запуск, остановка, восстановление.
+//! Жизненный цикл локального ядра: запуск, остановка, восстановление.
 //! Эталон: `lib/features/runtime/data/singbox_runtime_service.dart`.
+//!
+//! Ядро — sing-box или свой движок `gorion-engine` (ADR-0005). Движок
+//! понимает ту же конфигурацию и тот же Clash API, поэтому всё остальное
+//! (системный прокси, маркеры, watchdog, проверки) общее. Движок берётся,
+//! если сам подтвердил, что профиль ему по силам (`gorion-engine check`).
 //!
 //! Договор надёжности:
 //! - любая неудачная попытка запуска убирает за собой всё, что успела
@@ -21,7 +26,6 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{Mutex, watch};
 
-use super::RuntimeMode;
 use super::clash::ClashClient;
 use super::process::{
     MarkerMatch, ProcessMarker, ReservedPort, Signal, current_pid, delete_marker, inspect_marker,
@@ -29,11 +33,16 @@ use super::process::{
 };
 use super::system_proxy::{ProxyLease, SystemProxyService};
 use super::watchdog;
+use super::{CoreKind, RuntimeMode};
 use crate::config_builder::{BuildRequest, SplitTunnelRoute, build};
 use crate::error::{CoreError, CoreResult};
 
 const MAX_STARTUP_ATTEMPTS: usize = 2;
 const MAX_LOG_LINES: usize = 500;
+/// Имя движка рядом с sing-box в сборке приложения.
+pub const ENGINE_BINARY: &str = "gorion-engine";
+/// `GORION_CORE=sing-box` — всегда sing-box (для сравнения и отладки).
+const CORE_OVERRIDE_ENV: &str = "GORION_CORE";
 
 #[derive(Debug, Clone)]
 pub struct StartRequest {
@@ -58,6 +67,8 @@ pub struct RuntimeSession {
     pub manual_selector_tag: String,
     pub auto_group_tag: String,
     pub config_path: PathBuf,
+    #[serde(default)]
+    pub core: CoreKind,
 }
 
 impl RuntimeSession {
@@ -142,6 +153,16 @@ impl RuntimeService {
     }
 
     pub async fn start(self: &Arc<Self>, request: StartRequest) -> CoreResult<RuntimeSession> {
+        self.start_with(request, true).await
+    }
+
+    /// `allow_engine: false` — только sing-box (запасной путь, если свой
+    /// движок не смог подключиться).
+    pub async fn start_with(
+        self: &Arc<Self>,
+        request: StartRequest,
+        allow_engine: bool,
+    ) -> CoreResult<RuntimeSession> {
         let mut inner = self.inner.lock().await;
         tokio::fs::create_dir_all(&self.runtime_dir).await?;
         self.stop_locked(&mut inner).await?;
@@ -161,7 +182,10 @@ impl RuntimeService {
         }
         let mut last_error = None;
         for attempt in 1..=MAX_STARTUP_ATTEMPTS {
-            match self.try_start_once(&mut inner, &request).await {
+            match self
+                .try_start_once(&mut inner, &request, allow_engine)
+                .await
+            {
                 Ok(session) => return Ok(session),
                 Err(error) => {
                     let retry = matches!(error, CoreError::ControllerUnavailable(_))
@@ -181,8 +205,9 @@ impl RuntimeService {
         self: &Arc<Self>,
         inner: &mut Inner,
         request: &StartRequest,
+        allow_engine: bool,
     ) -> CoreResult<RuntimeSession> {
-        let result = self.try_start_inner(inner, request).await;
+        let result = self.try_start_inner(inner, request, allow_engine).await;
         if result.is_err() {
             // Всё, что успела поднять попытка, уходит вместе с ней.
             let _ = self.stop_locked(inner).await;
@@ -194,6 +219,7 @@ impl RuntimeService {
         self: &Arc<Self>,
         inner: &mut Inner,
         request: &StartRequest,
+        allow_engine: bool,
     ) -> CoreResult<RuntimeSession> {
         let controller = ReservedPort::reserve()?;
         let mixed = ReservedPort::reserve()?;
@@ -212,17 +238,30 @@ impl RuntimeService {
         let config_path = self.runtime_dir.join("current-config.json");
         tokio::fs::write(&config_path, &built.config_json).await?;
 
-        let binary = self.singbox_path.to_string_lossy().into_owned();
         let config = config_path.to_string_lossy().into_owned();
-        let check =
-            run_with_timeout(&binary, &["check", "-c", &config], Duration::from_secs(20)).await?;
-        if check.status != 0 {
-            return Err(CoreError::InvalidRuntimeConfig(
-                check.stderr.trim().to_owned(),
-            ));
+        let core = if allow_engine && self.engine_accepts(request.mode, &config).await {
+            CoreKind::Engine
+        } else {
+            CoreKind::SingBox
+        };
+        let binary_path = match core {
+            CoreKind::Engine => self.engine_path(),
+            CoreKind::SingBox => self.singbox_path.clone(),
+        };
+        let binary = binary_path.to_string_lossy().into_owned();
+        if core == CoreKind::SingBox {
+            let check =
+                run_with_timeout(&binary, &["check", "-c", &config], Duration::from_secs(20))
+                    .await?;
+            if check.status != 0 {
+                return Err(CoreError::InvalidRuntimeConfig(
+                    check.stderr.trim().to_owned(),
+                ));
+            }
         }
+        let core_name = core.name();
         self.log(format!(
-            "запуск sing-box: профиль {}, режим {}, контроллер {}, прокси {}",
+            "запуск {core_name}: профиль {}, режим {}, контроллер {}, прокси {}",
             request.profile_id,
             request.mode.as_str(),
             controller.port,
@@ -231,7 +270,7 @@ impl RuntimeService {
         let controller_port = controller.release();
         let mixed_port = mixed.release();
 
-        let mut child = tokio::process::Command::new(&self.singbox_path)
+        let mut child = tokio::process::Command::new(&binary_path)
             .args(["run", "-c", &config])
             .current_dir(&self.runtime_dir)
             .stdin(Stdio::null())
@@ -256,6 +295,7 @@ impl RuntimeService {
             manual_selector_tag: built.manual_selector_tag,
             auto_group_tag: built.auto_group_tag,
             config_path: config_path.clone(),
+            core,
         };
         inner.running = Some(Running {
             session: session.clone(),
@@ -272,7 +312,7 @@ impl RuntimeService {
                 service.handle_exit(generation, code).await;
             });
         }
-        self.log(format!("sing-box запущен, PID {pid}"));
+        self.log(format!("{core_name} запущен, PID {pid}"));
         write_marker(
             &self.runtime_dir,
             &ProcessMarker {
@@ -317,8 +357,42 @@ impl RuntimeService {
                 "ядро завершилось во время включения системного прокси".into(),
             ));
         }
-        self.log("контроллер sing-box готов");
+        self.log(format!("контроллер {core_name} готов"));
         Ok(session)
+    }
+
+    fn engine_path(&self) -> PathBuf {
+        self.singbox_path.with_file_name(ENGINE_BINARY)
+    }
+
+    /// Свой движок подходит: режим без TUN, движок есть в сборке и сам
+    /// принял конфигурацию. Причина отказа — в журнал (без секретов: движок
+    /// называет только протокол и номер сервера).
+    async fn engine_accepts(&self, mode: RuntimeMode, config: &str) -> bool {
+        if mode.uses_tun()
+            || std::env::var(CORE_OVERRIDE_ENV).is_ok_and(|core| core == CoreKind::SingBox.name())
+        {
+            return false;
+        }
+        let engine = self.engine_path();
+        if !engine.is_file() {
+            return false;
+        }
+        let engine = engine.to_string_lossy().into_owned();
+        match run_with_timeout(&engine, &["check", "-c", config], Duration::from_secs(10)).await {
+            Ok(check) if check.status == 0 => true,
+            Ok(check) => {
+                self.log(format!(
+                    "свой движок не подходит, нужен sing-box: {}",
+                    check.stderr.trim()
+                ));
+                false
+            }
+            Err(error) => {
+                self.log(format!("проверка своего движка не удалась: {error}"));
+                false
+            }
+        }
     }
 
     fn pipe_output<R>(&self, reader: Option<R>, prefix: &'static str)
@@ -338,10 +412,13 @@ impl RuntimeService {
     /// Неожиданный выход ядра. Идёт через ту же блокировку, что и запуск.
     async fn handle_exit(&self, generation: u64, code: i32) {
         let mut inner = self.inner.lock().await;
-        self.log(format!("sing-box завершился с кодом {code}"));
         let Some(running) = inner.running.as_ref() else {
             return;
         };
+        self.log(format!(
+            "{} завершился с кодом {code}",
+            running.session.core.name()
+        ));
         if running.generation != generation || running.stopping.load(Ordering::SeqCst) {
             return;
         }
@@ -401,11 +478,14 @@ impl RuntimeService {
         };
         running.stopping.store(true, Ordering::SeqCst);
         let pid = running.session.pid;
-        self.log(format!("остановка sing-box, PID {pid}"));
+        let core_name = running.session.core.name();
+        self.log(format!("остановка {core_name}, PID {pid}"));
         // SIGTERM: sing-box сам закрывает TUN и убирает маршруты.
         send_signal(pid, Signal::Terminate);
         if !wait_exit(running.exit.clone(), Duration::from_secs(4)).await {
-            self.log("sing-box не завершился сам, завершаем принудительно");
+            self.log(format!(
+                "{core_name} не завершился сам, завершаем принудительно"
+            ));
             send_signal(pid, Signal::Kill);
             if !wait_exit(running.exit.clone(), Duration::from_secs(2)).await {
                 // Маркер остаётся: следующая очистка найдёт процесс.

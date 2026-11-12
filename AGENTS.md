@@ -50,6 +50,9 @@ GORION_SINGBOX=/путь/к/sing-box cargo test -p gorion-engine --manifest-path
 #   read -rs GORION_VLESS && export GORION_VLESS      # вставить vless://…
 #   cargo run -p gorion-engine --example mixed_proxy --manifest-path core/Cargo.toml
 #   curl -x socks5h://127.0.0.1:2080 https://cloudflare.com/cdn-cgi/trace
+# Процесс движка так, как его запускает приложение: конфиг sing-box + Clash API
+#   gorion-engine check -c config.json   # подходит ли профиль движку
+#   GORION_CORE=sing-box …/Gorion        # приложение: всегда sing-box, без движка
 # Помощник TUN (ADR-0005): тесты без root — ядро в режиме «Вручную»
 cargo test -p gorion-helper --manifest-path core/Cargo.toml
 # Ставит его только владелец (пароль): кнопка «Установить» в приложении или
@@ -61,7 +64,7 @@ cargo test -p gorion-helper --manifest-path core/Cargo.toml
 dart run tool/gen_design_tokens.dart
 
 # macOS: ядро → XCFramework и Swift-биндинги, затем проект и сборка
-core/scripts/build-xcframework.sh debug     # или release
+core/scripts/build-xcframework.sh debug     # или release; заодно собирает gorion-engine
 (cd apps/macos && xcodegen generate)        # Gorion.xcodeproj не хранится в git
 xcodebuild -project apps/macos/Gorion.xcodeproj -scheme Gorion -destination 'platform=macOS' \
   -configuration Debug -derivedDataPath apps/macos/build/DerivedData build
@@ -72,7 +75,8 @@ GORION_DATA_DIR=/путь/к/тестовым/данным GORION_APPEARANCE=dar
   apps/macos/build/DerivedData/Build/Products/Debug/Gorion.app/Contents/MacOS/Gorion
 # Отладка без доступа к экрану: снимок окна каждые 3 с (стекло не рисуется);
 # GORION_SNAPSHOT_CONNECT=1 подключает, но только в ручном режиме или в режиме
-# «Весь компьютер» без помощника (покажется карточка установки)
+# «Весь компьютер» без помощника (покажется карточка установки);
+# GORION_SNAPSHOT_SUBSCRIPTION=URL добавляет подписку в пустой каталог данных
 GORION_SNAPSHOT=/путь/к/снимку.png GORION_DATA_DIR=… \
   apps/macos/build/DerivedData/Build/Products/Debug/Gorion.app/Contents/MacOS/Gorion
 ```

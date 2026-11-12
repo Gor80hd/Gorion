@@ -1,4 +1,5 @@
-//! Запуск sing-box и всё, что к нему привязано.
+//! Запуск ядра подключения (sing-box или свой движок) и всё, что к нему
+//! привязано.
 
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +40,25 @@ impl RuntimeMode {
             "systemProxy" => Some(Self::SystemProxy),
             "tun" => Some(Self::Tun),
             _ => None,
+        }
+    }
+}
+
+/// Какой процесс обслуживает подключение.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum CoreKind {
+    #[default]
+    SingBox,
+    /// Свой движок `gorion-engine` (ADR-0005).
+    Engine,
+}
+
+impl CoreKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::SingBox => "sing-box",
+            Self::Engine => "gorion-engine",
         }
     }
 }

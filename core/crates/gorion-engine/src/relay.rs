@@ -10,6 +10,7 @@ use tokio::time::{Instant, sleep_until, timeout};
 
 use crate::error::{EngineError, Result};
 use crate::outbound::{HALF_CLOSE_LINGER, Transferred};
+use crate::selector::Traffic;
 
 /// Сколько ждать первых байтов клиента, прежде чем отправить заголовок
 /// без них (протоколы, где сервер говорит первым). Как в Xray.
@@ -39,6 +40,7 @@ pub async fn relay<R: ChunkRead, W: PayloadWrite>(
     mut reader: R,
     mut writer: W,
     read_size: usize,
+    traffic: &Traffic,
 ) -> Result<Transferred> {
     let (mut client_read, mut client_write) = client.into_split();
     let (uplink_done, mut uplink_closed) = watch::channel(false);
@@ -65,6 +67,7 @@ pub async fn relay<R: ChunkRead, W: PayloadWrite>(
                 return Ok::<u64, EngineError>(total);
             }
             writer.write_payload(&buf[..n]).await?;
+            traffic.add_up(n);
             total += n as u64;
         }
     };
@@ -95,6 +98,7 @@ pub async fn relay<R: ChunkRead, W: PayloadWrite>(
                         if let Err(error) = client_write.write_all(&chunk).await {
                             break Err(error.into());
                         }
+                        traffic.add_down(chunk.len());
                         total += chunk.len() as u64;
                         if linger.is_some() {
                             linger = Some(Instant::now() + HALF_CLOSE_LINGER);

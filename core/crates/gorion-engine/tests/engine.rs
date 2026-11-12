@@ -524,7 +524,11 @@ async fn inner_tls_echo(outbound: &Outbound, target: SocketAddr) -> bool {
         .await
         .unwrap();
     let (proxy_side, _) = listener.accept().await.unwrap();
-    let relay = tokio::spawn(connection.relay(proxy_side));
+    let relay = tokio::spawn(async move {
+        connection
+            .relay(proxy_side, &gorion_engine::Traffic::default())
+            .await
+    });
 
     let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
     let config = rustls::ClientConfig::builder_with_provider(Arc::clone(&provider))

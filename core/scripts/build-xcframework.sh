@@ -8,6 +8,7 @@
 #   apps/macos/Packages/GorionKit/Frameworks/GorionCoreFFI.xcframework
 #   apps/macos/Packages/GorionKit/Sources/GorionCoreFFI/gorion_ffi.swift
 #   apps/macos/build/helper/gorion-helper — помощник для режима TUN (ADR-0005)
+#   apps/macos/build/helper/gorion-engine — свой движок подключения (ADR-0005)
 set -euo pipefail
 
 PROFILE="${1:-release}"
@@ -33,22 +34,28 @@ fi
 
 TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
 HELPER_FLAGS=(--manifest-path "$CORE/Cargo.toml" -p gorion-helper --bin gorion-helper)
+ENGINE_FLAGS=(--manifest-path "$CORE/Cargo.toml" -p gorion-engine --bin gorion-engine)
 if [ "$PROFILE" = "release" ]; then
   HELPER_FLAGS+=(--release)
+  ENGINE_FLAGS+=(--release)
 fi
 for target in "${TARGETS[@]}"; do
   cargo build "${CARGO_FLAGS[@]}" --target "$target"
   cargo build "${HELPER_FLAGS[@]}" --target "$target"
+  cargo build "${ENGINE_FLAGS[@]}" --target "$target"
 done
 
-# Помощник — универсальный бинарник, его кладёт в приложение сборка Xcode.
+# Помощник и движок — универсальные бинарники, их кладёт в приложение
+# сборка Xcode.
 OUT_HELPER="$ROOT/apps/macos/build/helper"
 mkdir -p "$OUT_HELPER"
-HELPERS=()
-for target in "${TARGETS[@]}"; do
-  HELPERS+=("$CORE/target/$target/$PROFILE/gorion-helper")
+for binary in gorion-helper gorion-engine; do
+  PARTS=()
+  for target in "${TARGETS[@]}"; do
+    PARTS+=("$CORE/target/$target/$PROFILE/$binary")
+  done
+  lipo -create "${PARTS[@]}" -output "$OUT_HELPER/$binary"
 done
-lipo -create "${HELPERS[@]}" -output "$OUT_HELPER/gorion-helper"
 
 rm -rf "$WORK"
 mkdir -p "$WORK/headers" "$WORK/swift"
@@ -76,3 +83,4 @@ cp "$WORK/swift/gorion_ffi.swift" "$OUT_SWIFT/gorion_ffi.swift"
 echo "XCFramework: $OUT_FRAMEWORK"
 echo "Swift:       $OUT_SWIFT/gorion_ffi.swift"
 echo "Помощник:    $OUT_HELPER/gorion-helper"
+echo "Движок:      $OUT_HELPER/gorion-engine"

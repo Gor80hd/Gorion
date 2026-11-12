@@ -33,9 +33,9 @@ use crate::model::{
     is_auto_select_tag,
 };
 use crate::probe::{self, ProbeResult, ProbeSettings};
-use crate::runtime::RuntimeMode;
 use crate::runtime::clash::ClashClient;
 use crate::runtime::service::{RuntimeEvent, RuntimeService, RuntimeSession, StartRequest};
+use crate::runtime::{CoreKind, RuntimeMode};
 use crate::storage::{ProfileStore, RemovedProfile, read_json, write_json};
 use crate::subscription;
 
@@ -796,20 +796,48 @@ impl Engine {
         mode: RuntimeMode,
         generation: u64,
     ) -> CoreResult<Option<ConnectOutcome>> {
+        let result = self.connect_attempt(profile, mode, generation, true).await;
+        // Переходный период ADR-0005: если свой движок не нашёл рабочего
+        // сервера, та же попытка идёт через sing-box. Сервер, недоступный и
+        // там, получает обычную ошибку.
+        let engine_failed = matches!(result, Err(CoreError::InternetUnavailable(_)))
+            && self
+                .runtime
+                .session()
+                .await
+                .is_some_and(|session| session.core == CoreKind::Engine);
+        if !engine_failed || !self.is_current(generation) {
+            return result;
+        }
+        tracing::warn!("own engine found no working server; retrying with sing-box");
+        let _ = self.stop_runtime().await;
+        self.connect_attempt(profile, mode, generation, false).await
+    }
+
+    async fn connect_attempt(
+        &self,
+        profile: &ProxyProfile,
+        mode: RuntimeMode,
+        generation: u64,
+        allow_engine: bool,
+    ) -> CoreResult<Option<ConnectOutcome>> {
         let template = self.store.load_template(profile).await?;
         let session = self
-            .start_runtime(StartRequest {
-                profile_id: profile.id.clone(),
-                template_config: template,
-                mode,
-                selected_server_tag: profile.startup_server_tag().map(str::to_owned),
-                url_test_url: probe::url_test_url(
-                    &self.probe_settings.domain_probe_url,
-                    &format!("{}::runtime::urltest", profile.id),
-                ),
-                bypass_steam: false,
-                split_tunnel: None,
-            })
+            .start_runtime(
+                StartRequest {
+                    profile_id: profile.id.clone(),
+                    template_config: template,
+                    mode,
+                    selected_server_tag: profile.startup_server_tag().map(str::to_owned),
+                    url_test_url: probe::url_test_url(
+                        &self.probe_settings.domain_probe_url,
+                        &format!("{}::runtime::urltest", profile.id),
+                    ),
+                    bypass_steam: false,
+                    split_tunnel: None,
+                },
+                allow_engine,
+            )
             .await?;
         if !self.is_current(generation) {
             let _ = self.stop_runtime().await;
@@ -1023,7 +1051,11 @@ impl Engine {
 
     /// Запускает ядро там, где ему место: TUN — в помощнике, остальное — здесь.
     /// Другой из двух путей при этом останавливается.
-    async fn start_runtime(&self, request: StartRequest) -> CoreResult<RuntimeSession> {
+    async fn start_runtime(
+        &self,
+        request: StartRequest,
+        allow_engine: bool,
+    ) -> CoreResult<RuntimeSession> {
         if request.mode.uses_tun() {
             let _ = self.runtime.stop().await;
             #[cfg(unix)]
@@ -1033,7 +1065,7 @@ impl Engine {
         }
         #[cfg(unix)]
         let _ = self.tun.stop().await;
-        self.runtime.start(request).await
+        self.runtime.start_with(request, allow_engine).await
     }
 
     async fn stop_runtime(&self) -> CoreResult<()> {

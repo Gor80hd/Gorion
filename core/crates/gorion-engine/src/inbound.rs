@@ -12,6 +12,7 @@ use tokio::task::JoinSet;
 use crate::address::TargetAddr;
 use crate::error::{EngineError, Result};
 use crate::outbound::Outbound;
+use crate::selector::{Selector, Traffic};
 
 const SOCKS_VERSION: u8 = 5;
 const SOCKS_NO_AUTH: u8 = 0;
@@ -27,16 +28,24 @@ const MAX_HTTP_HEAD: usize = 16 * 1024;
 
 /// Принимает подключения, пока задачу не отменят. Дочерние задачи живут в
 /// `JoinSet` и отменяются вместе с ней.
-pub async fn serve(listener: TcpListener, outbound: Arc<Outbound>) {
+pub async fn serve(listener: TcpListener, selector: Arc<Selector>, traffic: Arc<Traffic>) {
     let mut tasks = JoinSet::new();
     loop {
         tokio::select! {
             accepted = listener.accept() => match accepted {
                 Ok((stream, peer)) => {
-                    let outbound = Arc::clone(&outbound);
+                    let mut changed = selector.subscribe();
+                    let outbound = selector.current();
+                    let traffic = Arc::clone(&traffic);
                     tasks.spawn(async move {
-                        if let Err(error) = handle(stream, &outbound).await {
-                            tracing::debug!(%peer, %error, "connection ended with error");
+                        tokio::select! {
+                            result = handle(stream, &outbound, &traffic) => {
+                                if let Err(error) = result {
+                                    tracing::debug!(%peer, %error, "connection ended with error");
+                                }
+                            }
+                            // Сервер сменили: подключение через старый рвётся.
+                            _ = changed.changed() => {}
                         }
                     });
                 }
@@ -51,20 +60,20 @@ pub async fn serve(listener: TcpListener, outbound: Arc<Outbound>) {
     }
 }
 
-async fn handle(stream: TcpStream, outbound: &Outbound) -> Result<()> {
+async fn handle(stream: TcpStream, outbound: &Outbound, traffic: &Traffic) -> Result<()> {
     stream.set_nodelay(true)?;
     let mut first = [0u8; 1];
     if stream.peek(&mut first).await? == 0 {
         return Ok(());
     }
     if first[0] == SOCKS_VERSION {
-        socks5(stream, outbound).await
+        socks5(stream, outbound, traffic).await
     } else {
-        http(stream, outbound).await
+        http(stream, outbound, traffic).await
     }
 }
 
-async fn socks5(mut client: TcpStream, outbound: &Outbound) -> Result<()> {
+async fn socks5(mut client: TcpStream, outbound: &Outbound, traffic: &Traffic) -> Result<()> {
     let mut head = [0u8; 2];
     client.read_exact(&mut head).await?;
     let mut methods = vec![0u8; usize::from(head[1])];
@@ -90,7 +99,7 @@ async fn socks5(mut client: TcpStream, outbound: &Outbound) -> Result<()> {
     match outbound.connect(&target, &[]).await {
         Ok(connection) => {
             socks_reply(&mut client, REPLY_SUCCEEDED).await?;
-            let transferred = connection.relay(client).await?;
+            let transferred = connection.relay(client, traffic).await?;
             tracing::trace!(%target, ?transferred, "socks connection closed");
             Ok(())
         }
@@ -124,7 +133,7 @@ async fn socks_reply(client: &mut TcpStream, code: u8) -> Result<()> {
     Ok(())
 }
 
-async fn http(mut client: TcpStream, outbound: &Outbound) -> Result<()> {
+async fn http(mut client: TcpStream, outbound: &Outbound, traffic: &Traffic) -> Result<()> {
     let (head, rest) = read_http_head(&mut client).await?;
     let request = match HttpRequest::parse(&head) {
         Ok(request) => request,
@@ -152,7 +161,7 @@ async fn http(mut client: TcpStream, outbound: &Outbound) -> Result<()> {
                     .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
                     .await?;
             }
-            let transferred = connection.relay(client).await?;
+            let transferred = connection.relay(client, traffic).await?;
             tracing::trace!(%target, ?transferred, "http connection closed");
             Ok(())
         }

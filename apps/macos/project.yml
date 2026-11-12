@@ -59,8 +59,9 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           if [ ! -d "${SRCROOT}/Packages/GorionKit/Frameworks/GorionCoreFFI.xcframework" ] \
-            || [ ! -f "${SRCROOT}/build/helper/gorion-helper" ]; then
-            echo "error: нет ядра или помощника — запустите core/scripts/build-xcframework.sh"
+            || [ ! -f "${SRCROOT}/build/helper/gorion-helper" ] \
+            || [ ! -f "${SRCROOT}/build/helper/gorion-engine" ]; then
+            echo "error: нет ядра, помощника или движка — запустите core/scripts/build-xcframework.sh"
             exit 1
           fi
     postBuildScripts:
@@ -81,6 +82,18 @@ targets:
           else
             cp "$SRC/arm64/sing-box" "$DEST"
           fi
+          chmod 755 "$DEST"
+          codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" --options runtime "$DEST"
+      - name: Bundle engine
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          # Свой движок (ADR-0005) — рядом с sing-box: ядро ищет его там и
+          # запускает вместо sing-box, если профиль ему по силам.
+          SRC="${SRCROOT}/build/helper/gorion-engine"
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/gorion-engine"
+          mkdir -p "$(dirname "$DEST")"
+          cp "$SRC" "$DEST"
           chmod 755 "$DEST"
           codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" --options runtime "$DEST"
       - name: Bundle helper

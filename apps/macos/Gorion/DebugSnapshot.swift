@@ -19,9 +19,18 @@
             // ручном режиме или в режиме «Весь компьютер» без помощника (тогда
             // покажется карточка установки): системный прокси и TUN не
             // трогаются.
+            // GORION_SNAPSHOT_SUBSCRIPTION=URL — добавить подписку в пустой
+            // каталог данных (тестовые данные, а не настоящие подписки).
+            let subscription = ProcessInfo.processInfo.environment["GORION_SNAPSHOT_SUBSCRIPTION"]
+            if let subscription {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1))
+                    if model.snapshot.profiles.isEmpty { model.addSubscription(subscription) }
+                }
+            }
             if ProcessInfo.processInfo.environment["GORION_SNAPSHOT_CONNECT"] == "1" {
                 Task { @MainActor in
-                    try? await Task.sleep(for: .seconds(3))
+                    try? await Task.sleep(for: .seconds(subscription == nil ? 3 : 8))
                     let safe = model.snapshot.mode == .manual
                         || (model.snapshot.mode == .wholeComputer && model.snapshot.helper == .notInstalled)
                     if safe, !model.isConnected { model.toggleConnection() }

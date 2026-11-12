@@ -1,15 +1,19 @@
 //! Исходящие подключения: напрямую или через протокол.
 
+use std::io;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::address::TargetAddr;
 use crate::error::Result;
 use crate::relay::{ChunkRead, PayloadWrite, relay};
+use crate::selector::Traffic;
 use crate::shadowsocks::{self, MAX_PAYLOAD, ShadowsocksConfig, SsReader, SsWriter};
 use crate::vless::{self, DirectCopy, VlessConfig, VlessReader, VlessWriter};
 
@@ -61,10 +65,14 @@ impl Outbound {
 
 impl Connection {
     /// Пересылает данные в обе стороны, пока обе не закроются.
-    pub async fn relay(self, client: TcpStream) -> Result<Transferred> {
+    /// `traffic` растёт по мере передачи — для графика скорости.
+    pub async fn relay(self, client: TcpStream, traffic: &Traffic) -> Result<Transferred> {
         match self {
             Self::Direct(mut remote) => {
-                let mut client = client;
+                let mut client = Counted {
+                    inner: client,
+                    traffic,
+                };
                 let (up, down) = tokio::io::copy_bidirectional(&mut client, &mut remote).await?;
                 Ok(Transferred {
                     up,
@@ -72,14 +80,58 @@ impl Connection {
                     direct: false,
                 })
             }
-            Self::Shadowsocks(reader, writer) => relay(client, reader, writer, MAX_PAYLOAD).await,
+            Self::Shadowsocks(reader, writer) => {
+                relay(client, reader, writer, MAX_PAYLOAD, traffic).await
+            }
             Self::Vless(parts) => {
                 let (reader, writer, direct) = *parts;
-                let mut transferred = relay(client, reader, writer, VLESS_READ_SIZE).await?;
+                let mut transferred =
+                    relay(client, reader, writer, VLESS_READ_SIZE, traffic).await?;
                 transferred.direct = direct.both();
                 Ok(transferred)
             }
         }
+    }
+}
+
+/// Клиентский сокет, считающий байты: чтение — отправка, запись — приём.
+struct Counted<'a> {
+    inner: TcpStream,
+    traffic: &'a Traffic,
+}
+
+impl AsyncRead for Counted<'_> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let before = buf.filled().len();
+        let result = Pin::new(&mut self.inner).poll_read(cx, buf);
+        self.traffic.add_up(buf.filled().len() - before);
+        result
+    }
+}
+
+impl AsyncWrite for Counted<'_> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let result = Pin::new(&mut self.inner).poll_write(cx, data);
+        if let Poll::Ready(Ok(n)) = result {
+            self.traffic.add_down(n);
+        }
+        result
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 
