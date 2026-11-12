@@ -7,10 +7,11 @@ use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::task::JoinHandle;
 
 use crate::address::TargetAddr;
 use crate::error::{EngineError, Result};
-use crate::outbound::Outbound;
+use crate::outbound::{Connection, Outbound};
 use crate::selector::Traffic;
 
 /// Предел строки статуса и заголовков, которые читаем.
@@ -51,9 +52,10 @@ fn parse_url(url: &str) -> Result<TestUrl> {
     })
 }
 
-fn tls_config() -> Arc<rustls::ClientConfig> {
-    static CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
-    Arc::clone(CONFIG.get_or_init(|| {
+/// Клиент rustls с корнями webpki и заданным ALPN (HTTP/2 для DoH).
+pub(crate) fn tls_config(alpn: &[&[u8]]) -> Arc<rustls::ClientConfig> {
+    static BASE: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
+    let base = BASE.get_or_init(|| {
         let roots = rustls::RootCertStore {
             roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
         };
@@ -71,7 +73,26 @@ fn tls_config() -> Arc<rustls::ClientConfig> {
                     .with_no_client_auth(),
             ),
         }
-    }))
+    });
+    if alpn.is_empty() {
+        return Arc::clone(base);
+    }
+    let mut config = (**base).clone();
+    config.alpn_protocols = alpn.iter().map(|p| p.to_vec()).collect();
+    Arc::new(config)
+}
+
+/// Протокол отдаёт поток через пару сокетов на петле: так TLS и HTTP
+/// работают поверх него без особого кода. Задача пересылки живёт, пока её
+/// не снимут.
+pub(crate) async fn local_stream(connection: Connection) -> Result<(TcpStream, JoinHandle<()>)> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let client = TcpStream::connect(listener.local_addr()?).await?;
+    let (proxy_side, _) = listener.accept().await?;
+    let relay = tokio::spawn(async move {
+        let _ = connection.relay(proxy_side, &Traffic::default()).await;
+    });
+    Ok((client, relay))
 }
 
 async fn request<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, url: &TestUrl) -> Result<()> {
@@ -109,18 +130,11 @@ pub async fn delay(outbound: &Outbound, url: &str, timeout: Duration) -> Result<
     let attempt = async {
         let target = TargetAddr::from_host(&url.host, url.port)?;
         let connection = outbound.connect(&target, &[]).await?;
-        // Протокол отдаёт поток через пару сокетов на петле: так запрос и
-        // TLS работают поверх него без особого кода.
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let client = TcpStream::connect(listener.local_addr()?).await?;
-        let (proxy_side, _) = listener.accept().await?;
-        let relay = tokio::spawn(async move {
-            let _ = connection.relay(proxy_side, &Traffic::default()).await;
-        });
+        let (client, relay) = local_stream(connection).await?;
         let result = if url.https {
             let name = rustls::pki_types::ServerName::try_from(url.host.clone())
                 .map_err(|_| EngineError::Protocol("urltest: bad host"))?;
-            let tls = tokio_rustls::TlsConnector::from(tls_config())
+            let tls = tokio_rustls::TlsConnector::from(tls_config(&[]))
                 .connect(name, client)
                 .await?;
             request(tls, &url).await

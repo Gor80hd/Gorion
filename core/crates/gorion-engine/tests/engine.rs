@@ -1082,3 +1082,49 @@ async fn singbox_transports_interop() {
     assert!(writer.write_payload(b"ping").await.is_err());
     assert!(reader.read_chunk().await.is_err());
 }
+
+/// DNS режима TUN: DNS-over-HTTPS к 1.1.1.1 через исходящий протокол (здесь
+/// прямой), одно соединение на несколько запросов и новое после смены
+/// сервера. Нужна сеть, поэтому только с `GORION_NET_TLS=1`.
+#[tokio::test]
+async fn doh_through_outbound_on_real_server() {
+    use gorion_engine::Selector;
+    use gorion_engine::tun::dns::{DohClient, DohServer};
+
+    if std::env::var_os("GORION_NET_TLS").is_none() {
+        eprintln!("GORION_NET_TLS не задан — проверка DoH пропущена");
+        return;
+    }
+    let selector = Arc::new(Selector::new(Arc::new(Outbound::Direct)));
+    let client = DohClient::new(
+        DohServer {
+            address: "1.1.1.1:443".parse().unwrap(),
+            server_name: "cloudflare-dns.com".into(),
+            path: "/dns-query".into(),
+        },
+        Arc::clone(&selector),
+    );
+    let query = |id: u8, name: &str| {
+        let mut q = vec![0xAB, id, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0];
+        for label in name.split('.') {
+            q.push(label.len() as u8);
+            q.extend_from_slice(label.as_bytes());
+        }
+        q.extend_from_slice(&[0, 0, 1, 0, 1]);
+        q
+    };
+    for (id, name) in [(1, "example.com"), (2, "www.wikipedia.org")] {
+        let answer = client.exchange(&query(id, name)).await.unwrap();
+        assert_eq!(&answer[..2], &[0xAB, id], "ID клиента возвращён");
+        assert_eq!(answer[2] & 0x80, 0x80, "это ответ");
+        assert_eq!(answer[3] & 0x0F, 0, "{name}: RCODE");
+        assert!(
+            u16::from_be_bytes([answer[6], answer[7]]) >= 1,
+            "{name}: есть ответы"
+        );
+    }
+    // Сменили сервер — запрос идёт уже через новый.
+    selector.set(Arc::new(Outbound::Direct));
+    let answer = client.exchange(&query(3, "github.com")).await.unwrap();
+    assert_eq!(&answer[..2], &[0xAB, 3]);
+}

@@ -38,6 +38,11 @@ impl Selector {
         self.changed.send_modify(|generation| *generation += 1);
     }
 
+    /// Номер выбора: растёт с каждой сменой сервера.
+    pub fn generation(&self) -> u64 {
+        *self.changed.borrow()
+    }
+
     /// Подписка до чтения `current()`: смена после неё не потеряется.
     pub fn subscribe(&self) -> watch::Receiver<u64> {
         self.changed.subscribe()

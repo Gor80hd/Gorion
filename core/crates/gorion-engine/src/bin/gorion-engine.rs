@@ -65,17 +65,22 @@ async fn run(plan: config::Plan) -> ExitCode {
         }
     };
     println!(
-        "gorion-engine {}: {} servers, proxy {}",
+        "gorion-engine {}: {} servers, proxy {}{}",
         env!("CARGO_PKG_VERSION"),
         plan.members.len(),
-        running.local_addr()
+        running.local_addr(),
+        running
+            .tun_name()
+            .map(|name| format!(", tun {name}"))
+            .unwrap_or_default()
     );
-    if let Err(error) = shutdown_signal().await {
+    let signal = shutdown_signal().await;
+    running.shutdown().await;
+    if let Err(error) = signal {
         eprintln!("signal: {error}");
         return ExitCode::FAILURE;
     }
     println!("gorion-engine stopped");
-    drop(running);
     ExitCode::SUCCESS
 }
 

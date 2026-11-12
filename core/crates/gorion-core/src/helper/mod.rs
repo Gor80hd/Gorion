@@ -42,6 +42,11 @@ pub struct HelperStart {
     pub mode: RuntimeMode,
     pub selected_server_tag: Option<String>,
     pub url_test_url: String,
+    /// Только sing-box: свой движок не нашёл рабочего сервера, повтор идёт
+    /// через sing-box (ADR-0005). Ложь в провод не пишется — старые
+    /// помощники видят прежний формат.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sing_box_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,6 +121,7 @@ mod tests {
             mode: RuntimeMode::Tun,
             selected_server_tag: None,
             url_test_url: "https://x/".into(),
+            sing_box_only: false,
         });
         let json = serde_json::to_string(&start).unwrap();
         assert_eq!(
@@ -123,6 +129,11 @@ mod tests {
             r#"{"op":"start","profileId":"p","templateConfig":"{}","mode":"tun","selectedServerTag":null,"urlTestUrl":"https://x/"}"#
         );
         assert_eq!(serde_json::from_str::<Request>(&json).unwrap(), start);
+        let only = r#"{"op":"start","profileId":"p","templateConfig":"{}","mode":"tun","selectedServerTag":null,"urlTestUrl":"https://x/","singBoxOnly":true}"#;
+        let Request::Start(parsed) = serde_json::from_str::<Request>(only).unwrap() else {
+            panic!("start expected");
+        };
+        assert!(parsed.sing_box_only);
         assert_eq!(
             serde_json::to_string(&Request::Hello).unwrap(),
             r#"{"op":"hello"}"#

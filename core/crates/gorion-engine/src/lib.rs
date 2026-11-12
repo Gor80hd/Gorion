@@ -1,6 +1,7 @@
 //! Движок подключения Gorion (ADR-0005): локальный вход, маршрутизатор и
-//! исходящие протоколы на своём коде. Пока — локальный SOCKS5/HTTP-вход,
-//! прямое подключение, Shadowsocks AEAD и VLESS (TCP, REALITY, Vision).
+//! исходящие протоколы на своём коде. Входы — локальный SOCKS5/HTTP и TUN
+//! (macOS); протоколы — Shadowsocks (AEAD и 2022), Trojan, VLESS (REALITY,
+//! Vision) поверх TCP, TLS, WebSocket, HTTPUpgrade и gRPC.
 
 pub mod address;
 pub mod config;
@@ -8,6 +9,7 @@ pub mod control;
 pub mod error;
 pub mod grpc;
 pub mod inbound;
+pub mod netbind;
 pub mod outbound;
 pub mod reality;
 pub mod relay;
@@ -18,6 +20,7 @@ pub mod stream;
 pub mod tls;
 pub mod transport;
 pub mod trojan;
+pub mod tun;
 pub mod urltest;
 pub mod vision;
 pub mod vless;
@@ -108,6 +111,7 @@ pub fn serve(listener: TcpListener, outbound: Arc<Outbound>) -> Result<EngineHan
 pub struct Running {
     engine: EngineHandle,
     control: Option<(SocketAddr, JoinHandle<()>)>,
+    tun: Option<tun::TunHandle>,
 }
 
 impl Running {
@@ -117,6 +121,18 @@ impl Running {
 
     pub fn controller_addr(&self) -> Option<SocketAddr> {
         self.control.as_ref().map(|(addr, _)| *addr)
+    }
+
+    /// Имя интерфейса туннеля (`utunN`), если он поднят.
+    pub fn tun_name(&self) -> Option<&str> {
+        self.tun.as_ref().map(tun::TunHandle::name)
+    }
+
+    /// Обычная остановка: туннель снимает свои маршруты.
+    pub async fn shutdown(mut self) {
+        if let Some(tun) = self.tun.take() {
+            tun.close().await;
+        }
     }
 }
 
@@ -149,5 +165,21 @@ pub async fn run(plan: &config::Plan) -> Result<Running> {
         }
         None => None,
     };
-    Ok(Running { engine, control })
+    let tun = match &plan.tun {
+        Some(settings) => Some(
+            tun::start(
+                settings,
+                Arc::clone(engine.selector()),
+                Arc::clone(engine.traffic()),
+                config::server_hosts(plan),
+            )
+            .await?,
+        ),
+        None => None,
+    };
+    Ok(Running {
+        engine,
+        control,
+        tun,
+    })
 }

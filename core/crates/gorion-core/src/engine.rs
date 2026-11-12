@@ -801,11 +801,7 @@ impl Engine {
         // сервера, та же попытка идёт через sing-box. Сервер, недоступный и
         // там, получает обычную ошибку.
         let engine_failed = matches!(result, Err(CoreError::InternetUnavailable(_)))
-            && self
-                .runtime
-                .session()
-                .await
-                .is_some_and(|session| session.core == CoreKind::Engine);
+            && self.running_core(mode).await == Some(CoreKind::Engine);
         if !engine_failed || !self.is_current(generation) {
             return result;
         }
@@ -1059,13 +1055,24 @@ impl Engine {
         if request.mode.uses_tun() {
             let _ = self.runtime.stop().await;
             #[cfg(unix)]
-            return self.tun.start(&request).await;
+            return self.tun.start(&request, allow_engine).await;
             #[cfg(not(unix))]
             return Err(CoreError::TunHelperRequired);
         }
         #[cfg(unix)]
         let _ = self.tun.stop().await;
         self.runtime.start_with(request, allow_engine).await
+    }
+
+    /// Какое ядро сейчас работает в этом режиме: TUN держит помощник.
+    async fn running_core(&self, mode: RuntimeMode) -> Option<CoreKind> {
+        if mode.uses_tun() {
+            #[cfg(unix)]
+            return self.tun.core().await;
+            #[cfg(not(unix))]
+            return None;
+        }
+        self.runtime.session().await.map(|session| session.core)
     }
 
     async fn stop_runtime(&self) -> CoreResult<()> {

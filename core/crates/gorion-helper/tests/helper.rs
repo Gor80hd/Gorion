@@ -122,7 +122,10 @@ async fn missing_helper_reports_not_installed() {
     let client = HelperClient::new(dir.path().join("nothing.sock"));
     assert_eq!(client.status().await, HelperStatus::NotInstalled);
     let (runtime, _) = (TunRuntime::new(client, Arc::new(|_| {})), ());
-    let error = runtime.start(&request(RuntimeMode::Tun)).await.unwrap_err();
+    let error = runtime
+        .start(&request(RuntimeMode::Tun), false)
+        .await
+        .unwrap_err();
     assert_eq!(error.code(), gorion_core::ErrorCode::TunHelperRequired);
 }
 
@@ -132,7 +135,7 @@ async fn helper_refuses_everything_but_tun() {
     let helper = spawn_helper(false, Path::new("/nonexistent/sing-box")).await;
     let (runtime, _) = tun_runtime(&helper);
     let error = runtime
-        .start(&request(RuntimeMode::Mixed))
+        .start(&request(RuntimeMode::Mixed), false)
         .await
         .unwrap_err();
     assert_eq!(error.code(), gorion_core::ErrorCode::Unsupported);
@@ -161,6 +164,7 @@ async fn rejects_garbage_and_survives() {
         mode: RuntimeMode::Tun,
         selected_server_tag: None,
         url_test_url: "https://x/".into(),
+        sing_box_only: false,
     });
     assert!(
         serde_json::to_string(&start)
@@ -179,7 +183,10 @@ async fn lease_controls_the_core() {
 
     // 1. Явная остановка.
     let (runtime, events) = tun_runtime(&helper);
-    let session = runtime.start(&request(RuntimeMode::Mixed)).await.unwrap();
+    let session = runtime
+        .start(&request(RuntimeMode::Mixed), false)
+        .await
+        .unwrap();
     assert!(is_alive(session.pid));
     assert!(session.mixed_port > 0 && session.controller_port > 0);
     runtime.stop().await.unwrap();
@@ -187,14 +194,20 @@ async fn lease_controls_the_core() {
     runtime.stop().await.unwrap(); // идемпотентно
 
     // 2. Приложение пропало, не сказав `stop`: аренда закрылась — ядро гаснет.
-    let session = runtime.start(&request(RuntimeMode::Mixed)).await.unwrap();
+    let session = runtime
+        .start(&request(RuntimeMode::Mixed), false)
+        .await
+        .unwrap();
     drop(runtime);
     assert!(wait_until(|| !is_alive(session.pid)).await, "lease close");
     assert!(events.lock().unwrap().is_empty());
 
     // 3. Ядро упало само — приложение узнаёт об этом по аренде.
     let (runtime, events) = tun_runtime(&helper);
-    let session = runtime.start(&request(RuntimeMode::Mixed)).await.unwrap();
+    let session = runtime
+        .start(&request(RuntimeMode::Mixed), false)
+        .await
+        .unwrap();
     send_signal(session.pid, Signal::Kill);
     assert!(
         wait_until(|| !events.lock().unwrap().is_empty()).await,
@@ -209,8 +222,14 @@ async fn lease_controls_the_core() {
     // 4. Новый запуск заменяет прежний; закрытие старой аренды его не трогает.
     let (first, _) = tun_runtime(&helper);
     let (second, _) = tun_runtime(&helper);
-    let old = first.start(&request(RuntimeMode::Mixed)).await.unwrap();
-    let new = second.start(&request(RuntimeMode::Mixed)).await.unwrap();
+    let old = first
+        .start(&request(RuntimeMode::Mixed), false)
+        .await
+        .unwrap();
+    let new = second
+        .start(&request(RuntimeMode::Mixed), false)
+        .await
+        .unwrap();
     assert!(wait_until(|| !is_alive(old.pid)).await, "replaced");
     drop(first);
     tokio::time::sleep(Duration::from_millis(500)).await;

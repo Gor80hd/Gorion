@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use gorion_core::helper::client::HelperClient;
 use gorion_core::helper::{HelperStatus, LAUNCHD_LABEL, PLIST_PATH, SOCKET_PATH, SUPPORT_DIR};
+use gorion_core::runtime::service::ENGINE_BINARY;
 
 const READY_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -36,6 +37,16 @@ pub fn install(singbox: &Path) -> Result<(), String> {
     }
     copy_secure(&helper, &bin.join("gorion-helper"))?;
     copy_secure(singbox, &bin.join("sing-box"))?;
+    // Свой движок (ADR-0005) лежит рядом с sing-box в сборке приложения.
+    // Ядро в помощнике берёт его, если профиль ему по силам; нет движка —
+    // работает sing-box, и старая копия не должна остаться.
+    let engine = singbox.with_file_name(ENGINE_BINARY);
+    let installed_engine = bin.join(ENGINE_BINARY);
+    if engine.is_file() {
+        copy_secure(&engine, &installed_engine)?;
+    } else {
+        let _ = std::fs::remove_file(&installed_engine);
+    }
     remove_legacy(support);
 
     let plist = Path::new(PLIST_PATH);

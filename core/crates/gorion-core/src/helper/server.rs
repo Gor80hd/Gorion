@@ -191,19 +191,23 @@ impl HelperServer {
         // Прежняя аренда больше не владеет ядром: `start` его заменит.
         self.set_current(None);
         tracing::info!(peer, profile = %start.profile_id, "helper start");
+        let allow_engine = !start.sing_box_only;
         let session = self
             .runtime
-            .start(StartRequest {
-                profile_id: start.profile_id,
-                template_config: start.template_config,
-                mode: start.mode,
-                selected_server_tag: start.selected_server_tag,
-                url_test_url: start.url_test_url,
-                bypass_steam: false,
-                // Правила раздельного туннелирования пока не передаются:
-                // их rule-set'ы могли бы указать ядру от root на файлы.
-                split_tunnel: None,
-            })
+            .start_with(
+                StartRequest {
+                    profile_id: start.profile_id,
+                    template_config: start.template_config,
+                    mode: start.mode,
+                    selected_server_tag: start.selected_server_tag,
+                    url_test_url: start.url_test_url,
+                    bypass_steam: false,
+                    // Правила раздельного туннелирования пока не передаются:
+                    // их rule-set'ы могли бы указать ядру от root на файлы.
+                    split_tunnel: None,
+                },
+                allow_engine,
+            )
             .await?;
         let id = self.next_lease.fetch_add(1, Ordering::SeqCst) + 1;
         self.set_current(Some(id));

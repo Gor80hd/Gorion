@@ -43,6 +43,14 @@ brotli-decompressor = "5"
 h2 = "0.4"
 http = "1"
 bytes = "1"
+# Исходящие сокеты в режиме TUN привязаны к физическому интерфейсу
+# (IP_BOUND_IF), иначе они ушли бы обратно в туннель.
+socket2 = { version = "0.6", features = ["all"] }
+
+# Устройство utun на macOS: системный сокет управления, чтение и запись
+# пакетов — без своего unsafe.
+[target.'cfg(target_os = "macos")'.dependencies]
+nix = { version = "0.31", features = ["socket", "net", "ioctl", "fs", "user"] }
 
 [dev-dependencies]
 tempfile.workspace = true

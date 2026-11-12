@@ -13,6 +13,7 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 use super::frame::{FrameReader, write_frame};
 use super::{HelperStart, HelperStatus, PROTOCOL_VERSION, Request, Response};
 use crate::error::{CoreError, CoreResult};
+use crate::runtime::CoreKind;
 use crate::runtime::service::{EventSink, RuntimeEvent, RuntimeSession, StartRequest};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -118,6 +119,7 @@ impl HelperClient {
 
 struct Lease {
     stop: mpsc::Sender<oneshot::Sender<CoreResult<()>>>,
+    core: CoreKind,
 }
 
 /// Ядро в режиме TUN, которое держит помощник. Повторяет договор
@@ -142,7 +144,12 @@ impl TunRuntime {
         &self.client
     }
 
-    pub async fn start(&self, request: &StartRequest) -> CoreResult<RuntimeSession> {
+    /// `allow_engine: false` — только sing-box (запасной путь ADR-0005).
+    pub async fn start(
+        &self,
+        request: &StartRequest,
+        allow_engine: bool,
+    ) -> CoreResult<RuntimeSession> {
         let mut slot = self.lease.lock().await;
         if let Some(old) = slot.take() {
             let _ = stop_lease(old).await;
@@ -155,6 +162,7 @@ impl TunRuntime {
             mode: request.mode,
             selected_server_tag: request.selected_server_tag.clone(),
             url_test_url: request.url_test_url.clone(),
+            sing_box_only: !allow_engine,
         });
         let session = match connection.call(&start, START_TIMEOUT).await? {
             Response::Started { session } => session,
@@ -162,8 +170,16 @@ impl TunRuntime {
         };
         let (stop, stop_rx) = mpsc::channel(1);
         tokio::spawn(run_lease(connection, stop_rx, self.events.clone()));
-        *slot = Some(Lease { stop });
+        *slot = Some(Lease {
+            stop,
+            core: session.core,
+        });
         Ok(session)
+    }
+
+    /// Какое ядро держит помощник сейчас.
+    pub async fn core(&self) -> Option<CoreKind> {
+        self.lease.lock().await.as_ref().map(|lease| lease.core)
     }
 
     pub async fn stop(&self) -> CoreResult<()> {

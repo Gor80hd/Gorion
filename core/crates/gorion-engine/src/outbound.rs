@@ -47,6 +47,17 @@ pub struct Transferred {
 }
 
 impl Outbound {
+    /// Адрес сервера протокола; у прямого подключения его нет.
+    pub fn server(&self) -> Option<&TargetAddr> {
+        match self {
+            Self::Direct => None,
+            Self::Shadowsocks(config) => Some(&config.server),
+            Self::Shadowsocks2022(config) => Some(&config.server),
+            Self::Trojan(config) => Some(&config.server),
+            Self::Vless(config) => Some(&config.server),
+        }
+    }
+
     /// Открывает подключение к `target`; `initial` уходит первым.
     pub async fn connect(&self, target: &TargetAddr, initial: &[u8]) -> Result<Connection> {
         match self {
@@ -182,12 +193,10 @@ impl PayloadWrite for SsWriter<OwnedWriteHalf> {
 /// после паузы.
 pub const HALF_CLOSE_LINGER: Duration = Duration::from_secs(2);
 
-/// TCP-подключение к адресу; домен разрешается системным резолвером.
+/// TCP-подключение к адресу; домен разрешается системным резолвером или
+/// берётся из заранее разрешённых (режим TUN, см. `netbind`).
 pub async fn dial(target: &TargetAddr) -> Result<TcpStream> {
-    let stream = match target {
-        TargetAddr::Ip(addr) => TcpStream::connect(addr).await?,
-        TargetAddr::Domain(host, port) => TcpStream::connect((host.as_str(), *port)).await?,
-    };
+    let stream = crate::netbind::connect(target).await?;
     stream.set_nodelay(true)?;
     Ok(stream)
 }

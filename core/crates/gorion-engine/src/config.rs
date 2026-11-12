@@ -1,13 +1,14 @@
 //! Настройки движка — та же конфигурация sing-box, что строит ядро Gorion,
-//! но только понятное движку подмножество: один вход `mixed`, селектор
-//! серверов без правил маршрутизации, протоколы, которые движок умеет.
-//! Всё остальное — ошибка `Unsupported`, и ядро запускает sing-box.
+//! но только понятное движку подмножество: вход `mixed` (и `tun` с
+//! системным стеком на macOS), селектор серверов без своих правил
+//! маршрутизации, протоколы, которые движок умеет. Всё остальное — ошибка
+//! `Unsupported`, и ядро запускает sing-box.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use base64::Engine as _;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::address::TargetAddr;
 use crate::error::{EngineError, Result};
@@ -19,6 +20,7 @@ use crate::stream::Security;
 use crate::tls::TlsConfig;
 use crate::transport::{GrpcConfig, Transport, UpgradeConfig, WsConfig};
 use crate::trojan::TrojanConfig;
+use crate::tun::{DEFAULT_MTU, DohServer, TunConfig};
 use crate::vless::{Flow, VlessConfig};
 
 /// Разобранные настройки.
@@ -33,6 +35,8 @@ pub struct Plan {
     pub selected: String,
     /// Исходящие по тегу: все члены селектора.
     pub outbounds: Vec<(String, Arc<Outbound>)>,
+    /// Туннель для всего компьютера (режим TUN).
+    pub tun: Option<TunConfig>,
 }
 
 impl Plan {
@@ -94,15 +98,19 @@ pub fn from_singbox(config: &Value) -> Result<Plan> {
         .get("inbounds")
         .and_then(Value::as_array)
         .ok_or_else(|| unsupported("no inbounds"))?;
-    let [inbound] = inbounds.as_slice() else {
-        return Err(unsupported("exactly one inbound is supported"));
-    };
-    let inbound = inbound
-        .as_object()
-        .ok_or_else(|| unsupported("bad inbound"))?;
-    if str_field(inbound, "type") != Some("mixed") {
-        return Err(unsupported("only a mixed inbound is supported"));
+    let mut mixed = None;
+    let mut tun_inbound = None;
+    for inbound in inbounds {
+        let inbound = inbound
+            .as_object()
+            .ok_or_else(|| unsupported("bad inbound"))?;
+        match str_field(inbound, "type") {
+            Some("mixed") if mixed.is_none() => mixed = Some(inbound),
+            Some("tun") if tun_inbound.is_none() => tun_inbound = Some(inbound),
+            _ => return Err(unsupported("inbounds: one mixed and at most one tun")),
+        }
     }
+    let inbound = mixed.ok_or_else(|| unsupported("only a mixed inbound is supported"))?;
     if non_empty(inbound.get("users"))
         || inbound.get("set_system_proxy") == Some(&Value::Bool(true))
     {
@@ -124,8 +132,20 @@ pub fn from_singbox(config: &Value) -> Result<Plan> {
         .cloned()
         .unwrap_or_default();
     // Правила маршрутизации (раздельное туннелирование, правила шаблона)
-    // движок пока не исполняет.
-    if non_empty(route.get("rules")) || non_empty(route.get("rule_set")) {
+    // движок пока не исполняет. В режиме TUN ядро добавляет два своих —
+    // разбор протокола и перехват DNS; их движок делает сам.
+    let tun_tag = tun_inbound.map(|tun| str_field(tun, "tag").unwrap_or_default());
+    let rules_supported = match tun_tag {
+        None => !non_empty(route.get("rules")),
+        Some(tag) => {
+            route.get("rules")
+                == Some(&json!([
+                    {"inbound": tag, "action": "sniff"},
+                    {"inbound": tag, "protocol": "dns", "action": "hijack-dns"},
+                ]))
+        }
+    };
+    if !rules_supported || non_empty(route.get("rule_set")) {
         return Err(unsupported("route rules"));
     }
 
@@ -197,6 +217,11 @@ pub fn from_singbox(config: &Value) -> Result<Plan> {
             })
         });
 
+    let tun = match tun_inbound {
+        Some(inbound) => Some(tun_config(inbound, tun_dns(config, &final_tag)?)?),
+        None => None,
+    };
+
     Ok(Plan {
         listen,
         controller,
@@ -204,7 +229,178 @@ pub fn from_singbox(config: &Value) -> Result<Plan> {
         members,
         selected,
         outbounds: translated,
+        tun,
     })
+}
+
+/// Вход `tun`, каким его строит ядро: адреса, `auto_route`, системный стек.
+fn tun_config(inbound: &Map<String, Value>, dns: DohServer) -> Result<TunConfig> {
+    const KNOWN: [&str; 8] = [
+        "type",
+        "tag",
+        "interface_name",
+        "address",
+        "auto_route",
+        "strict_route",
+        "stack",
+        "mtu",
+    ];
+    if !cfg!(target_os = "macos") {
+        return Err(unsupported("tun on this system"));
+    }
+    if let Some(key) = inbound.keys().find(|k| !KNOWN.contains(&k.as_str())) {
+        return Err(unsupported(format!("tun option {key}")));
+    }
+    // На macOS имя `utunN` выбирает система; своё имя движок не ставит.
+    if non_empty(inbound.get("interface_name")) {
+        return Err(unsupported("tun interface_name"));
+    }
+    if str_field(inbound, "stack") != Some("system") {
+        return Err(unsupported("tun stack"));
+    }
+    let mut inet4 = None;
+    let mut inet6 = None;
+    let addresses = inbound
+        .get("address")
+        .and_then(Value::as_array)
+        .ok_or_else(|| unsupported("tun address"))?;
+    for address in addresses {
+        let bad = || unsupported("tun address");
+        let (ip, prefix) = address
+            .as_str()
+            .and_then(|a| a.split_once('/'))
+            .ok_or_else(bad)?;
+        let prefix: u8 = prefix.parse().map_err(|_| bad())?;
+        match ip.parse::<IpAddr>().map_err(|_| bad())? {
+            IpAddr::V4(ip) if inet4.is_none() && (1..=30).contains(&prefix) => {
+                inet4 = Some((ip, prefix));
+            }
+            IpAddr::V6(ip) if inet6.is_none() && (1..=126).contains(&prefix) => {
+                inet6 = Some((ip, prefix));
+            }
+            _ => return Err(bad()),
+        }
+    }
+    if inet4.is_none() && inet6.is_none() {
+        return Err(unsupported("tun address"));
+    }
+    let bool_field = |key: &str| match inbound.get(key) {
+        None => Ok(false),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err(unsupported(format!("tun {key}"))),
+    };
+    let auto_route = bool_field("auto_route")?;
+    // strict_route на macOS sing-box не меняет: принимаем как есть.
+    bool_field("strict_route")?;
+    let mtu = match inbound.get("mtu") {
+        None => DEFAULT_MTU,
+        Some(value) => value
+            .as_u64()
+            .and_then(|m| u32::try_from(m).ok())
+            .filter(|m| (1280..=65535).contains(m))
+            .ok_or_else(|| unsupported("tun mtu"))?,
+    };
+    Ok(TunConfig {
+        inet4,
+        inet6,
+        mtu,
+        auto_route,
+        dns,
+    })
+}
+
+/// DNS режима TUN — только тот, что ставит ядро: локальный для имён
+/// серверов и DNS-over-HTTPS по IP через селектор для всего остального.
+fn tun_dns(config: &Map<String, Value>, selector_tag: &str) -> Result<DohServer> {
+    let dns = config
+        .get("dns")
+        .and_then(Value::as_object)
+        .ok_or_else(|| unsupported("tun without dns"))?;
+    if dns.keys().any(|k| k != "servers" && k != "final") {
+        return Err(unsupported("dns options"));
+    }
+    let final_tag = str_field(dns, "final").ok_or_else(|| unsupported("dns final"))?;
+    let servers = dns
+        .get("servers")
+        .and_then(Value::as_array)
+        .ok_or_else(|| unsupported("dns servers"))?;
+    let mut doh = None;
+    for server in servers {
+        let server = server
+            .as_object()
+            .ok_or_else(|| unsupported("dns server"))?;
+        match str_field(server, "type") {
+            Some("local") if server.keys().all(|k| k == "type" || k == "tag") => {}
+            Some("https") if doh.is_none() && str_field(server, "tag") == Some(final_tag) => {
+                doh = Some(doh_server(server, selector_tag)?);
+            }
+            _ => return Err(unsupported("dns server")),
+        }
+    }
+    doh.ok_or_else(|| unsupported("dns final server"))
+}
+
+fn doh_server(server: &Map<String, Value>, selector_tag: &str) -> Result<DohServer> {
+    const KNOWN: [&str; 7] = [
+        "type",
+        "tag",
+        "server",
+        "server_port",
+        "path",
+        "tls",
+        "detour",
+    ];
+    if server.keys().any(|k| !KNOWN.contains(&k.as_str())) {
+        return Err(unsupported("dns server options"));
+    }
+    if str_field(server, "detour") != Some(selector_tag) {
+        return Err(unsupported("dns detour"));
+    }
+    let host = str_field(server, "server").ok_or_else(|| unsupported("dns server address"))?;
+    // Имя вместо IP пришлось бы разрешать до туннеля: такое — в sing-box.
+    let ip: IpAddr = host
+        .parse()
+        .map_err(|_| unsupported("dns server is not an ip"))?;
+    let port = match server.get("server_port") {
+        None => 443,
+        Some(value) => value
+            .as_u64()
+            .and_then(|p| u16::try_from(p).ok())
+            .ok_or_else(|| unsupported("dns server_port"))?,
+    };
+    let path = str_field(server, "path").unwrap_or("/dns-query");
+    if !path.starts_with('/') {
+        return Err(unsupported("dns path"));
+    }
+    let tls = server
+        .get("tls")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if tls.keys().any(|k| k != "enabled" && k != "server_name") {
+        return Err(unsupported("dns tls options"));
+    }
+    if tls.get("enabled") == Some(&Value::Bool(false)) {
+        return Err(unsupported("dns without tls"));
+    }
+    Ok(DohServer {
+        address: SocketAddr::new(ip, port),
+        server_name: str_field(&tls, "server_name").unwrap_or(host).to_owned(),
+        path: path.to_owned(),
+    })
+}
+
+/// Хосты серверов, которые надо разрешить до подъёма туннеля.
+pub fn server_hosts(plan: &Plan) -> Vec<String> {
+    let mut hosts: Vec<String> = Vec::new();
+    for (_, outbound) in &plan.outbounds {
+        if let Some(TargetAddr::Domain(host, _)) = outbound.server()
+            && !hosts.contains(host)
+        {
+            hosts.push(host.clone());
+        }
+    }
+    hosts
 }
 
 fn server(outbound: &Map<String, Value>) -> Result<TargetAddr> {
@@ -663,6 +859,92 @@ mod tests {
 
         let mut config = built(servers(), json!([]));
         config["inbounds"] = json!([{"type": "tun", "tag": "gorion-tun"}]);
+        assert!(from_singbox(&config).is_err());
+    }
+
+    /// Конфигурация режима TUN, как её строит ядро Gorion.
+    fn built_tun() -> Value {
+        let mut config = built(
+            servers(),
+            json!([
+                {"inbound": "gorion-tun", "action": "sniff"},
+                {"inbound": "gorion-tun", "protocol": "dns", "action": "hijack-dns"}
+            ]),
+        );
+        config["inbounds"] = json!([
+            {"type": "mixed", "tag": "gorion-mixed", "listen": "127.0.0.1", "listen_port": 2080},
+            {"type": "tun", "tag": "gorion-tun", "interface_name": "",
+             "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+             "auto_route": true, "strict_route": true, "stack": "system"}
+        ]);
+        config["dns"] = json!({
+            "servers": [
+                {"type": "local", "tag": "gorion-bootstrap"},
+                {"type": "https", "tag": "gorion-dns", "server": "1.1.1.1",
+                 "tls": {"enabled": true, "server_name": "cloudflare-dns.com"},
+                 "detour": "gorion-manual"}
+            ],
+            "final": "gorion-dns"
+        });
+        config["route"]["default_domain_resolver"] = json!("gorion-bootstrap");
+        config
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reads_the_tun_config_gorion_builds() {
+        let plan = from_singbox(&built_tun()).unwrap();
+        let tun = plan.tun.as_ref().unwrap();
+        assert_eq!(tun.inet4, Some(("172.19.0.1".parse().unwrap(), 30)));
+        assert_eq!(tun.inet6, Some(("fdfe:dcba:9876::1".parse().unwrap(), 126)));
+        assert!(tun.auto_route);
+        assert_eq!(tun.mtu, DEFAULT_MTU);
+        assert_eq!(
+            tun.dns,
+            DohServer {
+                address: "1.1.1.1:443".parse().unwrap(),
+                server_name: "cloudflare-dns.com".into(),
+                path: "/dns-query".into(),
+            }
+        );
+        assert_eq!(plan.listen.port(), 2080);
+        // Имя сервера разрешается заранее, IP — нет.
+        assert_eq!(server_hosts(&plan), ["example.com"]);
+    }
+
+    #[test]
+    fn tun_with_anything_else_goes_to_sing_box() {
+        // Правило раздельного туннелирования поверх управляемых.
+        let mut config = built_tun();
+        config["route"]["rules"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"domain_suffix": [".ru"], "outbound": "direct"}));
+        assert!(from_singbox(&config).is_err());
+        // DNS из шаблона подписки.
+        let mut config = built_tun();
+        config["dns"] = json!({"servers": [{"type": "udp", "tag": "x", "server": "8.8.8.8"}]});
+        assert!(from_singbox(&config).is_err());
+        // DNS-сервер по имени, мимо селектора, другой стек.
+        let mut config = built_tun();
+        config["dns"]["servers"][1]["server"] = json!("dns.example");
+        assert!(from_singbox(&config).is_err());
+        let mut config = built_tun();
+        config["dns"]["servers"][1]["detour"] = json!("direct");
+        assert!(from_singbox(&config).is_err());
+        let mut config = built_tun();
+        config["inbounds"][1]["stack"] = json!("gvisor");
+        assert!(from_singbox(&config).is_err());
+        let mut config = built_tun();
+        config["inbounds"][1]["include_package"] = json!(["x"]);
+        assert!(from_singbox(&config).is_err());
+        // TUN без DNS-раздела.
+        let mut config = built_tun();
+        config.as_object_mut().unwrap().remove("dns");
+        assert!(from_singbox(&config).is_err());
+        // Управляемые правила без TUN — это уже чужие правила.
+        let mut config = built_tun();
+        config["inbounds"] = json!([config["inbounds"][0].clone()]);
         assert!(from_singbox(&config).is_err());
     }
 }

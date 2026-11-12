@@ -180,18 +180,30 @@ impl RuntimeService {
                 self.singbox_path.display().to_string(),
             ));
         }
+        let mut allow_engine = allow_engine;
         let mut last_error = None;
-        for attempt in 1..=MAX_STARTUP_ATTEMPTS {
+        let mut attempt = 0;
+        while attempt < MAX_STARTUP_ATTEMPTS {
+            attempt += 1;
+            let mut used_engine = false;
             match self
-                .try_start_once(&mut inner, &request, allow_engine)
+                .try_start_once(&mut inner, &request, allow_engine, &mut used_engine)
                 .await
             {
                 Ok(session) => return Ok(session),
                 Err(error) => {
-                    let retry = matches!(error, CoreError::ControllerUnavailable(_))
-                        && attempt < MAX_STARTUP_ATTEMPTS;
                     self.log(format!("попытка запуска {attempt}: {error}"));
                     last_error = Some(error);
+                    if used_engine {
+                        // Свой движок не поднялся (например, не открыл TUN):
+                        // та же попытка заново, уже через sing-box.
+                        self.log("свой движок не запустился, дальше — sing-box");
+                        allow_engine = false;
+                        attempt -= 1;
+                        continue;
+                    }
+                    let retry = matches!(last_error, Some(CoreError::ControllerUnavailable(_)))
+                        && attempt < MAX_STARTUP_ATTEMPTS;
                     if !retry {
                         break;
                     }
@@ -206,8 +218,11 @@ impl RuntimeService {
         inner: &mut Inner,
         request: &StartRequest,
         allow_engine: bool,
+        used_engine: &mut bool,
     ) -> CoreResult<RuntimeSession> {
-        let result = self.try_start_inner(inner, request, allow_engine).await;
+        let result = self
+            .try_start_inner(inner, request, allow_engine, used_engine)
+            .await;
         if result.is_err() {
             // Всё, что успела поднять попытка, уходит вместе с ней.
             let _ = self.stop_locked(inner).await;
@@ -220,6 +235,7 @@ impl RuntimeService {
         inner: &mut Inner,
         request: &StartRequest,
         allow_engine: bool,
+        used_engine: &mut bool,
     ) -> CoreResult<RuntimeSession> {
         let controller = ReservedPort::reserve()?;
         let mixed = ReservedPort::reserve()?;
@@ -239,11 +255,12 @@ impl RuntimeService {
         tokio::fs::write(&config_path, &built.config_json).await?;
 
         let config = config_path.to_string_lossy().into_owned();
-        let core = if allow_engine && self.engine_accepts(request.mode, &config).await {
+        let core = if allow_engine && self.engine_accepts(&config).await {
             CoreKind::Engine
         } else {
             CoreKind::SingBox
         };
+        *used_engine = core == CoreKind::Engine;
         let binary_path = match core {
             CoreKind::Engine => self.engine_path(),
             CoreKind::SingBox => self.singbox_path.clone(),
@@ -365,13 +382,12 @@ impl RuntimeService {
         self.singbox_path.with_file_name(ENGINE_BINARY)
     }
 
-    /// Свой движок подходит: режим без TUN, движок есть в сборке и сам
-    /// принял конфигурацию. Причина отказа — в журнал (без секретов: движок
-    /// называет только протокол и номер сервера).
-    async fn engine_accepts(&self, mode: RuntimeMode, config: &str) -> bool {
-        if mode.uses_tun()
-            || std::env::var(CORE_OVERRIDE_ENV).is_ok_and(|core| core == CoreKind::SingBox.name())
-        {
+    /// Свой движок подходит: он есть рядом с sing-box (в сборке или в
+    /// каталоге помощника) и сам принял конфигурацию — в режиме TUN тоже,
+    /// если туннель ему по силам. Причина отказа — в журнал (без секретов:
+    /// движок называет только протокол и номер сервера).
+    async fn engine_accepts(&self, config: &str) -> bool {
+        if std::env::var(CORE_OVERRIDE_ENV).is_ok_and(|core| core == CoreKind::SingBox.name()) {
             return false;
         }
         let engine = self.engine_path();
