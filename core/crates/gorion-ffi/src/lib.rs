@@ -94,6 +94,7 @@ pub enum CoreErrorCode {
     HelperOutdated,
     HelperInstallCancelled,
     HelperInstallFailed,
+    EngineUnsupported,
 }
 
 impl From<ErrorCode> for CoreErrorCode {
@@ -124,6 +125,7 @@ impl From<ErrorCode> for CoreErrorCode {
             ErrorCode::HelperOutdated => Self::HelperOutdated,
             ErrorCode::HelperInstallCancelled => Self::HelperInstallCancelled,
             ErrorCode::HelperInstallFailed => Self::HelperInstallFailed,
+            ErrorCode::EngineUnsupported => Self::EngineUnsupported,
         }
     }
 }

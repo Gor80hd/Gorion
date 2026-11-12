@@ -13,6 +13,7 @@ Gorion — десктопный VPN/прокси-клиент на базе `sin
 - логика — общее ядро на Rust (ADR-0001), интерфейсы нативные.
 
 Где мы сейчас: [docs/migration/PLAN.md](docs/migration/PLAN.md).
+Своё ядро — что готово и что доделать: [docs/migration/engine-next.md](docs/migration/engine-next.md).
 Что осталось перенести: [docs/migration/parity.md](docs/migration/parity.md).
 Как должно выглядеть и двигаться: [DESIGN.md](DESIGN.md).
 Почему так решили: [docs/adr/](docs/adr/).
@@ -55,11 +56,11 @@ GORION_NET_TLS=1 cargo test -p gorion-engine --test engine doh --manifest-path c
 #   curl -x socks5h://127.0.0.1:2080 https://cloudflare.com/cdn-cgi/trace
 # Процесс движка так, как его запускает приложение: конфиг sing-box + Clash API
 #   gorion-engine check -c config.json   # подходит ли профиль движку
-#   GORION_CORE=sing-box …/Gorion        # приложение: всегда sing-box, без движка
+#   GORION_CORE=sing-box …/Gorion        # приложение: sing-box вместо движка (только если sing-box положен в сборку; сейчас его там нет)
 # Помощник TUN (ADR-0005): тесты без root — ядро в режиме «Вручную»
 cargo test -p gorion-helper --manifest-path core/Cargo.toml
 # Ставит его только владелец (пароль): кнопка «Установить» в приложении или
-#   sudo Gorion.app/Contents/Helpers/gorion-helper install --singbox Gorion.app/Contents/Resources/sing-box
+#   sudo Gorion.app/Contents/Helpers/gorion-helper install --engine Gorion.app/Contents/Resources/gorion-engine
 #   sudo /Library/Application\ Support/Gorion/bin/gorion-helper uninstall
 # GORION_HELPER_SOCKET=/путь/к/сокету — приложение говорит с тестовым помощником
 

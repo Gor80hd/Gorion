@@ -65,34 +65,18 @@ targets:
             exit 1
           fi
     postBuildScripts:
-      - name: Bundle sing-box
-        basedOnDependencyAnalysis: false
-        script: |
-          set -euo pipefail
-          SRC="${SRCROOT}/../../assets/singbox/macos"
-          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/sing-box"
-          mkdir -p "$(dirname "$DEST")"
-          if [ ! -f "$SRC/arm64/sing-box" ]; then
-            echo "error: нет sing-box — запустите dart run tool/vendor_singbox.dart"
-            exit 1
-          fi
-          # Универсальный бинарник, если есть обе архитектуры.
-          if [ -f "$SRC/x64/sing-box" ]; then
-            lipo -create "$SRC/arm64/sing-box" "$SRC/x64/sing-box" -output "$DEST"
-          else
-            cp "$SRC/arm64/sing-box" "$DEST"
-          fi
-          chmod 755 "$DEST"
-          codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" --options runtime "$DEST"
       - name: Bundle engine
         basedOnDependencyAnalysis: false
         script: |
           set -euo pipefail
-          # Свой движок (ADR-0005) — рядом с sing-box: ядро ищет его там и
-          # запускает вместо sing-box, если профиль ему по силам.
+          # Свой движок (ADR-0005) — единственное ядро сборки: sing-box в
+          # приложение не кладётся, чтобы проверять именно движок. Ядро ищет
+          # движок на месте sing-box (Resources/), копия sing-box от прошлых
+          # сборок убирается.
           SRC="${SRCROOT}/build/helper/gorion-engine"
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/gorion-engine"
           mkdir -p "$(dirname "$DEST")"
+          rm -f "$(dirname "$DEST")/sing-box"
           cp "$SRC" "$DEST"
           chmod 755 "$DEST"
           codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" --options runtime "$DEST"

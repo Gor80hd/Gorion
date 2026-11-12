@@ -224,6 +224,8 @@ enum Copy {
             Problem(message: "Подключение неожиданно прервалось.", action: .retryConnect)
         case .noProfile:
             Problem(message: "Сначала добавьте подписку.", action: .addSubscription)
+        case .engineUnsupported:
+            Problem(message: "Gorion пока не умеет подключаться к этой подписке: в ней есть сервер или настройка, которых ещё нет в ядре.", action: .refreshProfile)
         }
     }
 

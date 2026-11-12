@@ -23,7 +23,9 @@ pub mod install;
 pub mod server;
 
 /// Версия протокола. Во Flutter была 2 (HTTP + токен), здесь — сокет.
-pub const PROTOCOL_VERSION: u32 = 3;
+/// 4 — помощник ставит свой движок и может работать без sing-box: старый
+/// помощник (только sing-box) считается устаревшим и переустанавливается.
+pub const PROTOCOL_VERSION: u32 = 4;
 /// Метка службы launchd — та же, что у Flutter-версии: новая заменяет старую.
 pub const LAUNCHD_LABEL: &str = "app.gorion.privileged-helper";
 pub const PLIST_PATH: &str = "/Library/LaunchDaemons/app.gorion.privileged-helper.plist";

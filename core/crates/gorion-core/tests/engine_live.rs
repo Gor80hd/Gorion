@@ -133,3 +133,95 @@ async fn add_connect_fails_honestly_and_cleans_up() {
     assert_eq!(reopened.snapshot().profiles.len(), 1);
     assert!(!recorder.snapshots.lock().unwrap().is_empty());
 }
+
+/// `gorion-engine` из сборки рабочего пространства (`cargo build`).
+fn built_engine() -> Option<PathBuf> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/gorion-engine");
+    path.is_file().then_some(path)
+}
+
+async fn serve(body: &'static str) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let mut buffer = [0u8; 2048];
+            let _ = socket.read(&mut buffer).await;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = socket.write_all(response.as_bytes()).await;
+        }
+    });
+    format!("http://127.0.0.1:{port}/sub")
+}
+
+/// Сборка без sing-box: движок — единственное ядро. Профиль, который движок
+/// не умеет, даёт `EngineUnsupported`, а не тихий откат; мёртвый сервер —
+/// честное `InternetUnavailable` через движок, без второй попытки.
+#[tokio::test(flavor = "multi_thread")]
+async fn engine_only_build_never_falls_back() {
+    let Some(engine_binary) = built_engine() else {
+        eprintln!("нет target/debug/gorion-engine — сначала cargo build");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::copy(&engine_binary, bin.join("gorion-engine")).unwrap();
+    // Место sing-box: самого файла нет.
+    let data = dir.path().join("data");
+    let engine = Engine::new(
+        data.clone(),
+        bin.join("sing-box"),
+        Arc::new(Recorder::default()),
+    );
+    engine.bootstrap().await;
+    engine.set_mode(RuntimeMode::Mixed).await;
+
+    engine
+        .add_subscription(
+            &serve(
+                r#"{"outbounds": [
+                {"type": "shadowsocks", "tag": "SS", "server": "127.0.0.1", "server_port": 9,
+                 "method": "aes-128-gcm", "password": "test-password"},
+                {"type": "hysteria2", "tag": "HY", "server": "127.0.0.1", "server_port": 10,
+                 "password": "test-password"}
+            ]}"#,
+            )
+            .await,
+        )
+        .await;
+    assert_eq!(engine.snapshot().error, None);
+    engine.connect().await;
+    let error = engine
+        .snapshot()
+        .error
+        .expect("unsupported profile must fail");
+    assert_eq!(error.code, ErrorCode::EngineUnsupported);
+    assert!(read_marker(&data.join("runtime")).await.is_none());
+
+    let id = engine.snapshot().active_profile_id.clone().unwrap();
+    engine.remove_profile(&id).await;
+    engine
+        .add_subscription(
+            &serve(
+                r#"{"outbounds": [
+                {"type": "shadowsocks", "tag": "SS", "server": "127.0.0.1", "server_port": 9,
+                 "method": "aes-128-gcm", "password": "test-password"}
+            ]}"#,
+            )
+            .await,
+        )
+        .await;
+    engine.connect().await;
+    let snapshot = engine.snapshot();
+    assert_eq!(snapshot.stage, ConnectionStage::Disconnected);
+    assert_eq!(
+        snapshot.error.as_ref().map(|e| e.code),
+        Some(ErrorCode::InternetUnavailable)
+    );
+    assert!(read_marker(&data.join("runtime")).await.is_none());
+}

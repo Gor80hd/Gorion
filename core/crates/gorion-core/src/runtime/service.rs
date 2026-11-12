@@ -175,9 +175,9 @@ impl RuntimeService {
         }
         let sink = self.log_sink();
         self.proxy.cleanup_orphaned(&self.runtime_dir, &sink).await;
-        if !self.singbox_path.is_file() {
+        if !self.engine_path().is_file() && !self.singbox_available() {
             return Err(CoreError::CoreBinaryMissing(
-                self.singbox_path.display().to_string(),
+                self.engine_path().display().to_string(),
             ));
         }
         let mut allow_engine = allow_engine;
@@ -194,7 +194,7 @@ impl RuntimeService {
                 Err(error) => {
                     self.log(format!("попытка запуска {attempt}: {error}"));
                     last_error = Some(error);
-                    if used_engine {
+                    if used_engine && self.singbox_available() {
                         // Свой движок не поднялся (например, не открыл TUN):
                         // та же попытка заново, уже через sing-box.
                         self.log("свой движок не запустился, дальше — sing-box");
@@ -255,11 +255,24 @@ impl RuntimeService {
         tokio::fs::write(&config_path, &built.config_json).await?;
 
         let config = config_path.to_string_lossy().into_owned();
-        let core = if allow_engine && self.engine_accepts(&config).await {
-            CoreKind::Engine
+        let core = if allow_engine {
+            match self.engine_check(&config).await {
+                Ok(()) => CoreKind::Engine,
+                Err(reason) if self.singbox_available() => {
+                    self.log(format!("свой движок не подходит, нужен sing-box: {reason}"));
+                    CoreKind::SingBox
+                }
+                // sing-box в сборке нет: отказ движка — ответ для человека.
+                Err(reason) => return Err(CoreError::EngineUnsupported(reason)),
+            }
         } else {
             CoreKind::SingBox
         };
+        if core == CoreKind::SingBox && !self.singbox_available() {
+            return Err(CoreError::CoreBinaryMissing(
+                self.singbox_path.display().to_string(),
+            ));
+        }
         *used_engine = core == CoreKind::Engine;
         let binary_path = match core {
             CoreKind::Engine => self.engine_path(),
@@ -382,32 +395,29 @@ impl RuntimeService {
         self.singbox_path.with_file_name(ENGINE_BINARY)
     }
 
-    /// Свой движок подходит: он есть рядом с sing-box (в сборке или в
-    /// каталоге помощника) и сам принял конфигурацию — в режиме TUN тоже,
-    /// если туннель ему по силам. Причина отказа — в журнал (без секретов:
-    /// движок называет только протокол и номер сервера).
-    async fn engine_accepts(&self, config: &str) -> bool {
+    /// Есть ли sing-box в сборке. Без него свой движок — единственное ядро:
+    /// отказа движка и его сбоя никто не подхватывает.
+    pub fn singbox_available(&self) -> bool {
+        self.singbox_path.is_file()
+    }
+
+    /// Свой движок подходит: он лежит рядом с местом sing-box (в сборке или
+    /// в каталоге помощника) и сам принял конфигурацию — в режиме TUN тоже,
+    /// если туннель ему по силам. Причина отказа — без секретов: движок
+    /// называет только протокол и номер сервера.
+    async fn engine_check(&self, config: &str) -> Result<(), String> {
         if std::env::var(CORE_OVERRIDE_ENV).is_ok_and(|core| core == CoreKind::SingBox.name()) {
-            return false;
+            return Err(format!("{CORE_OVERRIDE_ENV}=sing-box"));
         }
         let engine = self.engine_path();
         if !engine.is_file() {
-            return false;
+            return Err("gorion-engine missing".into());
         }
         let engine = engine.to_string_lossy().into_owned();
         match run_with_timeout(&engine, &["check", "-c", config], Duration::from_secs(10)).await {
-            Ok(check) if check.status == 0 => true,
-            Ok(check) => {
-                self.log(format!(
-                    "свой движок не подходит, нужен sing-box: {}",
-                    check.stderr.trim()
-                ));
-                false
-            }
-            Err(error) => {
-                self.log(format!("проверка своего движка не удалась: {error}"));
-                false
-            }
+            Ok(check) if check.status == 0 => Ok(()),
+            Ok(check) => Err(check.stderr.trim().to_owned()),
+            Err(error) => Err(format!("check failed: {error}")),
         }
     }
 

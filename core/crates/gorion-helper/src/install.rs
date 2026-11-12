@@ -20,10 +20,18 @@ fn require_root() -> Result<(), String> {
     }
 }
 
-pub fn install(singbox: &Path) -> Result<(), String> {
+/// Ставит помощника и ядро: свой движок обязательно, sing-box — только если
+/// он есть в сборке (переходный период ADR-0005). Нет sing-box — старая
+/// копия убирается, чтобы помощник не откатился на неё.
+pub fn install(engine: &Path, singbox: Option<&Path>) -> Result<(), String> {
     require_root()?;
     let helper = std::env::current_exe().map_err(|e| e.to_string())?;
-    if !singbox.is_file() {
+    if !engine.is_file() {
+        return Err(format!("нет движка: {}", engine.display()));
+    }
+    if let Some(singbox) = singbox
+        && !singbox.is_file()
+    {
         return Err(format!("нет sing-box: {}", singbox.display()));
     }
     // Старая служба (в том числе Flutter-версии) останавливается первой:
@@ -36,16 +44,13 @@ pub fn install(singbox: &Path) -> Result<(), String> {
         secure(dir, 0o755)?;
     }
     copy_secure(&helper, &bin.join("gorion-helper"))?;
-    copy_secure(singbox, &bin.join("sing-box"))?;
-    // Свой движок (ADR-0005) лежит рядом с sing-box в сборке приложения.
-    // Ядро в помощнике берёт его, если профиль ему по силам; нет движка —
-    // работает sing-box, и старая копия не должна остаться.
-    let engine = singbox.with_file_name(ENGINE_BINARY);
-    let installed_engine = bin.join(ENGINE_BINARY);
-    if engine.is_file() {
-        copy_secure(&engine, &installed_engine)?;
-    } else {
-        let _ = std::fs::remove_file(&installed_engine);
+    copy_secure(engine, &bin.join(ENGINE_BINARY))?;
+    let installed_singbox = bin.join("sing-box");
+    match singbox {
+        Some(singbox) => copy_secure(singbox, &installed_singbox)?,
+        None => {
+            let _ = std::fs::remove_file(&installed_singbox);
+        }
     }
     remove_legacy(support);
 

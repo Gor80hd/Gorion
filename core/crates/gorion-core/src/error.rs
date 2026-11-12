@@ -40,6 +40,8 @@ pub enum ErrorCode {
     HelperInstallCancelled,
     /// Установка помощника не удалась.
     HelperInstallFailed,
+    /// Свой движок не умеет этот профиль, а sing-box в сборке нет.
+    EngineUnsupported,
 }
 
 #[derive(Debug, Error)]
@@ -94,6 +96,10 @@ pub enum CoreError {
     HelperInstallCancelled,
     #[error("помощник не установлен: {0}")]
     HelperInstallFailed(String),
+    /// Причина отказа движка (`gorion-engine check`): протокол и номер
+    /// сервера или настройка — без имён и секретов.
+    #[error("ядро Gorion не поддерживает профиль: {0}")]
+    EngineUnsupported(String),
     /// Ошибка, которую вернул помощник: код сохраняется как есть.
     #[error("помощник: {detail}")]
     Remote { code: ErrorCode, detail: String },
@@ -127,6 +133,7 @@ impl CoreError {
             Self::HelperOutdated(_) => ErrorCode::HelperOutdated,
             Self::HelperInstallCancelled => ErrorCode::HelperInstallCancelled,
             Self::HelperInstallFailed(_) => ErrorCode::HelperInstallFailed,
+            Self::EngineUnsupported(_) => ErrorCode::EngineUnsupported,
             Self::Remote { code, .. } => *code,
         }
     }

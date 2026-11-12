@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! gorion-helper serve [--socket P] [--runtime-dir D] [--singbox S] [--allow-non-tun]
-//! gorion-helper install --singbox S     # от root: ставит службу launchd
+//! gorion-helper install --engine E [--singbox S]  # от root: ставит службу launchd
 //! gorion-helper uninstall               # от root: убирает службу
 //! gorion-helper --version
 //! ```
@@ -21,9 +21,12 @@ fn main() -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("serve") => serve::Options::parse(&args[1..]).and_then(serve::run),
         #[cfg(target_os = "macos")]
-        Some("install") => flag_value(&args[1..], "--singbox")
-            .ok_or_else(|| "install: нужен --singbox".to_owned())
-            .and_then(|singbox| install::install(&PathBuf::from(singbox))),
+        Some("install") => flag_value(&args[1..], "--engine")
+            .ok_or_else(|| "install: нужен --engine".to_owned())
+            .and_then(|engine| {
+                let singbox = flag_value(&args[1..], "--singbox").map(PathBuf::from);
+                install::install(&PathBuf::from(engine), singbox.as_deref())
+            }),
         #[cfg(target_os = "macos")]
         Some("uninstall") => install::uninstall(),
         Some("--version") => {

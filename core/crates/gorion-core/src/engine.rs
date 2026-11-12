@@ -800,7 +800,9 @@ impl Engine {
         // Переходный период ADR-0005: если свой движок не нашёл рабочего
         // сервера, та же попытка идёт через sing-box. Сервер, недоступный и
         // там, получает обычную ошибку.
+        // Без sing-box в сборке повторять не через что: ошибка движка видна как есть.
         let engine_failed = matches!(result, Err(CoreError::InternetUnavailable(_)))
+            && self.runtime.singbox_available()
             && self.running_core(mode).await == Some(CoreKind::Engine);
         if !engine_failed || !self.is_current(generation) {
             return result;

@@ -10,6 +10,8 @@ struct GorionApp: App {
     @State private var ui = UIState()
 
     init() {
+        // Место ядра: свой движок лежит рядом (Resources/gorion-engine). Самого
+        // sing-box в сборке сейчас нет — ядро тогда работает только на движке.
         let singbox = Bundle.main.url(forResource: "sing-box", withExtension: nil)
             ?? Bundle.main.bundleURL.appending(path: "Contents/Resources/sing-box")
         // GORION_DATA_DIR — отдельный каталог данных для проверок и скриншотов,
