@@ -54,3 +54,16 @@ tool/globe/*.geojson
 
 # sing-box binaries are fetched by: dart run tool/vendor_singbox.dart
 /assets/singbox/
+
+# Нативные приложения (Rust-ядро, macOS)
+/core/target/
+/apps/macos/build/
+/apps/macos/Packages/GorionKit/Frameworks/
+/apps/macos/Packages/GorionKit/Sources/GorionCoreFFI/
+/apps/macos/*.xcodeproj/xcuserdata/
+/apps/macos/*.xcodeproj/project.xcworkspace/xcuserdata/
+/apps/macos/DerivedData/
+/apps/macos/Packages/*/.build/
+/apps/macos/Packages/*/.swiftpm/
+# Генерируется из apps/macos/project.yml (xcodegen generate)
+/apps/macos/Gorion.xcodeproj/

@@ -1,0 +1,1508 @@
+[
+  {
+    "name": "mixed_default",
+    "template": {
+      "log": {
+        "level": "debug",
+        "output": "/etc/evil.log",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "path": "/tmp/evil.db",
+          "store_rdrc": true
+        },
+        "v2ray_api": {
+          "listen": "0.0.0.0:1"
+        }
+      },
+      "services": [
+        {
+          "type": "derp"
+        }
+      ]
+    },
+    "mode": "mixed",
+    "selected": null,
+    "output": {
+      "log": {
+        "level": "debug",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        },
+        {
+          "type": "selector",
+          "tag": "gorion-manual",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "default": "a",
+          "interrupt_exist_connections": true
+        },
+        {
+          "type": "urltest",
+          "tag": "gorion-auto",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "url": "https://www.gstatic.com/generate_204",
+          "interval": "5m",
+          "tolerance": 50,
+          "interrupt_exist_connections": false
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "store_rdrc": true
+        },
+        "clash_api": {
+          "external_controller": "127.0.0.1:9090",
+          "secret": "secret",
+          "default_mode": "Rule",
+          "access_control_allow_origin": [
+            "*"
+          ]
+        }
+      },
+      "inbounds": [
+        {
+          "type": "mixed",
+          "tag": "gorion-mixed",
+          "listen": "127.0.0.1",
+          "listen_port": 2080
+        }
+      ],
+      "route": {
+        "auto_detect_interface": true,
+        "final": "gorion-manual"
+      }
+    }
+  },
+  {
+    "name": "mixed_b",
+    "template": {
+      "log": {
+        "level": "debug",
+        "output": "/etc/evil.log",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "path": "/tmp/evil.db",
+          "store_rdrc": true
+        },
+        "v2ray_api": {
+          "listen": "0.0.0.0:1"
+        }
+      },
+      "services": [
+        {
+          "type": "derp"
+        }
+      ]
+    },
+    "mode": "mixed",
+    "selected": "b",
+    "output": {
+      "log": {
+        "level": "debug",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        },
+        {
+          "type": "selector",
+          "tag": "gorion-manual",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "default": "b",
+          "interrupt_exist_connections": true
+        },
+        {
+          "type": "urltest",
+          "tag": "gorion-auto",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "url": "https://www.gstatic.com/generate_204",
+          "interval": "5m",
+          "tolerance": 50,
+          "interrupt_exist_connections": false
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "store_rdrc": true
+        },
+        "clash_api": {
+          "external_controller": "127.0.0.1:9090",
+          "secret": "secret",
+          "default_mode": "Rule",
+          "access_control_allow_origin": [
+            "*"
+          ]
+        }
+      },
+      "inbounds": [
+        {
+          "type": "mixed",
+          "tag": "gorion-mixed",
+          "listen": "127.0.0.1",
+          "listen_port": 2080
+        }
+      ],
+      "route": {
+        "auto_detect_interface": true,
+        "final": "gorion-manual"
+      }
+    }
+  },
+  {
+    "name": "mixed_missing",
+    "template": {
+      "log": {
+        "level": "debug",
+        "output": "/etc/evil.log",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "path": "/tmp/evil.db",
+          "store_rdrc": true
+        },
+        "v2ray_api": {
+          "listen": "0.0.0.0:1"
+        }
+      },
+      "services": [
+        {
+          "type": "derp"
+        }
+      ]
+    },
+    "mode": "mixed",
+    "selected": "missing",
+    "output": {
+      "log": {
+        "level": "debug",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        },
+        {
+          "type": "selector",
+          "tag": "gorion-manual",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "default": "a",
+          "interrupt_exist_connections": true
+        },
+        {
+          "type": "urltest",
+          "tag": "gorion-auto",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "url": "https://www.gstatic.com/generate_204",
+          "interval": "5m",
+          "tolerance": 50,
+          "interrupt_exist_connections": false
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "store_rdrc": true
+        },
+        "clash_api": {
+          "external_controller": "127.0.0.1:9090",
+          "secret": "secret",
+          "default_mode": "Rule",
+          "access_control_allow_origin": [
+            "*"
+          ]
+        }
+      },
+      "inbounds": [
+        {
+          "type": "mixed",
+          "tag": "gorion-mixed",
+          "listen": "127.0.0.1",
+          "listen_port": 2080
+        }
+      ],
+      "route": {
+        "auto_detect_interface": true,
+        "final": "gorion-manual"
+      }
+    }
+  },
+  {
+    "name": "systemProxy_default",
+    "template": {
+      "log": {
+        "level": "debug",
+        "output": "/etc/evil.log",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "path": "/tmp/evil.db",
+          "store_rdrc": true
+        },
+        "v2ray_api": {
+          "listen": "0.0.0.0:1"
+        }
+      },
+      "services": [
+        {
+          "type": "derp"
+        }
+      ]
+    },
+    "mode": "systemProxy",
+    "selected": null,
+    "output": {
+      "log": {
+        "level": "debug",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        },
+        {
+          "type": "selector",
+          "tag": "gorion-manual",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "default": "a",
+          "interrupt_exist_connections": true
+        },
+        {
+          "type": "urltest",
+          "tag": "gorion-auto",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "url": "https://www.gstatic.com/generate_204",
+          "interval": "5m",
+          "tolerance": 50,
+          "interrupt_exist_connections": false
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "store_rdrc": true
+        },
+        "clash_api": {
+          "external_controller": "127.0.0.1:9090",
+          "secret": "secret",
+          "default_mode": "Rule",
+          "access_control_allow_origin": [
+            "*"
+          ]
+        }
+      },
+      "inbounds": [
+        {
+          "type": "mixed",
+          "tag": "gorion-mixed",
+          "listen": "127.0.0.1",
+          "listen_port": 2080
+        }
+      ],
+      "route": {
+        "auto_detect_interface": true,
+        "final": "gorion-manual"
+      }
+    }
+  },
+  {
+    "name": "systemProxy_b",
+    "template": {
+      "log": {
+        "level": "debug",
+        "output": "/etc/evil.log",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "path": "/tmp/evil.db",
+          "store_rdrc": true
+        },
+        "v2ray_api": {
+          "listen": "0.0.0.0:1"
+        }
+      },
+      "services": [
+        {
+          "type": "derp"
+        }
+      ]
+    },
+    "mode": "systemProxy",
+    "selected": "b",
+    "output": {
+      "log": {
+        "level": "debug",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        },
+        {
+          "type": "selector",
+          "tag": "gorion-manual",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "default": "b",
+          "interrupt_exist_connections": true
+        },
+        {
+          "type": "urltest",
+          "tag": "gorion-auto",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "url": "https://www.gstatic.com/generate_204",
+          "interval": "5m",
+          "tolerance": 50,
+          "interrupt_exist_connections": false
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "store_rdrc": true
+        },
+        "clash_api": {
+          "external_controller": "127.0.0.1:9090",
+          "secret": "secret",
+          "default_mode": "Rule",
+          "access_control_allow_origin": [
+            "*"
+          ]
+        }
+      },
+      "inbounds": [
+        {
+          "type": "mixed",
+          "tag": "gorion-mixed",
+          "listen": "127.0.0.1",
+          "listen_port": 2080
+        }
+      ],
+      "route": {
+        "auto_detect_interface": true,
+        "final": "gorion-manual"
+      }
+    }
+  },
+  {
+    "name": "systemProxy_missing",
+    "template": {
+      "log": {
+        "level": "debug",
+        "output": "/etc/evil.log",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "path": "/tmp/evil.db",
+          "store_rdrc": true
+        },
+        "v2ray_api": {
+          "listen": "0.0.0.0:1"
+        }
+      },
+      "services": [
+        {
+          "type": "derp"
+        }
+      ]
+    },
+    "mode": "systemProxy",
+    "selected": "missing",
+    "output": {
+      "log": {
+        "level": "debug",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        },
+        {
+          "type": "selector",
+          "tag": "gorion-manual",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "default": "a",
+          "interrupt_exist_connections": true
+        },
+        {
+          "type": "urltest",
+          "tag": "gorion-auto",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "url": "https://www.gstatic.com/generate_204",
+          "interval": "5m",
+          "tolerance": 50,
+          "interrupt_exist_connections": false
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "store_rdrc": true
+        },
+        "clash_api": {
+          "external_controller": "127.0.0.1:9090",
+          "secret": "secret",
+          "default_mode": "Rule",
+          "access_control_allow_origin": [
+            "*"
+          ]
+        }
+      },
+      "inbounds": [
+        {
+          "type": "mixed",
+          "tag": "gorion-mixed",
+          "listen": "127.0.0.1",
+          "listen_port": 2080
+        }
+      ],
+      "route": {
+        "auto_detect_interface": true,
+        "final": "gorion-manual"
+      }
+    }
+  },
+  {
+    "name": "tun_default",
+    "template": {
+      "log": {
+        "level": "debug",
+        "output": "/etc/evil.log",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "path": "/tmp/evil.db",
+          "store_rdrc": true
+        },
+        "v2ray_api": {
+          "listen": "0.0.0.0:1"
+        }
+      },
+      "services": [
+        {
+          "type": "derp"
+        }
+      ]
+    },
+    "mode": "tun",
+    "selected": null,
+    "output": {
+      "log": {
+        "level": "debug",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        },
+        {
+          "type": "selector",
+          "tag": "gorion-manual",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "default": "a",
+          "interrupt_exist_connections": true
+        },
+        {
+          "type": "urltest",
+          "tag": "gorion-auto",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "url": "https://www.gstatic.com/generate_204",
+          "interval": "5m",
+          "tolerance": 50,
+          "interrupt_exist_connections": false
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "store_rdrc": true
+        },
+        "clash_api": {
+          "external_controller": "127.0.0.1:9090",
+          "secret": "secret",
+          "default_mode": "Rule",
+          "access_control_allow_origin": [
+            "*"
+          ]
+        }
+      },
+      "inbounds": [
+        {
+          "type": "mixed",
+          "tag": "gorion-mixed",
+          "listen": "127.0.0.1",
+          "listen_port": 2080
+        },
+        {
+          "type": "tun",
+          "tag": "gorion-tun",
+          "interface_name": "",
+          "address": [
+            "172.19.0.1/30",
+            "fdfe:dcba:9876::1/126"
+          ],
+          "auto_route": true,
+          "strict_route": true,
+          "stack": "system"
+        }
+      ],
+      "dns": {
+        "servers": [
+          {
+            "type": "local",
+            "tag": "gorion-bootstrap"
+          },
+          {
+            "type": "https",
+            "tag": "gorion-dns",
+            "server": "1.1.1.1",
+            "tls": {
+              "enabled": true,
+              "server_name": "cloudflare-dns.com"
+            },
+            "detour": "gorion-manual"
+          }
+        ],
+        "final": "gorion-dns"
+      },
+      "route": {
+        "auto_detect_interface": true,
+        "final": "gorion-manual",
+        "rules": [
+          {
+            "inbound": "gorion-tun",
+            "action": "sniff"
+          },
+          {
+            "inbound": "gorion-tun",
+            "protocol": "dns",
+            "action": "hijack-dns"
+          }
+        ],
+        "default_domain_resolver": "gorion-bootstrap"
+      }
+    }
+  },
+  {
+    "name": "tun_b",
+    "template": {
+      "log": {
+        "level": "debug",
+        "output": "/etc/evil.log",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "path": "/tmp/evil.db",
+          "store_rdrc": true
+        },
+        "v2ray_api": {
+          "listen": "0.0.0.0:1"
+        }
+      },
+      "services": [
+        {
+          "type": "derp"
+        }
+      ]
+    },
+    "mode": "tun",
+    "selected": "b",
+    "output": {
+      "log": {
+        "level": "debug",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        },
+        {
+          "type": "selector",
+          "tag": "gorion-manual",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "default": "b",
+          "interrupt_exist_connections": true
+        },
+        {
+          "type": "urltest",
+          "tag": "gorion-auto",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "url": "https://www.gstatic.com/generate_204",
+          "interval": "5m",
+          "tolerance": 50,
+          "interrupt_exist_connections": false
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "store_rdrc": true
+        },
+        "clash_api": {
+          "external_controller": "127.0.0.1:9090",
+          "secret": "secret",
+          "default_mode": "Rule",
+          "access_control_allow_origin": [
+            "*"
+          ]
+        }
+      },
+      "inbounds": [
+        {
+          "type": "mixed",
+          "tag": "gorion-mixed",
+          "listen": "127.0.0.1",
+          "listen_port": 2080
+        },
+        {
+          "type": "tun",
+          "tag": "gorion-tun",
+          "interface_name": "",
+          "address": [
+            "172.19.0.1/30",
+            "fdfe:dcba:9876::1/126"
+          ],
+          "auto_route": true,
+          "strict_route": true,
+          "stack": "system"
+        }
+      ],
+      "dns": {
+        "servers": [
+          {
+            "type": "local",
+            "tag": "gorion-bootstrap"
+          },
+          {
+            "type": "https",
+            "tag": "gorion-dns",
+            "server": "1.1.1.1",
+            "tls": {
+              "enabled": true,
+              "server_name": "cloudflare-dns.com"
+            },
+            "detour": "gorion-manual"
+          }
+        ],
+        "final": "gorion-dns"
+      },
+      "route": {
+        "auto_detect_interface": true,
+        "final": "gorion-manual",
+        "rules": [
+          {
+            "inbound": "gorion-tun",
+            "action": "sniff"
+          },
+          {
+            "inbound": "gorion-tun",
+            "protocol": "dns",
+            "action": "hijack-dns"
+          }
+        ],
+        "default_domain_resolver": "gorion-bootstrap"
+      }
+    }
+  },
+  {
+    "name": "tun_missing",
+    "template": {
+      "log": {
+        "level": "debug",
+        "output": "/etc/evil.log",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "path": "/tmp/evil.db",
+          "store_rdrc": true
+        },
+        "v2ray_api": {
+          "listen": "0.0.0.0:1"
+        }
+      },
+      "services": [
+        {
+          "type": "derp"
+        }
+      ]
+    },
+    "mode": "tun",
+    "selected": "missing",
+    "output": {
+      "log": {
+        "level": "debug",
+        "timestamp": true
+      },
+      "outbounds": [
+        {
+          "type": "selector",
+          "tag": "proxy",
+          "outbounds": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "vless",
+          "tag": "a",
+          "server": "a.example.com",
+          "server_port": 443,
+          "uuid": "11111111-2222-3333-4444-555555555555"
+        },
+        {
+          "type": "shadowsocks",
+          "tag": "b",
+          "server": "b.example.com",
+          "server_port": "8388",
+          "method": "aes-128-gcm",
+          "password": "x"
+        },
+        {
+          "type": "trojan",
+          "tag": "hidden §hide§",
+          "server": "h.example.com",
+          "server_port": 443,
+          "password": "x"
+        },
+        {
+          "type": "direct",
+          "tag": "direct"
+        },
+        {
+          "type": "selector",
+          "tag": "gorion-manual",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "default": "a",
+          "interrupt_exist_connections": true
+        },
+        {
+          "type": "urltest",
+          "tag": "gorion-auto",
+          "outbounds": [
+            "a",
+            "b"
+          ],
+          "url": "https://www.gstatic.com/generate_204",
+          "interval": "5m",
+          "tolerance": 50,
+          "interrupt_exist_connections": false
+        }
+      ],
+      "experimental": {
+        "cache_file": {
+          "enabled": true,
+          "store_rdrc": true
+        },
+        "clash_api": {
+          "external_controller": "127.0.0.1:9090",
+          "secret": "secret",
+          "default_mode": "Rule",
+          "access_control_allow_origin": [
+            "*"
+          ]
+        }
+      },
+      "inbounds": [
+        {
+          "type": "mixed",
+          "tag": "gorion-mixed",
+          "listen": "127.0.0.1",
+          "listen_port": 2080
+        },
+        {
+          "type": "tun",
+          "tag": "gorion-tun",
+          "interface_name": "",
+          "address": [
+            "172.19.0.1/30",
+            "fdfe:dcba:9876::1/126"
+          ],
+          "auto_route": true,
+          "strict_route": true,
+          "stack": "system"
+        }
+      ],
+      "dns": {
+        "servers": [
+          {
+            "type": "local",
+            "tag": "gorion-bootstrap"
+          },
+          {
+            "type": "https",
+            "tag": "gorion-dns",
+            "server": "1.1.1.1",
+            "tls": {
+              "enabled": true,
+              "server_name": "cloudflare-dns.com"
+            },
+            "detour": "gorion-manual"
+          }
+        ],
+        "final": "gorion-dns"
+      },
+      "route": {
+        "auto_detect_interface": true,
+        "final": "gorion-manual",
+        "rules": [
+          {
+            "inbound": "gorion-tun",
+            "action": "sniff"
+          },
+          {
+            "inbound": "gorion-tun",
+            "protocol": "dns",
+            "action": "hijack-dns"
+          }
+        ],
+        "default_domain_resolver": "gorion-bootstrap"
+      }
+    }
+  }
+]

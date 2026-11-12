@@ -1,0 +1,1155 @@
+[
+  {
+    "name": "link_vless_reality_vision",
+    "input": "vless://11111111-2222-3333-4444-555555555555@example.com:443?security=reality&sni=www.example.org&fp=chrome&pbk=PUBKEYexample123&sid=abcd&type=tcp&flow=xtls-rprx-vision#%F0%9F%87%B3%F0%9F%87%B1%20NL%20Amsterdam",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "%F0%9F%87%B3%F0%9F%87%B1%20NL%20Amsterdam",
+            "server": "example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "flow": "xtls-rprx-vision",
+            "tls": {
+              "enabled": true,
+              "server_name": "www.example.org",
+              "utls": {
+                "enabled": true,
+                "fingerprint": "chrome"
+              },
+              "reality": {
+                "enabled": true,
+                "public_key": "PUBKEYexample123",
+                "short_id": "abcd"
+              }
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "%F0%9F%87%B3%F0%9F%87%B1%20NL%20Amsterdam",
+          "displayName": "%F0%9F%87%B3%F0%9F%87%B1%20NL%20Amsterdam",
+          "type": "vless",
+          "host": "example.com",
+          "port": 443,
+          "configFingerprint": "-204f092dedee500b"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_vless_ws_tls",
+    "input": "vless://11111111-2222-3333-4444-555555555555@203.0.113.10:8443?security=tls&type=ws&path=%2Fws%3Fed%3D2048&host=cdn.example.com&ed=2048&alpn=h2,http/1.1&allowInsecure=1#DE_Frankfurt",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "DE_Frankfurt",
+            "server": "203.0.113.10",
+            "server_port": 8443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true,
+              "insecure": true,
+              "alpn": [
+                "h2",
+                "http/1.1"
+              ]
+            },
+            "transport": {
+              "type": "ws",
+              "path": "/ws?ed=2048",
+              "headers": {
+                "Host": "cdn.example.com"
+              },
+              "max_early_data": 2048
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "DE_Frankfurt",
+          "displayName": "🇩🇪 Frankfurt",
+          "type": "vless",
+          "host": "203.0.113.10",
+          "port": 8443,
+          "configFingerprint": "-61cffc33fcba890c"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_vless_grpc",
+    "input": "vless://11111111-2222-3333-4444-555555555555@grpc.example.com:443?security=tls&type=grpc&serviceName=%2Fsvc&sni=grpc.example.com#US-1",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "US-1",
+            "server": "grpc.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true,
+              "server_name": "grpc.example.com"
+            },
+            "transport": {
+              "type": "grpc",
+              "service_name": "svc"
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "US-1",
+          "displayName": "🇺🇸 1",
+          "type": "vless",
+          "host": "grpc.example.com",
+          "port": 443,
+          "configFingerprint": "6a3081c421b7702b"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_vless_http_header",
+    "input": "vless://11111111-2222-3333-4444-555555555555@example.com:80?type=tcp&headerType=http&host=a.example.com,b.example.com&path=%2F#[RU] Moscow",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "[RU] Moscow",
+            "server": "example.com",
+            "server_port": 80,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "transport": {
+              "type": "http",
+              "host": [
+                "a.example.com",
+                "b.example.com"
+              ],
+              "path": "/"
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "[RU] Moscow",
+          "displayName": "🇷🇺 Moscow",
+          "type": "vless",
+          "host": "example.com",
+          "port": 80,
+          "configFingerprint": "-7625bd1560f4f1f0"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_vless_httpupgrade",
+    "input": "vless://11111111-2222-3333-4444-555555555555@example.com:80?type=httpupgrade&host=up.example.com&path=%2Fup&packetEncoding=xudp#fi helsinki",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "fi helsinki",
+            "server": "example.com",
+            "server_port": 80,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "packet_encoding": "xudp",
+            "transport": {
+              "type": "httpupgrade",
+              "host": "up.example.com",
+              "path": "/up"
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "fi helsinki",
+          "displayName": "fi helsinki",
+          "type": "vless",
+          "host": "example.com",
+          "port": 80,
+          "configFingerprint": "-7c4e4148a38dd7e3"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_vless_xhttp_rejected",
+    "input": "vless://11111111-2222-3333-4444-555555555555@example.com:443?security=tls&type=xhttp&path=%2Fx#XHTTP",
+    "error": "FormatException: Unsupported transport: xhttp"
+  },
+  {
+    "name": "link_vless_reality_without_key",
+    "input": "vless://11111111-2222-3333-4444-555555555555@example.com:443?security=reality&sni=www.example.org#NoKey",
+    "error": "FormatException: Only sing-box JSON configs or base64/plain remote subscriptions with share links are supported right now."
+  },
+  {
+    "name": "link_vless_no_fragment",
+    "input": "vless://11111111-2222-3333-4444-555555555555@example.com:443?security=tls",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "example.com:443",
+            "server": "example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "example.com:443",
+          "displayName": "example.com:443",
+          "type": "vless",
+          "host": "example.com",
+          "port": 443,
+          "configFingerprint": "-2a74796744b42a8d"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_vless_ipv6",
+    "input": "vless://11111111-2222-3333-4444-555555555555@[2001:db8::1]:443?security=tls#IPv6",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "IPv6",
+            "server": "2001:db8::1",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "IPv6",
+          "displayName": "IPv6",
+          "type": "vless",
+          "host": "2001:db8::1",
+          "port": 443,
+          "configFingerprint": "485726deb94da3e2"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_vmess_json",
+    "input": "vmess://eyJ2IjoiMiIsInBzIjoiSlAgVG9reW8iLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjExMTExMTExLTIyMjItMzMzMy00NDQ0LTU1NTU1NTU1NTU1NSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0Ijoid3MiLCJ0eXBlIjoibm9uZSIsImhvc3QiOiJ2bS5leGFtcGxlLmNvbSIsInBhdGgiOiIvdm0iLCJ0bHMiOiJ0bHMiLCJzbmkiOiJ2bS5leGFtcGxlLmNvbSIsImFscG4iOiJoMiIsImZwIjoiZmlyZWZveCJ9",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vmess",
+            "tag": "JP Tokyo",
+            "server": "vm.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "security": "auto",
+            "alter_id": 0,
+            "tls": {
+              "enabled": true,
+              "server_name": "vm.example.com",
+              "alpn": [
+                "h2"
+              ],
+              "utls": {
+                "enabled": true,
+                "fingerprint": "firefox"
+              }
+            },
+            "transport": {
+              "type": "ws",
+              "path": "/vm",
+              "headers": {
+                "Host": "vm.example.com"
+              }
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "JP Tokyo",
+          "displayName": "🇯🇵 Tokyo",
+          "type": "vmess",
+          "host": "vm.example.com",
+          "port": 443,
+          "configFingerprint": "-59506bb9d06ec5aa"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_vmess_uri",
+    "input": "vmess://11111111-2222-3333-4444-555555555555@vm2.example.com:8080?encryption=aes-128-gcm&alterId=2&type=tcp#VMess plain",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vmess",
+            "tag": "VMess plain",
+            "server": "vm2.example.com",
+            "server_port": 8080,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "security": "aes-128-gcm",
+            "alter_id": 2
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "VMess plain",
+          "displayName": "VMess plain",
+          "type": "vmess",
+          "host": "vm2.example.com",
+          "port": 8080,
+          "configFingerprint": "-77c234f1545e721b"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_trojan_basic",
+    "input": "trojan://p%40ss@example.org:443?sni=example.org&alpn=h2,http/1.1&fp=safari#Trojan%20Server",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "trojan",
+            "tag": "Trojan%20Server",
+            "server": "example.org",
+            "server_port": 443,
+            "password": "p@ss",
+            "tls": {
+              "enabled": true,
+              "server_name": "example.org",
+              "alpn": [
+                "h2",
+                "http/1.1"
+              ],
+              "utls": {
+                "enabled": true,
+                "fingerprint": "safari"
+              }
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "Trojan%20Server",
+          "displayName": "Trojan%20Server",
+          "type": "trojan",
+          "host": "example.org",
+          "port": 443,
+          "configFingerprint": "4784be069f149973"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_trojan_ws",
+    "input": "trojan://secret@example.org:443?type=ws&path=%2Ftr&host=example.org#GB London",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "trojan",
+            "tag": "GB London",
+            "server": "example.org",
+            "server_port": 443,
+            "password": "secret",
+            "tls": {
+              "enabled": true
+            },
+            "transport": {
+              "type": "ws",
+              "path": "/tr",
+              "headers": {
+                "Host": "example.org"
+              }
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "GB London",
+          "displayName": "🇬🇧 London",
+          "type": "trojan",
+          "host": "example.org",
+          "port": 443,
+          "configFingerprint": "-2bc48134f4ab4bfa"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_ss_sip002",
+    "input": "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ=@example.net:8388#SS%20one",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "shadowsocks",
+            "tag": "SS one",
+            "server": "example.net",
+            "server_port": 8388,
+            "method": "aes-256-gcm",
+            "password": "password"
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "SS one",
+          "displayName": "🇸🇸 one",
+          "type": "shadowsocks",
+          "host": "example.net",
+          "port": 8388,
+          "configFingerprint": "-32cdf73387ec2d00"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_ss_legacy",
+    "input": "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpwdzEyM0AxOTguNTEuMTAwLjU6ODM4OQ==#SS legacy",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "shadowsocks",
+            "tag": "SS legacy",
+            "server": "198.51.100.5",
+            "server_port": 8389,
+            "method": "chacha20-ietf-poly1305",
+            "password": "pw123"
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "SS legacy",
+          "displayName": "🇸🇸 legacy",
+          "type": "shadowsocks",
+          "host": "198.51.100.5",
+          "port": 8389,
+          "configFingerprint": "-2157780cab4c738c"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_ss_plugin",
+    "input": "ss://YWVzLTEyOC1nY206cHc=@example.net:443?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dexample.com#SS plugin",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "shadowsocks",
+            "tag": "SS plugin",
+            "server": "example.net",
+            "server_port": 443,
+            "method": "aes-128-gcm",
+            "password": "pw",
+            "plugin": "obfs-local",
+            "plugin_opts": "obfs=http;obfs-host=example.com"
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "SS plugin",
+          "displayName": "🇸🇸 plugin",
+          "type": "shadowsocks",
+          "host": "example.net",
+          "port": 443,
+          "configFingerprint": "020f5611333df330"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_hysteria2_full",
+    "input": "hysteria2://hpass@hy.example.com:443?sni=hy.example.com&obfs=salamander&obfs-password=obfspw&mport=20000-30000,40000&insecure=1#HY2",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "hysteria2",
+            "tag": "HY2",
+            "server": "hy.example.com",
+            "password": "hpass",
+            "tls": {
+              "enabled": true,
+              "server_name": "hy.example.com",
+              "insecure": true
+            },
+            "obfs": {
+              "type": "salamander",
+              "password": "obfspw"
+            },
+            "server_ports": [
+              "20000:30000",
+              "40000:40000"
+            ]
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "HY2",
+          "displayName": "HY2",
+          "type": "hysteria2",
+          "host": "hy.example.com",
+          "port": null,
+          "configFingerprint": "685d93bc6106ac49"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_hy2_default_port",
+    "input": "hy2://hpass@hy.example.com?sni=hy.example.com#HY2 short",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "hysteria2",
+            "tag": "HY2 short",
+            "server": "hy.example.com",
+            "server_port": 443,
+            "password": "hpass",
+            "tls": {
+              "enabled": true,
+              "server_name": "hy.example.com"
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "HY2 short",
+          "displayName": "HY2 short",
+          "type": "hysteria2",
+          "host": "hy.example.com",
+          "port": 443,
+          "configFingerprint": "65ec26de5ac277d0"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_hysteria2_pin_rejected",
+    "input": "hysteria2://hpass@hy.example.com:443?pinSHA256=abcdef#HY2 pin",
+    "error": "FormatException: Hysteria2 certificate pin import is not supported yet."
+  },
+  {
+    "name": "link_hysteria2_bad_obfs",
+    "input": "hysteria2://hpass@hy.example.com:443?obfs=other#HY2 bad",
+    "error": "FormatException: Hysteria2 requires salamander obfuscation with a password."
+  },
+  {
+    "name": "link_tuic_full",
+    "input": "tuic://11111111-2222-3333-4444-555555555555:tpass@tuic.example.com:443?congestion_control=bbr&udp_relay_mode=native&alpn=h3&zero_rtt_handshake=1&sni=tuic.example.com#TUIC",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "tuic",
+            "tag": "TUIC",
+            "server": "tuic.example.com",
+            "server_port": 443,
+            "password": "tpass",
+            "tls": {
+              "enabled": true,
+              "server_name": "tuic.example.com",
+              "alpn": [
+                "h3"
+              ]
+            },
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "congestion_control": "bbr",
+            "udp_relay_mode": "native",
+            "zero_rtt_handshake": true
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "TUIC",
+          "displayName": "TUIC",
+          "type": "tuic",
+          "host": "tuic.example.com",
+          "port": 443,
+          "configFingerprint": "5267ecc19900db6d"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_anytls_basic",
+    "input": "anytls://apass@any.example.com:443?sni=any.example.com&fp=chrome#AnyTLS",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "anytls",
+            "tag": "AnyTLS",
+            "server": "any.example.com",
+            "server_port": 443,
+            "password": "apass",
+            "tls": {
+              "enabled": true,
+              "server_name": "any.example.com",
+              "utls": {
+                "enabled": true,
+                "fingerprint": "chrome"
+              }
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "AnyTLS",
+          "displayName": "AnyTLS",
+          "type": "anytls",
+          "host": "any.example.com",
+          "port": 443,
+          "configFingerprint": "48ba127683ce586e"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "link_unknown_scheme",
+    "input": "wireguard://abc@example.com:51820#WG",
+    "error": "FormatException: Only sing-box JSON configs or base64/plain remote subscriptions with share links are supported right now."
+  },
+  {
+    "name": "sub_plain_list_with_duplicates",
+    "input": "# comment\nvless://11111111-2222-3333-4444-555555555555@a.example.com:443?security=tls#Same\nvless://11111111-2222-3333-4444-555555555555@b.example.com:443?security=tls#Same\n\ntrojan://pw@c.example.com:443#Same\ngarbage line",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "Same",
+            "server": "a.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true
+            }
+          },
+          {
+            "type": "vless",
+            "tag": "Same (2)",
+            "server": "b.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true
+            }
+          },
+          {
+            "type": "trojan",
+            "tag": "Same (3)",
+            "server": "c.example.com",
+            "server_port": 443,
+            "password": "pw",
+            "tls": {
+              "enabled": true
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "Same",
+          "displayName": "Same",
+          "type": "vless",
+          "host": "a.example.com",
+          "port": 443,
+          "configFingerprint": "-68037ad1ef7a3f9e"
+        },
+        {
+          "tag": "Same (2)",
+          "displayName": "Same (2)",
+          "type": "vless",
+          "host": "b.example.com",
+          "port": 443,
+          "configFingerprint": "3cf6d20ded2e7477"
+        },
+        {
+          "tag": "Same (3)",
+          "displayName": "Same (3)",
+          "type": "trojan",
+          "host": "c.example.com",
+          "port": 443,
+          "configFingerprint": "2faf0bcbd805c352"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "sub_base64_list",
+    "input": "dmxlc3M6Ly8xMTExMTExMS0yMjIyLTMzMzMtNDQ0NC01NTU1NTU1NTU1NTVAYS5leGFtcGxlLmNvbTo0NDM/c2VjdXJpdHk9dGxzI05MXzENCnNzOi8vWVdWekxUSTFOaTFuWTIwNmNIYz1AYi5leGFtcGxlLmNvbTo4Mzg4I0RFLTI=",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "NL_1",
+            "server": "a.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true
+            }
+          },
+          {
+            "type": "shadowsocks",
+            "tag": "DE-2",
+            "server": "b.example.com",
+            "server_port": 8388,
+            "method": "aes-256-gcm",
+            "password": "pw"
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "NL_1",
+          "displayName": "🇳🇱 1",
+          "type": "vless",
+          "host": "a.example.com",
+          "port": 443,
+          "configFingerprint": "-68037ad1ef7a3f9e"
+        },
+        {
+          "tag": "DE-2",
+          "displayName": "🇩🇪 2",
+          "type": "shadowsocks",
+          "host": "b.example.com",
+          "port": 8388,
+          "configFingerprint": "79860e742be92bba"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "sub_singbox_json",
+    "input": "{\"log\":{\"level\":\"debug\",\"output\":\"/etc/evil.log\",\"timestamp\":true},\"outbounds\":[{\"type\":\"selector\",\"tag\":\"proxy\",\"outbounds\":[\"a\",\"b\"]},{\"type\":\"vless\",\"tag\":\"a\",\"server\":\"a.example.com\",\"server_port\":443,\"uuid\":\"11111111-2222-3333-4444-555555555555\"},{\"type\":\"shadowsocks\",\"tag\":\"b\",\"server\":\"b.example.com\",\"server_port\":\"8388\",\"method\":\"aes-128-gcm\",\"password\":\"x\"},{\"type\":\"trojan\",\"tag\":\"hidden §hide§\",\"server\":\"h.example.com\",\"server_port\":443,\"password\":\"x\"},{\"type\":\"direct\",\"tag\":\"direct\"}],\"experimental\":{\"cache_file\":{\"enabled\":true,\"path\":\"/tmp/evil.db\",\"store_rdrc\":true},\"v2ray_api\":{\"listen\":\"0.0.0.0:1\"}},\"services\":[{\"type\":\"derp\"}]}",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "log": {
+          "level": "debug",
+          "output": "/etc/evil.log",
+          "timestamp": true
+        },
+        "outbounds": [
+          {
+            "type": "selector",
+            "tag": "proxy",
+            "outbounds": [
+              "a",
+              "b"
+            ]
+          },
+          {
+            "type": "vless",
+            "tag": "a",
+            "server": "a.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555"
+          },
+          {
+            "type": "shadowsocks",
+            "tag": "b",
+            "server": "b.example.com",
+            "server_port": "8388",
+            "method": "aes-128-gcm",
+            "password": "x"
+          },
+          {
+            "type": "trojan",
+            "tag": "hidden §hide§",
+            "server": "h.example.com",
+            "server_port": 443,
+            "password": "x"
+          },
+          {
+            "type": "direct",
+            "tag": "direct"
+          }
+        ],
+        "experimental": {
+          "cache_file": {
+            "enabled": true,
+            "path": "/tmp/evil.db",
+            "store_rdrc": true
+          },
+          "v2ray_api": {
+            "listen": "0.0.0.0:1"
+          }
+        },
+        "services": [
+          {
+            "type": "derp"
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "a",
+          "displayName": "a",
+          "type": "vless",
+          "host": "a.example.com",
+          "port": 443,
+          "configFingerprint": "-11449a41a30fd2a2"
+        },
+        {
+          "tag": "b",
+          "displayName": "b",
+          "type": "shadowsocks",
+          "host": "b.example.com",
+          "port": 8388,
+          "configFingerprint": "49e3bb94a69d730d"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "sub_json_with_bom_and_noise",
+    "input": "﻿  junk {\"outbounds\":[{\"type\":\"trojan\",\"tag\":\"t\",\"server\":\"t.example.com\",\"server_port\":443,\"password\":\"p\"}]} tail",
+    "ok": {
+      "name": "sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "trojan",
+            "tag": "t",
+            "server": "t.example.com",
+            "server_port": 443,
+            "password": "p"
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "t",
+          "displayName": "t",
+          "type": "trojan",
+          "host": "t.example.com",
+          "port": 443,
+          "configFingerprint": "0a1860ce28faee7e"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "sub_empty",
+    "input": "   ",
+    "error": "FormatException: Only sing-box JSON configs or base64/plain remote subscriptions with share links are supported right now."
+  },
+  {
+    "name": "sub_only_garbage",
+    "input": "hello world",
+    "error": "FormatException: Only sing-box JSON configs or base64/plain remote subscriptions with share links are supported right now."
+  },
+  {
+    "name": "sub_no_selectable",
+    "input": "{\"outbounds\":[{\"type\":\"direct\",\"tag\":\"direct\"}]}",
+    "error": "FormatException: No selectable servers were found in this subscription."
+  },
+  {
+    "name": "headers_profile_title_base64",
+    "input": "vless://11111111-2222-3333-4444-555555555555@a.example.com:443?security=tls#Fallback_Name",
+    "url": "https://sub.example.com/api/sub/token123",
+    "headers": {
+      "profile-title": "base64:0JzQvtC5IFZQTg==",
+      "subscription-userinfo": "upload=1024; download=2048; total=1073741824; expire=1893456000",
+      "profile-web-page-url": "https://example.com/account",
+      "support-url": "https://t.me/example"
+    },
+    "ok": {
+      "name": "Мой VPN",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "Fallback_Name",
+            "server": "a.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "Fallback_Name",
+          "displayName": "Fallback Name",
+          "type": "vless",
+          "host": "a.example.com",
+          "port": 443,
+          "configFingerprint": "-68037ad1ef7a3f9e"
+        }
+      ],
+      "subscriptionInfo": {
+        "upload": 1024,
+        "download": 2048,
+        "total": 1073741824,
+        "expireAtEpochSeconds": 1893456000,
+        "webPageUrl": "https://example.com/account",
+        "supportUrl": "https://t.me/example"
+      }
+    }
+  },
+  {
+    "name": "headers_content_disposition_utf8",
+    "input": "vless://11111111-2222-3333-4444-555555555555@a.example.com:443?security=tls#Fallback_Name",
+    "url": "https://sub.example.com/sub",
+    "headers": {
+      "content-disposition": "attachment; filename*=UTF-8''%D0%9F%D1%80%D0%BE%D1%84%D0%B8%D0%BB%D1%8C.txt"
+    },
+    "ok": {
+      "name": "Профиль.txt",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "Fallback_Name",
+            "server": "a.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "Fallback_Name",
+          "displayName": "Fallback Name",
+          "type": "vless",
+          "host": "a.example.com",
+          "port": 443,
+          "configFingerprint": "-68037ad1ef7a3f9e"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "headers_content_disposition_plain",
+    "input": "vless://11111111-2222-3333-4444-555555555555@a.example.com:443?security=tls#Fallback_Name",
+    "url": "https://sub.example.com/sub",
+    "headers": {
+      "content-disposition": "attachment; filename=\"Profile Name\""
+    },
+    "ok": {
+      "name": "Profile Name",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "Fallback_Name",
+            "server": "a.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "Fallback_Name",
+          "displayName": "Fallback Name",
+          "type": "vless",
+          "host": "a.example.com",
+          "port": 443,
+          "configFingerprint": "-68037ad1ef7a3f9e"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "headers_fragment_name",
+    "input": "vless://11111111-2222-3333-4444-555555555555@a.example.com:443?security=tls#Fallback_Name",
+    "url": "https://sub.example.com/sub#My%20Sub",
+    "headers": {},
+    "ok": {
+      "name": "My Sub",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "Fallback_Name",
+            "server": "a.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "Fallback_Name",
+          "displayName": "Fallback Name",
+          "type": "vless",
+          "host": "a.example.com",
+          "port": 443,
+          "configFingerprint": "-68037ad1ef7a3f9e"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "headers_path_name",
+    "input": "vless://11111111-2222-3333-4444-555555555555@a.example.com:443?security=tls#Fallback_Name",
+    "url": "https://sub.example.com/files/servers.txt",
+    "headers": {},
+    "ok": {
+      "name": "servers",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "Fallback_Name",
+            "server": "a.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "Fallback_Name",
+          "displayName": "Fallback Name",
+          "type": "vless",
+          "host": "a.example.com",
+          "port": 443,
+          "configFingerprint": "-68037ad1ef7a3f9e"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  },
+  {
+    "name": "headers_fallback_name",
+    "input": "vless://11111111-2222-3333-4444-555555555555@a.example.com:443?security=tls#Fallback_Name",
+    "url": "https://sub.example.com",
+    "headers": {},
+    "ok": {
+      "name": "Fallback Name",
+      "config": {
+        "outbounds": [
+          {
+            "type": "vless",
+            "tag": "Fallback_Name",
+            "server": "a.example.com",
+            "server_port": 443,
+            "uuid": "11111111-2222-3333-4444-555555555555",
+            "tls": {
+              "enabled": true
+            }
+          }
+        ]
+      },
+      "servers": [
+        {
+          "tag": "Fallback_Name",
+          "displayName": "Fallback Name",
+          "type": "vless",
+          "host": "a.example.com",
+          "port": 443,
+          "configFingerprint": "-68037ad1ef7a3f9e"
+        }
+      ],
+      "subscriptionInfo": null
+    }
+  }
+]

@@ -1,0 +1,31 @@
+[package]
+name = "gorion-ffi"
+description = "UniFFI-привязки ядра Gorion для Swift."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib"]
+name = "gorion_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[dependencies]
+gorion-core.workspace = true
+uniffi.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[features]
+bindgen = ["uniffi/cli"]
+
+# Код, который генерирует UniFFI, использует unsafe — поэтому без
+# workspace-запрета unsafe_code; свой код здесь unsafe не содержит.
+[lints.clippy]
+unwrap_used = "warn"

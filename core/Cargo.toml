@@ -1,0 +1,37 @@
+[workspace]
+resolver = "3"
+members = ["crates/gorion-core", "crates/gorion-engine", "crates/gorion-ffi", "crates/gorion-helper"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+gorion-core = { path = "crates/gorion-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "fs", "net", "sync", "io-util"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "charset", "http2"] }
+tracing = "0.1"
+base64 = "0.22"
+url = "2"
+percent-encoding = "2"
+regex = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+uniffi = { version = "0.32", features = ["tokio"] }
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

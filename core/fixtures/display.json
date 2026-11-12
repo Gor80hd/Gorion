@@ -1,0 +1,77 @@
+[
+  {
+    "input": "🇳🇱 NL Amsterdam",
+    "normalized": "🇳🇱 NL Amsterdam",
+    "countryCode": "NL"
+  },
+  {
+    "input": "[DE] Frankfurt",
+    "normalized": "🇩🇪 Frankfurt",
+    "countryCode": "DE"
+  },
+  {
+    "input": "US-1",
+    "normalized": "🇺🇸 1",
+    "countryCode": "US"
+  },
+  {
+    "input": "us server",
+    "normalized": "us server",
+    "countryCode": null
+  },
+  {
+    "input": "fi helsinki",
+    "normalized": "fi helsinki",
+    "countryCode": null
+  },
+  {
+    "input": "Fi Helsinki",
+    "normalized": "🇫🇮 Helsinki",
+    "countryCode": "FI"
+  },
+  {
+    "input": "GB London",
+    "normalized": "🇬🇧 London",
+    "countryCode": "GB"
+  },
+  {
+    "input": "RU_Moscow_Premium",
+    "normalized": "🇷🇺 Moscow Premium",
+    "countryCode": "RU"
+  },
+  {
+    "input": "nl:node",
+    "normalized": "🇳🇱 node",
+    "countryCode": "NL"
+  },
+  {
+    "input": "XX Unknown",
+    "normalized": "XX Unknown",
+    "countryCode": null
+  },
+  {
+    "input": "Server §hide§",
+    "normalized": "Server",
+    "countryCode": null
+  },
+  {
+    "input": "plain name",
+    "normalized": "plain name",
+    "countryCode": null
+  },
+  {
+    "input": "🇯🇵Tokyo",
+    "normalized": "🇯🇵 Tokyo",
+    "countryCode": "JP"
+  },
+  {
+    "input": "JP",
+    "normalized": "JP",
+    "countryCode": null
+  },
+  {
+    "input": "  spaced  ",
+    "normalized": "spaced",
+    "countryCode": null
+  }
+]

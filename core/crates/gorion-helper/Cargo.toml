@@ -1,0 +1,27 @@
+[package]
+name = "gorion-helper"
+description = "Помощник Gorion с правами root: режим TUN через launchd (ADR-0005)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "gorion-helper"
+path = "src/main.rs"
+
+[dependencies]
+gorion-core.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", features = ["user", "fs"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

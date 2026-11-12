@@ -1,0 +1,106 @@
+# Проект Xcode генерируется: `xcodegen generate` в apps/macos.
+# Gorion.xcodeproj в git не хранится — источник правды этот файл.
+name: Gorion
+options:
+  bundleIdPrefix: app.gorion
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  # Интерфейс на русском: системные меню и диалоги тоже по-русски.
+  developmentLanguage: ru
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+packages:
+  GorionDesign:
+    path: Packages/GorionDesign
+  GorionKit:
+    path: Packages/GorionKit
+targets:
+  Gorion:
+    type: application
+    platform: macOS
+    sources:
+      - path: Gorion
+      # Карта стран для планеты — общая с Flutter-версией.
+      - path: ../../assets/images/world_map_countries.png
+        buildPhase: resources
+    dependencies:
+      - package: GorionDesign
+      - package: GorionKit
+      - sdk: SystemConfiguration.framework
+      - sdk: Security.framework
+      - sdk: CoreFoundation.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.gorion.client
+        PRODUCT_NAME: Gorion
+        MARKETING_VERSION: "2.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Gorion
+        DEVELOPMENT_LANGUAGE: ru
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Приложение управляет системным прокси и дочерними процессами —
+        # песочница невозможна (ADR-0002).
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        OTHER_LDFLAGS: ["-lc++"]
+    preBuildScripts:
+      - name: Check core XCFramework
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ ! -d "${SRCROOT}/Packages/GorionKit/Frameworks/GorionCoreFFI.xcframework" ] \
+            || [ ! -f "${SRCROOT}/build/helper/gorion-helper" ]; then
+            echo "error: нет ядра или помощника — запустите core/scripts/build-xcframework.sh"
+            exit 1
+          fi
+    postBuildScripts:
+      - name: Bundle sing-box
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          SRC="${SRCROOT}/../../assets/singbox/macos"
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/sing-box"
+          mkdir -p "$(dirname "$DEST")"
+          if [ ! -f "$SRC/arm64/sing-box" ]; then
+            echo "error: нет sing-box — запустите dart run tool/vendor_singbox.dart"
+            exit 1
+          fi
+          # Универсальный бинарник, если есть обе архитектуры.
+          if [ -f "$SRC/x64/sing-box" ]; then
+            lipo -create "$SRC/arm64/sing-box" "$SRC/x64/sing-box" -output "$DEST"
+          else
+            cp "$SRC/arm64/sing-box" "$DEST"
+          fi
+          chmod 755 "$DEST"
+          codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" --options runtime "$DEST"
+      - name: Bundle helper
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          # Помощник для режима «Весь компьютер» (ADR-0005). При установке
+          # он копирует себя в /Library/Application Support/Gorion/bin.
+          SRC="${SRCROOT}/build/helper/gorion-helper"
+          DEST="${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Helpers/gorion-helper"
+          mkdir -p "$(dirname "$DEST")"
+          cp "$SRC" "$DEST"
+          chmod 755 "$DEST"
+          codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" --options runtime "$DEST"
+schemes:
+  Gorion:
+    build:
+      targets:
+        Gorion: all
+    run:
+      config: Debug
+    test:
+      config: Debug

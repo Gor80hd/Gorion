@@ -1,0 +1,28 @@
+[package]
+name = "gorion-engine"
+description = "Движок подключения Gorion: входы, маршрутизация и протоколы на своём коде (ADR-0005)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+# Только криптографические примитивы; форматы протоколов — свои.
+aes-gcm = "0.10"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha1 = "0.10"
+md-5 = "0.10"
+getrandom = "0.3"
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+serde_json.workspace = true
+
+[lints]
+workspace = true
