@@ -1,9 +1,10 @@
-//! Разбор подписок: JSON sing-box, списки ссылок, base64.
+//! Разбор подписок: JSON sing-box, JSON Xray, списки ссылок, base64.
 //! Эталон: `lib/features/profiles/data/profile_parser.dart`.
 
 mod base64_text;
 pub mod links;
 pub mod uri;
+pub mod xray;
 
 use std::collections::HashMap;
 
@@ -98,6 +99,9 @@ fn decode_subscription_config(raw: &str) -> CoreResult<Option<Config>> {
     if trimmed.is_empty() {
         return Ok(None);
     }
+    if let Some(config) = decode_xray(trimmed)? {
+        return Ok(Some(config));
+    }
     if let Some(config) = decode_config(trimmed) {
         return Ok(Some(config));
     }
@@ -108,6 +112,9 @@ fn decode_subscription_config(raw: &str) -> CoreResult<Option<Config>> {
     let Some(decoded) = try_decode_base64(trimmed) else {
         return Ok(None);
     };
+    if let Some(config) = decode_xray(&decoded)? {
+        return Ok(Some(config));
+    }
     if let Some(config) = decode_config(&decoded) {
         return Ok(Some(config));
     }
@@ -142,17 +149,51 @@ fn decode_config(content: &str) -> Option<Config> {
     }
 }
 
+/// Подписка Xray JSON (массив конфигураций или одна конфигурация).
+fn decode_xray(content: &str) -> CoreResult<Option<Config>> {
+    let Ok(value) = serde_json::from_str::<Value>(content) else {
+        return Ok(None);
+    };
+    if !xray::looks_like_xray(&value) {
+        return Ok(None);
+    }
+    let outbounds = with_unique_tags(xray::convert(&value)?);
+    Ok((!outbounds.is_empty()).then(|| outbounds_config(outbounds)))
+}
+
+/// Ссылки по строке. Δ к эталону: ссылка, которую нельзя перевести без
+/// потерь (например, XHTTP), пропускается, а не роняет всю подписку;
+/// ошибка возвращается, только если не перевелось ничего.
 fn parse_remote_outbounds(content: &str) -> CoreResult<Vec<Config>> {
     let mut outbounds = Vec::new();
-    let mut tag_counts: HashMap<String, usize> = HashMap::new();
+    let mut first_error = None;
     for raw_line in split_lines(content) {
         let line = raw_line.trim();
         if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
             continue;
         }
-        let Some(mut outbound) = links::parse_share_link(line)? else {
-            continue;
-        };
+        match links::parse_share_link(line) {
+            Ok(Some(outbound)) => outbounds.push(outbound),
+            Ok(None) => {}
+            Err(error) => {
+                tracing::debug!(%error, "share link skipped");
+                first_error.get_or_insert(error);
+            }
+        }
+    }
+    if outbounds.is_empty()
+        && let Some(error) = first_error
+    {
+        return Err(error);
+    }
+    Ok(with_unique_tags(outbounds))
+}
+
+/// Пустой тег заменяется на `host:port [type]`, повторы получают номер.
+fn with_unique_tags(outbounds: Vec<Config>) -> Vec<Config> {
+    let mut tag_counts: HashMap<String, usize> = HashMap::new();
+    let mut result = Vec::with_capacity(outbounds.len());
+    for mut outbound in outbounds {
         let original = outbound
             .get("tag")
             .and_then(Value::as_str)
@@ -165,9 +206,9 @@ fn parse_remote_outbounds(content: &str) -> CoreResult<Vec<Config>> {
             original
         };
         outbound.insert("tag".into(), json!(unique_tag(base, &mut tag_counts)));
-        outbounds.push(outbound);
+        result.push(outbound);
     }
-    Ok(outbounds)
+    result
 }
 
 /// Как `LineSplitter`: `\n`, `\r\n` и одиночный `\r`.

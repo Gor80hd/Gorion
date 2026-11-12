@@ -448,6 +448,10 @@ fn build_tls(params: &Query, force_enabled: bool) -> Option<Map<String, Value>> 
             reality.insert("short_id".into(), json!(short_id));
         }
         tls.insert("reality".into(), Value::Object(reality));
+        // Δ к эталону: sing-box запускает REALITY только с uTLS, а ссылки
+        // без `fp` встречаются. Xray в этом случае берёт Chrome — так же.
+        tls.entry("utls")
+            .or_insert_with(|| json!({"enabled": true, "fingerprint": "chrome"}));
     }
     Some(tls)
 }
