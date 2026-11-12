@@ -14,8 +14,9 @@ use std::time::Duration;
 use std::sync::Arc;
 
 use gorion_engine::{
-    EngineConfig, EngineError, Flow, Method, Outbound, RealityConfig, Security, ShadowsocksConfig,
-    Ss2022Config, Ss2022Method, TargetAddr, TlsConfig, TrojanConfig, VlessConfig,
+    EngineConfig, EngineError, Flow, GrpcConfig, Method, Outbound, RealityConfig, Security,
+    ShadowsocksConfig, Ss2022Config, Ss2022Method, TargetAddr, TlsConfig, Transport, TrojanConfig,
+    UpgradeConfig, VlessConfig, WsConfig,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -872,4 +873,212 @@ async fn own_tls_client_on_real_sites() {
         assert!(first.starts_with(b"HTTP/1.1 "), "{host}");
         eprintln!("{host}: {}", String::from_utf8_lossy(&first[..12]));
     }
+}
+
+// --- Транспорты: WebSocket, HTTPUpgrade, gRPC --------------------------------
+
+fn ws(path: &str, early: usize, header: &str) -> Transport {
+    Transport::WebSocket(WsConfig {
+        path: path.into(),
+        headers: vec![("Host".into(), "ws.test".into())],
+        max_early_data: early,
+        early_data_header: header.into(),
+    })
+}
+
+fn with_transport(mut outbound: Outbound, transport: Transport) -> Outbound {
+    match &mut outbound {
+        Outbound::Vless(config) => config.transport = transport,
+        Outbound::Trojan(config) => config.transport = transport,
+        _ => panic!("no transport for this protocol"),
+    }
+    outbound
+}
+
+#[tokio::test]
+async fn singbox_transports_interop() {
+    let Some(binary) = singbox_path() else {
+        eprintln!("GORION_SINGBOX не задан — проверка транспортов с sing-box пропущена");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let pair = generate(&binary, &["tls-keypair", TLS_NAME]).await;
+    let cert_start = pair.find("-----BEGIN CERTIFICATE-----").unwrap();
+    let certificate = pair[cert_start..].to_owned();
+    let (cert_path, key_path) = (dir.path().join("s.crt"), dir.path().join("s.key"));
+    std::fs::write(&key_path, &pair[..cert_start]).unwrap();
+    std::fs::write(&cert_path, &certificate).unwrap();
+    let tls = serde_json::json!({
+        "enabled": true, "server_name": TLS_NAME,
+        "certificate_path": cert_path, "key_path": key_path
+    });
+    let keys = generate(&binary, &["reality-keypair"]).await;
+
+    let ports: Vec<u16> = {
+        let mut out = Vec::new();
+        for _ in 0..9 {
+            out.push(free_port().await);
+        }
+        out
+    };
+    let [
+        ws_plain,
+        ws_tls,
+        ws_path,
+        upgrade,
+        upgrade_tls,
+        grpc_tls,
+        grpc_plain,
+        grpc_reality,
+        dest,
+    ] = ports[..]
+    else {
+        unreachable!()
+    };
+    let vless_in = |port: u16, transport: serde_json::Value| {
+        serde_json::json!({
+            "type": "vless", "listen": "127.0.0.1", "listen_port": port,
+            "users": [{ "uuid": USER }], "transport": transport
+        })
+    };
+    let trojan_in = |port: u16, transport: serde_json::Value| {
+        serde_json::json!({
+            "type": "trojan", "listen": "127.0.0.1", "listen_port": port,
+            "users": [{ "password": TROJAN_PASSWORD }], "tls": tls, "transport": transport
+        })
+    };
+    let mut reality_in = vless_in(
+        grpc_reality,
+        serde_json::json!({"type": "grpc", "service_name": "GunService"}),
+    );
+    reality_in["tls"] = serde_json::json!({
+        "enabled": true, "server_name": DEST_NAME,
+        "reality": {
+            "enabled": true,
+            "handshake": { "server": "127.0.0.1", "server_port": dest },
+            "private_key": field(&keys, "PrivateKey"),
+            "short_id": [SHORT_ID]
+        }
+    });
+    let mut ws_tls_in = vless_in(
+        ws_tls,
+        serde_json::json!({"type": "ws", "path": "/ws", "max_early_data": 2048,
+                           "early_data_header_name": "Sec-WebSocket-Protocol"}),
+    );
+    ws_tls_in["tls"] = tls.clone();
+    let config = serde_json::json!({
+        "log": { "level": "error" },
+        "inbounds": [
+            vless_in(ws_plain, serde_json::json!({"type": "ws", "path": "/ws"})),
+            ws_tls_in,
+            vless_in(ws_path, serde_json::json!({"type": "ws", "path": "/ws", "max_early_data": 2048})),
+            vless_in(upgrade, serde_json::json!({"type": "httpupgrade", "host": "up.test", "path": "/up"})),
+            trojan_in(upgrade_tls, serde_json::json!({"type": "httpupgrade", "path": "/up"})),
+            trojan_in(grpc_tls, serde_json::json!({"type": "grpc", "service_name": "GunService"})),
+            vless_in(grpc_plain, serde_json::json!({"type": "grpc", "service_name": "GunService"})),
+            reality_in,
+            {
+                "type": "trojan", "listen": "127.0.0.1", "listen_port": dest,
+                "users": [{ "password": "unused" }], "tls": tls
+            }
+        ],
+        "outbounds": [{ "type": "direct", "tag": "direct" }]
+    });
+    let _singbox = run_singbox(&binary, &dir.path().join("transports.json"), &config, dest).await;
+    let local = |port: u16| TargetAddr::Ip(SocketAddr::from(([127, 0, 0, 1], port)));
+    let echo = echo_server().await;
+    let greeting = greeting_server().await;
+    let pinned = || Security::Tls(TlsConfig::new(TLS_NAME, false, Some(&certificate)).unwrap());
+    let plain_vless = |port: u16| vless(&local(port), USER, Flow::None, Security::None);
+    let trojan = |port: u16| {
+        Outbound::Trojan(Box::new(TrojanConfig::new(
+            local(port),
+            TROJAN_PASSWORD,
+            pinned(),
+        )))
+    };
+    let gun = || Transport::Grpc(GrpcConfig::new("GunService"));
+
+    let cases = [
+        (
+            "ws",
+            with_transport(plain_vless(ws_plain), ws("/ws", 0, "")),
+        ),
+        (
+            "ws+tls, early data in header",
+            with_transport(
+                vless(&local(ws_tls), USER, Flow::None, pinned()),
+                ws("/ws", 2048, "Sec-WebSocket-Protocol"),
+            ),
+        ),
+        (
+            "ws, early data in path",
+            with_transport(plain_vless(ws_path), ws("/ws", 2048, "")),
+        ),
+        (
+            "httpupgrade",
+            with_transport(
+                plain_vless(upgrade),
+                Transport::HttpUpgrade(UpgradeConfig {
+                    path: "/up".into(),
+                    host: "up.test".into(),
+                    headers: Vec::new(),
+                }),
+            ),
+        ),
+        (
+            "trojan+httpupgrade+tls",
+            with_transport(
+                trojan(upgrade_tls),
+                Transport::HttpUpgrade(UpgradeConfig {
+                    path: "up".into(),
+                    host: String::new(),
+                    headers: Vec::new(),
+                }),
+            ),
+        ),
+        ("trojan+grpc+tls", with_transport(trojan(grpc_tls), gun())),
+        ("grpc h2c", with_transport(plain_vless(grpc_plain), gun())),
+        (
+            "grpc+reality",
+            with_transport(
+                vless(
+                    &local(grpc_reality),
+                    USER,
+                    Flow::None,
+                    reality(base64url(field(&keys, "PublicKey")), SHORT_ID),
+                ),
+                gun(),
+            ),
+        ),
+    ];
+    for (name, outbound) in cases {
+        eprintln!("transport {name}");
+        let engine = start(outbound).await;
+        assert_echo(socks_connect(engine.local_addr(), echo).await).await;
+        assert_server_speaks_first(&engine, greeting).await;
+        // Несколько потоков сразу (у gRPC — в одном соединении HTTP/2).
+        let address = engine.local_addr();
+        let parallel: Vec<_> = (0..4)
+            .map(|_| {
+                tokio::spawn(async move { assert_echo(socks_connect(address, echo).await).await })
+            })
+            .collect();
+        for task in parallel {
+            task.await.unwrap();
+        }
+    }
+
+    // Чужой путь: сервер не переходит на WebSocket — ошибка, а не эхо.
+    let wrong = with_transport(plain_vless(ws_plain), ws("/other", 0, ""));
+    let (mut reader, mut writer) = match wrong.connect(&TargetAddr::Ip(echo), &[]).await.unwrap() {
+        gorion_engine::outbound::Connection::Vless(parts) => {
+            let (reader, writer, _) = *parts;
+            (reader, writer)
+        }
+        _ => unreachable!(),
+    };
+    use gorion_engine::relay::{ChunkRead, PayloadWrite};
+    assert!(writer.write_payload(b"ping").await.is_err());
+    assert!(reader.read_chunk().await.is_err());
 }

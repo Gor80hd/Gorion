@@ -102,9 +102,10 @@ lib/, macos/, windows/ …   Flutter — живёт до этапа 6, толь�
 стенде; до этого его серверы подключаются через sing-box.
 
 - [x] Shadowsocks AEAD (aes-128-gcm, aes-256-gcm, chacha20-ietf-poly1305), direct, локальный вход SOCKS5/HTTP — совместимость с сервером sing-box проверена тестом (`GORION_SINGBOX`) и вживую через интернет; скорость наравне с клиентом sing-box, память 3,5 МБ против 34 МБ
-- [x] Движок в приложении: в режимах «Только системный прокси» и «Вручную» профиль, который движок понимает целиком (Shadowsocks AEAD и 2022, Trojan, VLESS без транспорта, direct), идёт через `gorion-engine`; остальное и TUN — через sing-box. Не нашлось рабочего сервера — повтор через sing-box. Проверено вживую в приложении (ручной режим: REALITY + Vision; Trojan и Shadowsocks 2022)
+- [x] Движок в приложении: в режимах «Только системный прокси» и «Вручную» профиль, который движок понимает целиком (Shadowsocks AEAD и 2022, Trojan, VLESS, транспорты WebSocket, HTTPUpgrade и gRPC, direct), идёт через `gorion-engine`; остальное и TUN — через sing-box. Не нашлось рабочего сервера — повтор через sing-box. Проверено вживую в приложении (ручной режим: REALITY + Vision; Trojan и Shadowsocks 2022; VLESS + WebSocket + TLS и Trojan + gRPC + TLS)
 - [x] Shadowsocks 2022 (aes-128-gcm, aes-256-gcm, chacha20-poly1305, цепочка ключей iPSK:uPSK), Trojan поверх TLS — проверено тестом против сервера sing-box (`singbox_trojan_tls_and_ss2022_interop`, в том числе сервер, который говорит первым) и вживую в приложении
-- [~] VLESS: TCP, REALITY и обычный TLS — готово, проверено тестом против сервера sing-box (`singbox_vless_interop`, `singbox_trojan_tls_and_ss2022_interop`) и вживую через пример `mixed_proxy` со ссылкой `vless://`; транспорты ws, grpc, httpupgrade — нет
+- [x] VLESS: TCP, REALITY и обычный TLS — проверено тестом против сервера sing-box (`singbox_vless_interop`, `singbox_trojan_tls_and_ss2022_interop`) и вживую через пример `mixed_proxy` со ссылкой `vless://`
+- [x] Транспорты для VLESS и Trojan: WebSocket (ранние данные в заголовке или в пути), HTTPUpgrade, gRPC (все потоки к серверу — в одном соединении HTTP/2, в том числе поверх REALITY и без TLS). Проверено тестом против сервера sing-box (`singbox_transports_interop`) и вживую в приложении. Транспорты HTTP и QUIC — через sing-box
 - [x] Обычный TLS в своём клиенте: цепочка до общих корней (webpki), имя сервера, подпись CertificateVerify (ECDSA, RSA-PSS), сжатые сертификаты brotli, `insecure` и свой сертификат (`certificate`). Проверено на сервере sing-box и на настоящих сайтах (`GORION_NET_TLS=1`). Только TLS 1.3: сервер, который умеет лишь TLS 1.2, не подключится
 - [x] Маскировка TLS под Chrome (свой клиент TLS 1.3, ClientHello как у Chrome 133 без X25519MLKEM768 — как REALITY-клиент sing-box), REALITY, Vision с прямым копированием — внутренний TLS 1.3 через сервер sing-box идёт напрямую в обе стороны; чужой ключ или short id — отказ, а не подключение к настоящему сайту
 - [ ] Hysteria2, TUIC (QUIC), AnyTLS, VMess
@@ -236,6 +237,16 @@ lib/, macos/, windows/ …   Flutter — живёт до этапа 6, толь�
   проверена против сервера sing-box, клиент TLS — на нескольких крупных
   сайтах. Вживую приложение подключилось через движок к локальным
   серверам Trojan и Shadowsocks 2022.
+
+- **2026-11-12.** В движок добавлены транспорты WebSocket, HTTPUpgrade и
+  gRPC — так устроены почти все подписки за CDN. Запрос Upgrade уходит с
+  первыми данными (в нём ранние данные), а данные после него — только
+  после ответа 101: серверы Xray на gorilla рвут подключение, если данные
+  пришли раньше. gRPC держит одно соединение HTTP/2 на сервер, как
+  sing-box; кадры HTTP/2 — крейт `h2`, формат gun — свой. Против сервера
+  sing-box проверены восемь сочетаний, включая REALITY + gRPC. Вживую
+  через приложение: VLESS + WebSocket + TLS и Trojan + gRPC + TLS, восемь
+  потоков gRPC шли по одному TCP-подключению.
 
 ## Открытые вопросы владельцу
 

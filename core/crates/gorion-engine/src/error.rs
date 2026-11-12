@@ -21,6 +21,9 @@ pub enum EngineError {
     UntrustedCertificate(String),
     #[error("reality: server did not prove the key (wrong public key or short id?)")]
     RealityRejected,
+    /// Сбой транспорта (HTTP/2, Upgrade): текст для журнала.
+    #[error("transport: {0}")]
+    Transport(String),
     /// Настройки, которых движок не умеет: такой профиль идёт через sing-box.
     #[error("unsupported: {0}")]
     Unsupported(String),

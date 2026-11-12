@@ -13,6 +13,7 @@ use crate::error::Result;
 use crate::relay::{ChunkRead, PayloadWrite};
 pub use crate::stream::Security;
 use crate::stream::{self, Down, Up};
+use crate::transport::Transport;
 
 const COMMAND_TCP: u8 = 1;
 const CRLF: &[u8] = b"\r\n";
@@ -24,6 +25,7 @@ pub struct TrojanConfig {
     key: [u8; 56],
     pub security: Security,
     pub alpn: Vec<String>,
+    pub transport: Transport,
 }
 
 impl fmt::Debug for TrojanConfig {
@@ -32,6 +34,7 @@ impl fmt::Debug for TrojanConfig {
         f.debug_struct("TrojanConfig")
             .field("server", &self.server)
             .field("security", &self.security)
+            .field("transport", &self.transport)
             .finish_non_exhaustive()
     }
 }
@@ -43,6 +46,7 @@ impl TrojanConfig {
             key: password_key(password),
             security,
             alpn: vec!["h2".into(), "http/1.1".into()],
+            transport: Transport::None,
         }
     }
 }
@@ -84,8 +88,13 @@ pub async fn connect(
     target: &TargetAddr,
     initial: &[u8],
 ) -> Result<(TrojanReader, TrojanWriter)> {
-    let tcp = crate::outbound::dial(&config.server).await?;
-    let (down, up) = stream::secure(tcp, &config.security, &config.alpn).await?;
+    let (down, up) = stream::open(
+        &config.server,
+        &config.security,
+        &config.transport,
+        &config.alpn,
+    )
+    .await?;
     let mut writer = TrojanWriter {
         up,
         header: Some(request_header(&config.key, target)?),

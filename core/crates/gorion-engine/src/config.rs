@@ -17,6 +17,7 @@ use crate::shadowsocks::{Method, ShadowsocksConfig};
 use crate::shadowsocks2022::{self as ss2022, Ss2022Config};
 use crate::stream::Security;
 use crate::tls::TlsConfig;
+use crate::transport::{GrpcConfig, Transport, UpgradeConfig, WsConfig};
 use crate::trojan::TrojanConfig;
 use crate::vless::{Flow, VlessConfig};
 
@@ -224,10 +225,93 @@ fn check_common(outbound: &Map<String, Value>) -> Result<()> {
     if is_enabled(outbound, "multiplex") {
         return Err(unsupported("multiplex"));
     }
-    if non_empty(outbound.get("transport")) {
-        return Err(unsupported("transport"));
-    }
     Ok(())
+}
+
+/// Строки заголовков: значение — строка или массив строк (как в sing-box).
+fn headers(value: Option<&Value>) -> Result<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    let Some(map) = value.and_then(Value::as_object) else {
+        return Ok(out);
+    };
+    for (name, value) in map {
+        match value {
+            Value::String(text) => out.push((name.clone(), text.clone())),
+            Value::Array(items) => {
+                for item in items {
+                    let text = item
+                        .as_str()
+                        .ok_or_else(|| unsupported("transport headers"))?;
+                    out.push((name.clone(), text.to_owned()));
+                }
+            }
+            _ => return Err(unsupported("transport headers")),
+        }
+    }
+    Ok(out)
+}
+
+/// Транспорт V2Ray: WebSocket, HTTPUpgrade, gRPC. Незнакомые поля — отказ.
+fn transport(outbound: &Map<String, Value>) -> Result<Transport> {
+    let Some(transport) = outbound
+        .get("transport")
+        .and_then(Value::as_object)
+        .filter(|t| !t.is_empty())
+    else {
+        if non_empty(outbound.get("transport")) {
+            return Err(unsupported("transport"));
+        }
+        return Ok(Transport::None);
+    };
+    let kind = str_field(transport, "type").unwrap_or_default();
+    let allowed: &[&str] = match kind {
+        "ws" => &[
+            "type",
+            "path",
+            "headers",
+            "max_early_data",
+            "early_data_header_name",
+        ],
+        "httpupgrade" => &["type", "host", "path", "headers"],
+        // Таймауты пингов HTTP/2 движок не использует: это не меняет поток.
+        "grpc" => &[
+            "type",
+            "service_name",
+            "idle_timeout",
+            "ping_timeout",
+            "permit_without_stream",
+        ],
+        other => return Err(unsupported(format!("transport {other}"))),
+    };
+    if let Some((key, _)) = transport
+        .iter()
+        .find(|(key, value)| !allowed.contains(&key.as_str()) && non_empty(Some(value)))
+    {
+        return Err(unsupported(format!("transport {kind} {key}")));
+    }
+    let path = str_field(transport, "path").unwrap_or_default().to_owned();
+    Ok(match kind {
+        "ws" => Transport::WebSocket(WsConfig {
+            path,
+            headers: headers(transport.get("headers"))?,
+            max_early_data: transport
+                .get("max_early_data")
+                .and_then(Value::as_u64)
+                .and_then(|n| usize::try_from(n).ok())
+                .unwrap_or(0),
+            early_data_header: str_field(transport, "early_data_header_name")
+                .unwrap_or_default()
+                .to_owned(),
+        }),
+        "httpupgrade" => Transport::HttpUpgrade(UpgradeConfig {
+            path,
+            host: str_field(transport, "host").unwrap_or_default().to_owned(),
+            headers: headers(transport.get("headers"))?,
+        }),
+        _ => Transport::Grpc(GrpcConfig::new(
+            str_field(transport, "service_name").unwrap_or_default(),
+        )),
+    })
 }
 
 /// Поля `tls`, которые движок понимает. `utls` принимается с любым
@@ -333,6 +417,9 @@ fn translate(outbound: &Map<String, Value>) -> Result<Outbound> {
             if non_empty(outbound.get("plugin")) {
                 return Err(unsupported("shadowsocks plugin"));
             }
+            if non_empty(outbound.get("transport")) {
+                return Err(unsupported("transport"));
+            }
             let method = str_field(outbound, "method").unwrap_or_default();
             let password = str_field(outbound, "password").unwrap_or_default();
             if ss2022::Method::is_2022(method) {
@@ -361,6 +448,7 @@ fn translate(outbound: &Map<String, Value>) -> Result<Outbound> {
             if let Some(alpn) = alpn {
                 config.alpn = alpn;
             }
+            config.transport = transport(outbound)?;
             Ok(Outbound::Trojan(Box::new(config)))
         }
         Some("vless") => {
@@ -378,10 +466,15 @@ fn translate(outbound: &Map<String, Value>) -> Result<Outbound> {
             if flow == Flow::Vision && security.is_none() {
                 return Err(unsupported("vision without tls"));
             }
+            let transport = transport(outbound)?;
+            if flow == Flow::Vision && !transport.is_none() {
+                return Err(unsupported("vision with transport"));
+            }
             let mut config = VlessConfig::new(server, uuid, flow, security);
             if let Some(alpn) = alpn {
                 config.alpn = alpn;
             }
+            config.transport = transport;
             Ok(Outbound::Vless(Box::new(config)))
         }
         Some(other) => Err(unsupported(format!("protocol {other}"))),
@@ -486,6 +579,58 @@ mod tests {
             {"type": "selector", "tag": "gorion-manual", "outbounds": ["S"]}
         ]);
         assert!(from_singbox(&built(list, json!([]))).is_err());
+    }
+
+    #[test]
+    fn reads_transports() {
+        let list = json!([
+            {"type": "vless", "tag": "W", "server": "10.0.0.2", "server_port": 443,
+             "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+             "tls": {"enabled": true, "server_name": "cdn.example.com"},
+             "transport": {"type": "ws", "path": "/ws", "headers": {"Host": "cdn.example.com"},
+                           "max_early_data": 2048, "early_data_header_name": "Sec-WebSocket-Protocol"}},
+            {"type": "trojan", "tag": "G", "server": "10.0.0.3", "server_port": 443, "password": "p",
+             "tls": {"enabled": true, "server_name": "g.example.com"},
+             "transport": {"type": "grpc", "service_name": "GunService", "idle_timeout": "15s"}},
+            {"type": "vless", "tag": "U", "server": "10.0.0.4", "server_port": 80,
+             "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+             "transport": {"type": "httpupgrade", "host": "u.example.com", "path": "/up"}},
+            {"type": "selector", "tag": "gorion-manual", "outbounds": ["W", "G", "U"]}
+        ]);
+        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let Outbound::Vless(ws) = &**plan.outbound("W").unwrap() else {
+            panic!("vless")
+        };
+        let Transport::WebSocket(config) = &ws.transport else {
+            panic!("ws")
+        };
+        assert_eq!(config.max_early_data, 2048);
+        assert_eq!(
+            config.headers,
+            [("Host".to_owned(), "cdn.example.com".to_owned())]
+        );
+        let Outbound::Trojan(grpc) = &**plan.outbound("G").unwrap() else {
+            panic!("trojan")
+        };
+        assert!(matches!(&grpc.transport, Transport::Grpc(c) if c.service_name == "GunService"));
+        let Outbound::Vless(up) = &**plan.outbound("U").unwrap() else {
+            panic!("vless")
+        };
+        assert!(matches!(&up.transport, Transport::HttpUpgrade(c) if c.host == "u.example.com"));
+
+        // Чего нет: транспорт HTTP и QUIC, незнакомые поля, Vision поверх транспорта.
+        for transport in [
+            json!({"type": "http", "host": ["a"]}),
+            json!({"type": "quic"}),
+            json!({"type": "ws", "path": "/", "unknown": 1}),
+        ] {
+            let list = json!([
+                {"type": "trojan", "tag": "T", "server": "h", "server_port": 1, "password": "p",
+                 "transport": transport},
+                {"type": "selector", "tag": "gorion-manual", "outbounds": ["T"]}
+            ]);
+            assert!(from_singbox(&built(list, json!([]))).is_err());
+        }
     }
 
     #[test]

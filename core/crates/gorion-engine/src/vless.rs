@@ -14,6 +14,7 @@ use crate::error::{EngineError, Result};
 use crate::relay::{ChunkRead, PayloadWrite};
 pub use crate::stream::Security;
 use crate::stream::{self, Down, Up};
+use crate::transport::Transport;
 use crate::vision::{SharedFilter, VisionReader, VisionWriter};
 use sha1::{Digest, Sha1};
 
@@ -48,6 +49,7 @@ pub struct VlessConfig {
     pub security: Security,
     /// ALPN в ClientHello; по умолчанию как у Chrome.
     pub alpn: Vec<String>,
+    pub transport: Transport,
 }
 
 impl fmt::Debug for VlessConfig {
@@ -57,6 +59,7 @@ impl fmt::Debug for VlessConfig {
             .field("server", &self.server)
             .field("flow", &self.flow)
             .field("security", &self.security)
+            .field("transport", &self.transport)
             .finish_non_exhaustive()
     }
 }
@@ -69,6 +72,7 @@ impl VlessConfig {
             flow,
             security,
             alpn: vec!["h2".into(), "http/1.1".into()],
+            transport: Transport::None,
         }
     }
 }
@@ -171,11 +175,16 @@ pub async fn connect(
     target: &TargetAddr,
     initial: &[u8],
 ) -> Result<(VlessReader, VlessWriter, Arc<DirectCopy>)> {
-    if config.flow == Flow::Vision && config.security.is_none() {
-        return Err(EngineError::Protocol("vless: vision requires TLS"));
+    if config.flow == Flow::Vision && (config.security.is_none() || !config.transport.is_none()) {
+        return Err(EngineError::Protocol("vless: vision requires TLS over TCP"));
     }
-    let tcp = crate::outbound::dial(&config.server).await?;
-    let (down, up) = stream::secure(tcp, &config.security, &config.alpn).await?;
+    let (down, up) = stream::open(
+        &config.server,
+        &config.security,
+        &config.transport,
+        &config.alpn,
+    )
+    .await?;
     let direct = Arc::new(DirectCopy::default());
     let filter = SharedFilter::default();
     let vision = config.flow == Flow::Vision;

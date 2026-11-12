@@ -38,6 +38,11 @@ webpki-roots = "1"
 # Сжатые сертификаты (RFC 8879): ClientHello Chrome предлагает brotli, и
 # настоящие серверы им пользуются.
 brotli-decompressor = "5"
+# Транспорт gRPC: кадры HTTP/2, HPACK и окна — как QUIC у quinn, общий
+# транспорт, а не формат протокола (ADR-0005).
+h2 = "0.4"
+http = "1"
+bytes = "1"
 
 [dev-dependencies]
 tempfile.workspace = true
