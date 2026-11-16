@@ -1,10 +1,10 @@
 //! Подписки в формате Xray JSON (Remnawave, Marzban, 3x-ui): массив полных
 //! конфигураций Xray или одна конфигурация. Каждый исходящий прокси
-//! переводится в outbound sing-box того же вида, что дают ссылки
+//! переводится в сервер конфигурации Gorion того же вида, что дают ссылки
 //! (`links.rs`). Во Flutter-эталоне этого формата нет (Δ в parity.md).
 //!
-//! Что не переводится, пропускается целиком, а не «примерно»: транспорт
-//! XHTTP, mKCP, QUIC Xray — sing-box их не умеет.
+//! Что не переводится, пропускается целиком, а не «примерно»: mKCP, QUIC
+//! Xray движок не умеет.
 
 use serde_json::{Map, Value, json};
 
@@ -23,7 +23,7 @@ const PROXY_PROTOCOLS: [&str; 6] = [
 ];
 
 /// Похоже ли значение на подписку Xray: массив конфигураций или конфигурация,
-/// где у исходящих есть `protocol`, а не `type` (как у sing-box).
+/// где у исходящих есть `protocol`, а не `type`.
 pub fn looks_like_xray(value: &Value) -> bool {
     match value {
         Value::Array(items) => items.iter().any(is_xray_config),
@@ -42,7 +42,7 @@ fn is_xray_config(value: &Value) -> bool {
         })
 }
 
-/// Исходящие sing-box из подписки Xray. `Err` — серверы были, но ни один
+/// Серверы Gorion из подписки Xray. `Err` — серверы были, но ни один
 /// не переводится (первая причина).
 pub fn convert(value: &Value) -> CoreResult<Vec<Outbound>> {
     let configs: Vec<&Value> = match value {
@@ -301,7 +301,7 @@ pub(super) fn tls_settings(stream: &Value) -> CoreResult<Option<Map<String, Valu
             reality.insert("short_id".into(), json!(short_id));
         }
         tls.insert("reality".into(), Value::Object(reality));
-        // sing-box запускает REALITY только с uTLS; Xray по умолчанию — Chrome.
+        // Отпечаток по умолчанию — Chrome, как в Xray.
         tls.insert(
             "utls".into(),
             json!({"enabled": true, "fingerprint": fingerprint.unwrap_or_else(|| "chrome".into())}),
@@ -603,7 +603,7 @@ mod tests {
                 "xhttpSettings": {"extra": {"uplinkHTTPMethod": "GET"}}}})
         )]);
         assert!(convert(&sub).is_err());
-        // Конфигурация sing-box — не Xray.
+        // Конфигурация Gorion — не Xray.
         assert!(!looks_like_xray(
             &json!({"outbounds": [{"type": "vless", "tag": "x"}]})
         ));

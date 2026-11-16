@@ -30,10 +30,10 @@ public final class AppModel {
     /// Точек на графике трафика — как в нативной панели Flutter-версии.
     public static let historyLength = 36
 
-    public init(dataDirectory: URL, singboxURL: URL, helperURL: URL) {
+    public init(dataDirectory: URL, engineURL: URL, helperURL: URL) {
         self.helperURL = helperURL
         let bridge = ObserverBridge()
-        core = GorionCore(dataDir: dataDirectory.path, singboxPath: singboxURL.path, observer: bridge)
+        core = GorionCore(dataDir: dataDirectory.path, enginePath: engineURL.path, observer: bridge)
         snapshot = core.snapshot()
         autoSelectTag = core.autoSelectTag()
         bridge.model = self

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use gorion_core::helper::server::HelperServer;
 use gorion_core::helper::{SOCKET_PATH, SUPPORT_DIR};
+use gorion_core::runtime::service::ENGINE_BINARY;
 use tokio::net::UnixListener;
 use tokio::signal::unix::{SignalKind, signal};
 
@@ -13,7 +14,7 @@ use crate::flag_value;
 pub struct Options {
     socket: PathBuf,
     runtime_dir: PathBuf,
-    singbox: PathBuf,
+    engine: PathBuf,
     allow_non_tun: bool,
 }
 
@@ -24,8 +25,8 @@ impl Options {
             socket: flag_value(args, "--socket").map_or_else(|| SOCKET_PATH.into(), PathBuf::from),
             runtime_dir: flag_value(args, "--runtime-dir")
                 .map_or_else(|| support.join("runtime"), PathBuf::from),
-            singbox: flag_value(args, "--singbox")
-                .map_or_else(|| support.join("bin/sing-box"), PathBuf::from),
+            engine: flag_value(args, "--engine")
+                .map_or_else(|| support.join("bin").join(ENGINE_BINARY), PathBuf::from),
             allow_non_tun: args.iter().any(|a| a == "--allow-non-tun"),
         })
     }
@@ -53,7 +54,7 @@ async fn serve(options: Options) -> Result<(), String> {
     let listener = bind(&options.socket)?;
     let server = HelperServer::new(
         options.runtime_dir.clone(),
-        options.singbox.clone(),
+        options.engine.clone(),
         options.allow_non_tun,
     );
     server.recover().await;

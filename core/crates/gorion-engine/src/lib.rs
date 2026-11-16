@@ -113,7 +113,7 @@ pub fn serve(listener: TcpListener, outbound: Arc<Outbound>) -> Result<EngineHan
     })
 }
 
-/// Движок по настройкам в формате sing-box: вход, управление, выбранный
+/// Движок по конфигурации Gorion: вход, управление, выбранный
 /// сервер. Живёт, пока жив возвращённый `Running`.
 pub struct Running {
     engine: EngineHandle,

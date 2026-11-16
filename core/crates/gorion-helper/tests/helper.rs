@@ -31,18 +31,20 @@ impl Drop for Helper {
     }
 }
 
-fn singbox() -> Option<PathBuf> {
-    let arch = if cfg!(target_arch = "aarch64") {
-        "arm64"
+/// Движок из той же сборки рабочего пространства (`cargo test --workspace`
+/// собирает его вместе с тестами).
+fn engine() -> Option<PathBuf> {
+    let profile = if cfg!(debug_assertions) {
+        "debug"
     } else {
-        "x64"
+        "release"
     };
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../../assets/singbox/macos/{arch}/sing-box"));
+        .join(format!("../../target/{profile}/gorion-engine"));
     (cfg!(target_os = "macos") && path.is_file()).then_some(path)
 }
 
-async fn spawn_helper(allow_non_tun: bool, singbox: &Path) -> Helper {
+async fn spawn_helper(allow_non_tun: bool, engine: &Path) -> Helper {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("helper.sock");
     let mut command = Command::new(env!("CARGO_BIN_EXE_gorion-helper"));
@@ -52,8 +54,8 @@ async fn spawn_helper(allow_non_tun: bool, singbox: &Path) -> Helper {
         .arg(&socket)
         .arg("--runtime-dir")
         .arg(dir.path().join("runtime"))
-        .arg("--singbox")
-        .arg(singbox)
+        .arg("--engine")
+        .arg(engine)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit());
@@ -122,20 +124,17 @@ async fn missing_helper_reports_not_installed() {
     let client = HelperClient::new(dir.path().join("nothing.sock"));
     assert_eq!(client.status().await, HelperStatus::NotInstalled);
     let (runtime, _) = (TunRuntime::new(client, Arc::new(|_| {})), ());
-    let error = runtime
-        .start(&request(RuntimeMode::Tun), false)
-        .await
-        .unwrap_err();
+    let error = runtime.start(&request(RuntimeMode::Tun)).await.unwrap_err();
     assert_eq!(error.code(), gorion_core::ErrorCode::TunHelperRequired);
 }
 
 #[tokio::test]
 async fn helper_refuses_everything_but_tun() {
     // Бинарник не нужен: запрос отклоняется до запуска ядра.
-    let helper = spawn_helper(false, Path::new("/nonexistent/sing-box")).await;
+    let helper = spawn_helper(false, Path::new("/nonexistent/gorion-engine")).await;
     let (runtime, _) = tun_runtime(&helper);
     let error = runtime
-        .start(&request(RuntimeMode::Mixed), false)
+        .start(&request(RuntimeMode::Mixed))
         .await
         .unwrap_err();
     assert_eq!(error.code(), gorion_core::ErrorCode::Unsupported);
@@ -143,7 +142,7 @@ async fn helper_refuses_everything_but_tun() {
 
 #[tokio::test]
 async fn rejects_garbage_and_survives() {
-    let helper = spawn_helper(false, Path::new("/nonexistent/sing-box")).await;
+    let helper = spawn_helper(false, Path::new("/nonexistent/gorion-engine")).await;
     let mut stream = UnixStream::connect(&helper.socket).await.unwrap();
     stream.write_all(b"{not json}\n").await.unwrap();
     let mut line = String::new();
@@ -164,7 +163,6 @@ async fn rejects_garbage_and_survives() {
         mode: RuntimeMode::Tun,
         selected_server_tag: None,
         url_test_url: "https://x/".into(),
-        sing_box_only: false,
     });
     assert!(
         serde_json::to_string(&start)
@@ -175,18 +173,15 @@ async fn rejects_garbage_and_survives() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn lease_controls_the_core() {
-    let Some(binary) = singbox() else {
-        eprintln!("sing-box не найден — тест пропущен");
+    let Some(binary) = engine() else {
+        eprintln!("gorion-engine не собран — тест пропущен");
         return;
     };
     let helper = spawn_helper(true, &binary).await;
 
     // 1. Явная остановка.
     let (runtime, events) = tun_runtime(&helper);
-    let session = runtime
-        .start(&request(RuntimeMode::Mixed), false)
-        .await
-        .unwrap();
+    let session = runtime.start(&request(RuntimeMode::Mixed)).await.unwrap();
     assert!(is_alive(session.pid));
     assert!(session.mixed_port > 0 && session.controller_port > 0);
     runtime.stop().await.unwrap();
@@ -194,20 +189,14 @@ async fn lease_controls_the_core() {
     runtime.stop().await.unwrap(); // идемпотентно
 
     // 2. Приложение пропало, не сказав `stop`: аренда закрылась — ядро гаснет.
-    let session = runtime
-        .start(&request(RuntimeMode::Mixed), false)
-        .await
-        .unwrap();
+    let session = runtime.start(&request(RuntimeMode::Mixed)).await.unwrap();
     drop(runtime);
     assert!(wait_until(|| !is_alive(session.pid)).await, "lease close");
     assert!(events.lock().unwrap().is_empty());
 
     // 3. Ядро упало само — приложение узнаёт об этом по аренде.
     let (runtime, events) = tun_runtime(&helper);
-    let session = runtime
-        .start(&request(RuntimeMode::Mixed), false)
-        .await
-        .unwrap();
+    let session = runtime.start(&request(RuntimeMode::Mixed)).await.unwrap();
     send_signal(session.pid, Signal::Kill);
     assert!(
         wait_until(|| !events.lock().unwrap().is_empty()).await,
@@ -222,21 +211,15 @@ async fn lease_controls_the_core() {
     // 4. Новый запуск заменяет прежний; закрытие старой аренды его не трогает.
     let (first, _) = tun_runtime(&helper);
     let (second, _) = tun_runtime(&helper);
-    let old = first
-        .start(&request(RuntimeMode::Mixed), false)
-        .await
-        .unwrap();
-    let new = second
-        .start(&request(RuntimeMode::Mixed), false)
-        .await
-        .unwrap();
+    let old = first.start(&request(RuntimeMode::Mixed)).await.unwrap();
+    let new = second.start(&request(RuntimeMode::Mixed)).await.unwrap();
     assert!(wait_until(|| !is_alive(old.pid)).await, "replaced");
     drop(first);
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(is_alive(new.pid), "old lease must not stop the new session");
     let logs = HelperClient::new(&helper.socket).logs().await.unwrap();
     assert!(
-        logs.iter().any(|l| l.contains("sing-box запущен")),
+        logs.iter().any(|l| l.contains("gorion-engine запущен")),
         "{logs:?}"
     );
 

@@ -1,4 +1,4 @@
-//! Серверы, которые можно выбрать, из конфигурации sing-box.
+//! Серверы, которые можно выбрать, из конфигурации Gorion.
 //! Эталон: `lib/features/auto_select/utils/auto_select_server_config.dart`.
 
 use serde_json::{Map, Value, json};

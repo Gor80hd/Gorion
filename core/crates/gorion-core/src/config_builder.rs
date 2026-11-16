@@ -1,5 +1,6 @@
-//! Шаблон подписки → рабочая конфигурация sing-box.
-//! Эталон: `lib/features/runtime/data/singbox_config_builder.dart`.
+//! Шаблон подписки → рабочая конфигурация движка `gorion-engine`.
+//! Эталон поведения — сборщик конфигурации Flutter-версии (фикстура
+//! `config_builder.json`).
 
 use serde_json::{Map, Value, json};
 
@@ -258,7 +259,7 @@ fn build_inbounds(mode: RuntimeMode, mixed_port: u16) -> Value {
 /// В режиме TUN ядро работает от root через помощника: ни один ключ
 /// шаблона не должен указывать ему на локальный файл (сертификаты, ключи,
 /// локальные rule-set). Правила, которые ссылались только на вырезанные
-/// rule-set, уходят вместе с ними — иначе `sing-box check` не пройдёт.
+/// rule-set, уходят вместе с ними — правило без них ничего не значит.
 fn strip_local_file_references(config: &mut Map<String, Value>) {
     strip_path_keys(config);
     let mut removed = Vec::new();

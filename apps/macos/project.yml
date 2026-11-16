@@ -25,7 +25,7 @@ targets:
     platform: macOS
     sources:
       - path: Gorion
-      # Карта стран для планеты — общая с Flutter-версией.
+      # Карта стран для планеты (tool/globe/generate_world_map.py).
       - path: ../../assets/images/world_map_countries.png
         buildPhase: resources
     dependencies:
@@ -69,14 +69,10 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           set -euo pipefail
-          # Свой движок (ADR-0005) — единственное ядро сборки: sing-box в
-          # приложение не кладётся, чтобы проверять именно движок. Ядро ищет
-          # движок на месте sing-box (Resources/), копия sing-box от прошлых
-          # сборок убирается.
+          # Свой движок (ADR-0005) — единственное ядро подключения.
           SRC="${SRCROOT}/build/helper/gorion-engine"
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/gorion-engine"
           mkdir -p "$(dirname "$DEST")"
-          rm -f "$(dirname "$DEST")/sing-box"
           cp "$SRC" "$DEST"
           chmod 755 "$DEST"
           codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" --options runtime "$DEST"

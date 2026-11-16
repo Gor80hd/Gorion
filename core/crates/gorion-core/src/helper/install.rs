@@ -10,17 +10,14 @@ use std::time::Duration;
 
 use crate::error::{CoreError, CoreResult};
 use crate::runtime::process::run_with_timeout;
-use crate::runtime::service::ENGINE_BINARY;
 
 /// Окно с паролем ждёт человека — времени с запасом.
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// `prompt` — текст в окне macOS; он от интерфейса (в ядре текстов нет).
-/// Движок лежит рядом с местом sing-box; sing-box ставится, только если
-/// он есть в сборке.
-pub async fn install(helper_binary: &Path, singbox: &Path, prompt: &str) -> CoreResult<()> {
-    let engine = singbox.with_file_name(ENGINE_BINARY);
-    for path in [helper_binary, engine.as_path()] {
+/// `engine` — бинарник `gorion-engine` из сборки приложения.
+pub async fn install(helper_binary: &Path, engine: &Path, prompt: &str) -> CoreResult<()> {
+    for path in [helper_binary, engine] {
         if !path.is_file() {
             return Err(CoreError::HelperInstallFailed(format!(
                 "file not found: {}",
@@ -28,17 +25,11 @@ pub async fn install(helper_binary: &Path, singbox: &Path, prompt: &str) -> Core
             )));
         }
     }
-    let mut command = format!(
+    let command = format!(
         "{} install --engine {}",
         shell_quote(&helper_binary.to_string_lossy()),
         shell_quote(&engine.to_string_lossy()),
     );
-    if singbox.is_file() {
-        command.push_str(&format!(
-            " --singbox {}",
-            shell_quote(&singbox.to_string_lossy())
-        ));
-    }
     let script = format!(
         "do shell script {} with prompt {} with administrator privileges",
         applescript_string(&command),

@@ -33,9 +33,9 @@ use crate::model::{
     is_auto_select_tag,
 };
 use crate::probe::{self, ProbeResult, ProbeSettings};
+use crate::runtime::RuntimeMode;
 use crate::runtime::clash::ClashClient;
 use crate::runtime::service::{RuntimeEvent, RuntimeService, RuntimeSession, StartRequest};
-use crate::runtime::{CoreKind, RuntimeMode};
 use crate::storage::{ProfileStore, RemovedProfile, read_json, write_json};
 use crate::subscription;
 
@@ -239,7 +239,8 @@ pub struct Engine {
     /// Ядро режима TUN, которое держит помощник.
     #[cfg(unix)]
     tun: Arc<TunRuntime>,
-    singbox_path: PathBuf,
+    /// Бинарник `gorion-engine` в сборке приложения.
+    engine_path: PathBuf,
     settings_path: PathBuf,
     probe_settings: ProbeSettings,
     state: Mutex<State>,
@@ -255,7 +256,7 @@ impl Engine {
     /// `data_dir` — `…/Application Support/app.gorion.client/gorion`.
     pub fn new(
         data_dir: PathBuf,
-        singbox_path: PathBuf,
+        engine_path: PathBuf,
         observer: Arc<dyn EngineObserver>,
     ) -> Arc<Self> {
         Arc::new_cyclic(|weak: &Weak<Engine>| {
@@ -268,7 +269,7 @@ impl Engine {
             });
             let runtime = RuntimeService::new(
                 data_dir.join("runtime"),
-                singbox_path.clone(),
+                engine_path.clone(),
                 events.clone(),
             );
             #[cfg(unix)]
@@ -278,7 +279,7 @@ impl Engine {
                 runtime,
                 #[cfg(unix)]
                 tun,
-                singbox_path,
+                engine_path,
                 settings_path: data_dir.join("native-settings.json"),
                 probe_settings: ProbeSettings::default(),
                 state: Mutex::new(State {
@@ -616,7 +617,7 @@ impl Engine {
     async fn measure_detached(&self, profile: &ProxyProfile) -> CoreResult<HashMap<String, i64>> {
         let template = self.store.load_template(profile).await?;
         let dir = self.store.root().join("runtime-probe");
-        let probe_runtime = RuntimeService::new(dir, self.singbox_path.clone(), Arc::new(|_| {}));
+        let probe_runtime = RuntimeService::new(dir, self.engine_path.clone(), Arc::new(|_| {}));
         probe_runtime.recover_previous_session().await;
         let session = probe_runtime
             .start(StartRequest {
@@ -641,8 +642,8 @@ impl Engine {
     /// [`DELAY_CONCURRENCY`] одновременно. Не ответивший получает 0.
     ///
     /// Δ к эталону: эталон спрашивал задержки у группы urltest целиком, но
-    /// sing-box отвечает на это пустым объектом, пока идёт его собственный
-    /// стартовый тест, — и все серверы выглядели мёртвыми.
+    /// во время стартового теста группы ответ был пустым — и все серверы
+    /// выглядели мёртвыми.
     async fn load_delays(
         &self,
         session: &RuntimeSession,
@@ -796,46 +797,20 @@ impl Engine {
         mode: RuntimeMode,
         generation: u64,
     ) -> CoreResult<Option<ConnectOutcome>> {
-        let result = self.connect_attempt(profile, mode, generation, true).await;
-        // Переходный период ADR-0005: если свой движок не нашёл рабочего
-        // сервера, та же попытка идёт через sing-box. Сервер, недоступный и
-        // там, получает обычную ошибку.
-        // Без sing-box в сборке повторять не через что: ошибка движка видна как есть.
-        let engine_failed = matches!(result, Err(CoreError::InternetUnavailable(_)))
-            && self.runtime.singbox_available()
-            && self.running_core(mode).await == Some(CoreKind::Engine);
-        if !engine_failed || !self.is_current(generation) {
-            return result;
-        }
-        tracing::warn!("own engine found no working server; retrying with sing-box");
-        let _ = self.stop_runtime().await;
-        self.connect_attempt(profile, mode, generation, false).await
-    }
-
-    async fn connect_attempt(
-        &self,
-        profile: &ProxyProfile,
-        mode: RuntimeMode,
-        generation: u64,
-        allow_engine: bool,
-    ) -> CoreResult<Option<ConnectOutcome>> {
         let template = self.store.load_template(profile).await?;
         let session = self
-            .start_runtime(
-                StartRequest {
-                    profile_id: profile.id.clone(),
-                    template_config: template,
-                    mode,
-                    selected_server_tag: profile.startup_server_tag().map(str::to_owned),
-                    url_test_url: probe::url_test_url(
-                        &self.probe_settings.domain_probe_url,
-                        &format!("{}::runtime::urltest", profile.id),
-                    ),
-                    bypass_steam: false,
-                    split_tunnel: None,
-                },
-                allow_engine,
-            )
+            .start_runtime(StartRequest {
+                profile_id: profile.id.clone(),
+                template_config: template,
+                mode,
+                selected_server_tag: profile.startup_server_tag().map(str::to_owned),
+                url_test_url: probe::url_test_url(
+                    &self.probe_settings.domain_probe_url,
+                    &format!("{}::runtime::urltest", profile.id),
+                ),
+                bypass_steam: false,
+                split_tunnel: None,
+            })
             .await?;
         if !self.is_current(generation) {
             let _ = self.stop_runtime().await;
@@ -1049,32 +1024,17 @@ impl Engine {
 
     /// Запускает ядро там, где ему место: TUN — в помощнике, остальное — здесь.
     /// Другой из двух путей при этом останавливается.
-    async fn start_runtime(
-        &self,
-        request: StartRequest,
-        allow_engine: bool,
-    ) -> CoreResult<RuntimeSession> {
+    async fn start_runtime(&self, request: StartRequest) -> CoreResult<RuntimeSession> {
         if request.mode.uses_tun() {
             let _ = self.runtime.stop().await;
             #[cfg(unix)]
-            return self.tun.start(&request, allow_engine).await;
+            return self.tun.start(&request).await;
             #[cfg(not(unix))]
             return Err(CoreError::TunHelperRequired);
         }
         #[cfg(unix)]
         let _ = self.tun.stop().await;
-        self.runtime.start_with(request, allow_engine).await
-    }
-
-    /// Какое ядро сейчас работает в этом режиме: TUN держит помощник.
-    async fn running_core(&self, mode: RuntimeMode) -> Option<CoreKind> {
-        if mode.uses_tun() {
-            #[cfg(unix)]
-            return self.tun.core().await;
-            #[cfg(not(unix))]
-            return None;
-        }
-        self.runtime.session().await.map(|session| session.core)
+        self.runtime.start(request).await
     }
 
     async fn stop_runtime(&self) -> CoreResult<()> {
@@ -1104,7 +1064,7 @@ impl Engine {
             s.clear_messages();
         });
         let result =
-            crate::helper::install::install(helper_binary, &self.singbox_path, prompt).await;
+            crate::helper::install::install(helper_binary, &self.engine_path, prompt).await;
         let status = self.tun.client().status().await;
         self.update(|s| {
             s.busy = false;

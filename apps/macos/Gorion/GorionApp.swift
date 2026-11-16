@@ -10,16 +10,15 @@ struct GorionApp: App {
     @State private var ui = UIState()
 
     init() {
-        // Место ядра: свой движок лежит рядом (Resources/gorion-engine). Самого
-        // sing-box в сборке сейчас нет — ядро тогда работает только на движке.
-        let singbox = Bundle.main.url(forResource: "sing-box", withExtension: nil)
-            ?? Bundle.main.bundleURL.appending(path: "Contents/Resources/sing-box")
+        // Ядро подключения — свой движок в Resources/gorion-engine.
+        let engine = Bundle.main.url(forResource: "gorion-engine", withExtension: nil)
+            ?? Bundle.main.bundleURL.appending(path: "Contents/Resources/gorion-engine")
         // GORION_DATA_DIR — отдельный каталог данных для проверок и скриншотов,
         // чтобы не трогать настоящие подписки.
         let dataDirectory = ProcessInfo.processInfo.environment["GORION_DATA_DIR"]
             .map { URL(filePath: $0, directoryHint: .isDirectory) } ?? AppModel.defaultDataDirectory
         let helper = Bundle.main.bundleURL.appending(path: "Contents/Helpers/gorion-helper")
-        let model = AppModel(dataDirectory: dataDirectory, singboxURL: singbox, helperURL: helper)
+        let model = AppModel(dataDirectory: dataDirectory, engineURL: engine, helperURL: helper)
         _model = State(initialValue: model)
         AppDelegate.model = model
         #if DEBUG

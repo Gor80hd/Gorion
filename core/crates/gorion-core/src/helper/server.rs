@@ -38,14 +38,14 @@ pub struct HelperServer {
 }
 
 impl HelperServer {
-    pub fn new(runtime_dir: PathBuf, singbox_path: PathBuf, allow_non_tun: bool) -> Arc<Self> {
+    pub fn new(runtime_dir: PathBuf, engine_path: PathBuf, allow_non_tun: bool) -> Arc<Self> {
         let current = Arc::new(StdMutex::new(None::<u64>));
         let (exits, _) = broadcast::channel(4);
         let sink_current = current.clone();
         let sink_exits = exits.clone();
         let runtime = RuntimeService::new(
             runtime_dir,
-            singbox_path,
+            engine_path,
             Arc::new(move |event| {
                 let RuntimeEvent::UnexpectedExit { code } = event;
                 let lease = sink_current.lock().ok().and_then(|mut c| c.take());
@@ -191,23 +191,19 @@ impl HelperServer {
         // Прежняя аренда больше не владеет ядром: `start` его заменит.
         self.set_current(None);
         tracing::info!(peer, profile = %start.profile_id, "helper start");
-        let allow_engine = !start.sing_box_only;
         let session = self
             .runtime
-            .start_with(
-                StartRequest {
-                    profile_id: start.profile_id,
-                    template_config: start.template_config,
-                    mode: start.mode,
-                    selected_server_tag: start.selected_server_tag,
-                    url_test_url: start.url_test_url,
-                    bypass_steam: false,
-                    // Правила раздельного туннелирования пока не передаются:
-                    // их rule-set'ы могли бы указать ядру от root на файлы.
-                    split_tunnel: None,
-                },
-                allow_engine,
-            )
+            .start(StartRequest {
+                profile_id: start.profile_id,
+                template_config: start.template_config,
+                mode: start.mode,
+                selected_server_tag: start.selected_server_tag,
+                url_test_url: start.url_test_url,
+                bypass_steam: false,
+                // Правила раздельного туннелирования пока не передаются:
+                // их rule-set'ы могли бы указать ядру от root на файлы.
+                split_tunnel: None,
+            })
             .await?;
         let id = self.next_lease.fetch_add(1, Ordering::SeqCst) + 1;
         self.set_current(Some(id));

@@ -18,7 +18,6 @@ pub enum ErrorCode {
     ProfileNotFound,
     Storage,
     CoreBinaryMissing,
-    InvalidRuntimeConfig,
     CoreStartFailed,
     ControllerUnavailable,
     SystemProxyFailed,
@@ -40,7 +39,7 @@ pub enum ErrorCode {
     HelperInstallCancelled,
     /// Установка помощника не удалась.
     HelperInstallFailed,
-    /// Свой движок не умеет этот профиль, а sing-box в сборке нет.
+    /// Свой движок не умеет этот профиль (`gorion-engine check` отказал).
     EngineUnsupported,
 }
 
@@ -50,7 +49,7 @@ pub enum CoreError {
     InvalidSubscriptionUrl,
     #[error("не удалось загрузить подписку: {0}")]
     SubscriptionFetch(String),
-    #[error("поддерживаются только JSON-конфиги sing-box и списки ссылок (обычные или base64)")]
+    #[error("поддерживаются только JSON-конфигурации Xray и списки ссылок (обычные или base64)")]
     UnsupportedSubscriptionFormat,
     #[error("в подписке нет серверов, которые можно выбрать")]
     NoSelectableServers,
@@ -64,13 +63,11 @@ pub enum CoreError {
     ProfileNotFound(String),
     #[error("ошибка хранилища: {0}")]
     Storage(String),
-    #[error("бинарник sing-box не найден: {0}")]
+    #[error("бинарник движка не найден: {0}")]
     CoreBinaryMissing(String),
-    #[error("sing-box отклонил конфигурацию: {0}")]
-    InvalidRuntimeConfig(String),
-    #[error("sing-box не запустился: {0}")]
+    #[error("движок не запустился: {0}")]
     CoreStartFailed(String),
-    #[error("контроллер sing-box недоступен: {0}")]
+    #[error("контроллер движка недоступен: {0}")]
     ControllerUnavailable(String),
     #[error("системный прокси: {0}")]
     SystemProxy(String),
@@ -84,7 +81,7 @@ pub enum CoreError {
     Internal(String),
     #[error("через сервер «{0}» нет доступа в интернет")]
     InternetUnavailable(String),
-    #[error("sing-box неожиданно завершился с кодом {0}")]
+    #[error("движок неожиданно завершился с кодом {0}")]
     UnexpectedExit(i32),
     #[error("нет ни одной подписки")]
     NoProfile,
@@ -118,7 +115,6 @@ impl CoreError {
             Self::ProfileNotFound(_) => ErrorCode::ProfileNotFound,
             Self::Storage(_) => ErrorCode::Storage,
             Self::CoreBinaryMissing(_) => ErrorCode::CoreBinaryMissing,
-            Self::InvalidRuntimeConfig(_) => ErrorCode::InvalidRuntimeConfig,
             Self::CoreStartFailed(_) => ErrorCode::CoreStartFailed,
             Self::ControllerUnavailable(_) => ErrorCode::ControllerUnavailable,
             Self::SystemProxy(_) => ErrorCode::SystemProxyFailed,

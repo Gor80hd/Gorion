@@ -1,8 +1,8 @@
 //! `gorion-helper` — помощник Gorion с правами root (ADR-0005).
 //!
 //! ```text
-//! gorion-helper serve [--socket P] [--runtime-dir D] [--singbox S] [--allow-non-tun]
-//! gorion-helper install --engine E [--singbox S]  # от root: ставит службу launchd
+//! gorion-helper serve [--socket P] [--runtime-dir D] [--engine E] [--allow-non-tun]
+//! gorion-helper install --engine E      # от root: ставит службу launchd
 //! gorion-helper uninstall               # от root: убирает службу
 //! gorion-helper --version
 //! ```
@@ -23,10 +23,7 @@ fn main() -> ExitCode {
         #[cfg(target_os = "macos")]
         Some("install") => flag_value(&args[1..], "--engine")
             .ok_or_else(|| "install: нужен --engine".to_owned())
-            .and_then(|engine| {
-                let singbox = flag_value(&args[1..], "--singbox").map(PathBuf::from);
-                install::install(&PathBuf::from(engine), singbox.as_deref())
-            }),
+            .and_then(|engine| install::install(&PathBuf::from(engine))),
         #[cfg(target_os = "macos")]
         Some("uninstall") => install::uninstall(),
         Some("--version") => {

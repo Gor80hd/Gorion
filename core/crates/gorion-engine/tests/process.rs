@@ -1,5 +1,5 @@
 //! Процесс `gorion-engine` так, как его запускает ядро Gorion: конфигурация
-//! sing-box, Clash API, SIGTERM. Внешние серверы не нужны — серверы здесь
+//! Gorion, Clash API, SIGTERM. Внешние серверы не нужны — серверы здесь
 //! «прямые», а протоколы проверяет `engine.rs`.
 #![allow(clippy::unwrap_used)]
 

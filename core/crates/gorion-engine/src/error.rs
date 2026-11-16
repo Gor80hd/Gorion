@@ -24,7 +24,7 @@ pub enum EngineError {
     /// Сбой транспорта (HTTP/2, Upgrade): текст для журнала.
     #[error("transport: {0}")]
     Transport(String),
-    /// Настройки, которых движок не умеет: такой профиль идёт через sing-box.
+    /// Настройки, которых движок не умеет: такой профиль не запускается.
     #[error("unsupported: {0}")]
     Unsupported(String),
 }

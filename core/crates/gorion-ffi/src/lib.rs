@@ -79,7 +79,6 @@ pub enum CoreErrorCode {
     ProfileNotFound,
     Storage,
     CoreBinaryMissing,
-    InvalidRuntimeConfig,
     CoreStartFailed,
     ControllerUnavailable,
     SystemProxyFailed,
@@ -110,7 +109,6 @@ impl From<ErrorCode> for CoreErrorCode {
             ErrorCode::ProfileNotFound => Self::ProfileNotFound,
             ErrorCode::Storage => Self::Storage,
             ErrorCode::CoreBinaryMissing => Self::CoreBinaryMissing,
-            ErrorCode::InvalidRuntimeConfig => Self::InvalidRuntimeConfig,
             ErrorCode::CoreStartFailed => Self::CoreStartFailed,
             ErrorCode::ControllerUnavailable => Self::ControllerUnavailable,
             ErrorCode::SystemProxyFailed => Self::SystemProxyFailed,
@@ -410,16 +408,16 @@ pub struct GorionCore {
 #[uniffi::export(async_runtime = "tokio")]
 impl GorionCore {
     /// `data_dir` — `…/Application Support/app.gorion.client/gorion`,
-    /// `singbox_path` — бинарник sing-box внутри приложения.
+    /// `engine_path` — бинарник `gorion-engine` внутри приложения.
     #[uniffi::constructor]
     pub fn new(
         data_dir: String,
-        singbox_path: String,
+        engine_path: String,
         observer: Arc<dyn CoreObserver>,
     ) -> Arc<Self> {
         let engine = Engine::new(
             PathBuf::from(data_dir),
-            PathBuf::from(singbox_path),
+            PathBuf::from(engine_path),
             Arc::new(ObserverBridge(observer)),
         );
         Arc::new(Self { engine })

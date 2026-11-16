@@ -1,6 +1,6 @@
 [package]
 name = "gorion-core"
-description = "Логика Gorion: подписки, конфигурация sing-box, runtime, системный прокси."
+description = "Логика Gorion: подписки, конфигурация движка, runtime, системный прокси."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

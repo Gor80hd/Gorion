@@ -11,28 +11,28 @@ use gorion_core::runtime::RuntimeMode;
 use gorion_core::runtime::process::read_marker;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-fn singbox() -> Option<PathBuf> {
-    let arch = if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else {
-        "x64"
-    };
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../../assets/singbox/macos/{arch}/sing-box"));
-    (cfg!(target_os = "macos") && path.is_file()).then_some(path)
+/// `gorion-engine` из той же сборки, что и тест (`target/<профиль>/`).
+fn engine_binary() -> Option<PathBuf> {
+    let path = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .parent()?
+        .join("gorion-engine");
+    if !path.is_file() {
+        eprintln!("gorion-engine не собран — тест пропущен");
+        return None;
+    }
+    cfg!(unix).then_some(path)
 }
 
-const SUBSCRIPTION: &str = r#"{
-  "outbounds": [
-    {"type": "shadowsocks", "tag": "[DE] Dead One", "server": "127.0.0.1", "server_port": 9,
-     "method": "aes-128-gcm", "password": "test-password"},
-    {"type": "shadowsocks", "tag": "Dead Two", "server": "127.0.0.1", "server_port": 10,
-     "method": "aes-128-gcm", "password": "test-password"}
-  ]
-}"#;
+/// Ссылки Shadowsocks на мёртвые порты (`aes-128-gcm:test-password`).
+const SS_A: &str = "ss://YWVzLTEyOC1nY206dGVzdC1wYXNzd29yZA==@127.0.0.1:9#%5BDE%5D%20Dead%20One";
+const SS_B: &str = "ss://YWVzLTEyOC1nY206dGVzdC1wYXNzd29yZA==@127.0.0.1:10#Dead%20Two";
+/// VMess движок не умеет.
+const VMESS: &str = "vmess://eyJ2IjogIjIiLCAicHMiOiAiVk0iLCAiYWRkIjogIjEyNy4wLjAuMSIsICJwb3J0IjogIjEwIiwgImlkIjogImI4MzEzODFkLTYzMjQtNGQ1My1hZDRmLThjZGE0OGIzMDgxMSIsICJhaWQiOiAiMCIsICJuZXQiOiAidGNwIiwgInR5cGUiOiAibm9uZSIsICJ0bHMiOiAiIn0=";
 
-/// Однократный HTTP-сервер на 127.0.0.1, отдаёт подписку.
-async fn serve_subscription() -> String {
+/// HTTP-сервер на 127.0.0.1, отдаёт подписку `body` (список ссылок).
+async fn serve(body: String) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
@@ -40,9 +40,9 @@ async fn serve_subscription() -> String {
             let mut buffer = [0u8; 2048];
             let _ = socket.read(&mut buffer).await;
             let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nprofile-title: Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                SUBSCRIPTION.len(),
-                SUBSCRIPTION
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nprofile-title: Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
             );
             let _ = socket.write_all(response.as_bytes()).await;
         }
@@ -64,15 +64,19 @@ impl EngineObserver for Recorder {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn add_connect_fails_honestly_and_cleans_up() {
-    let Some(binary) = singbox() else { return };
+    let Some(binary) = engine_binary() else {
+        return;
+    };
     let dir = tempfile::tempdir().unwrap();
     let recorder = Arc::new(Recorder::default());
-    let engine = Engine::new(dir.path().to_path_buf(), binary, recorder.clone());
+    let engine = Engine::new(dir.path().to_path_buf(), binary.clone(), recorder.clone());
     engine.bootstrap().await;
     assert!(!engine.snapshot().bootstrapping);
 
     engine.set_mode(RuntimeMode::Mixed).await;
-    engine.add_subscription(&serve_subscription().await).await;
+    engine
+        .add_subscription(&serve(format!("{SS_A}\n{SS_B}\n")).await)
+        .await;
     let snapshot = engine.snapshot();
     assert_eq!(snapshot.error, None, "{:?}", snapshot.error);
     assert!(matches!(
@@ -125,7 +129,7 @@ async fn add_connect_fails_honestly_and_cleans_up() {
     // Состояние переживает перезапуск.
     let reopened = Engine::new(
         dir.path().to_path_buf(),
-        singbox().unwrap(),
+        binary,
         Arc::new(Recorder::default()),
     );
     reopened.bootstrap().await;
@@ -134,65 +138,21 @@ async fn add_connect_fails_honestly_and_cleans_up() {
     assert!(!recorder.snapshots.lock().unwrap().is_empty());
 }
 
-/// `gorion-engine` из сборки рабочего пространства (`cargo build`).
-fn built_engine() -> Option<PathBuf> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/gorion-engine");
-    path.is_file().then_some(path)
-}
-
-async fn serve(body: &'static str) -> String {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    tokio::spawn(async move {
-        while let Ok((mut socket, _)) = listener.accept().await {
-            let mut buffer = [0u8; 2048];
-            let _ = socket.read(&mut buffer).await;
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            let _ = socket.write_all(response.as_bytes()).await;
-        }
-    });
-    format!("http://127.0.0.1:{port}/sub")
-}
-
-/// Сборка без sing-box: движок — единственное ядро. Профиль, который движок
-/// не умеет, даёт `EngineUnsupported`, а не тихий откат; мёртвый сервер —
-/// честное `InternetUnavailable` через движок, без второй попытки.
+/// Профиль, который движок не умеет, даёт `EngineUnsupported`, а не тихий
+/// откат; мёртвый сервер — честное `InternetUnavailable`, без второй попытки.
 #[tokio::test(flavor = "multi_thread")]
-async fn engine_only_build_never_falls_back() {
-    let Some(engine_binary) = built_engine() else {
-        eprintln!("нет target/debug/gorion-engine — сначала cargo build");
+async fn unsupported_profile_fails_without_fallback() {
+    let Some(binary) = engine_binary() else {
         return;
     };
     let dir = tempfile::tempdir().unwrap();
-    let bin = dir.path().join("bin");
-    std::fs::create_dir_all(&bin).unwrap();
-    std::fs::copy(&engine_binary, bin.join("gorion-engine")).unwrap();
-    // Место sing-box: самого файла нет.
     let data = dir.path().join("data");
-    let engine = Engine::new(
-        data.clone(),
-        bin.join("sing-box"),
-        Arc::new(Recorder::default()),
-    );
+    let engine = Engine::new(data.clone(), binary, Arc::new(Recorder::default()));
     engine.bootstrap().await;
     engine.set_mode(RuntimeMode::Mixed).await;
 
     engine
-        .add_subscription(
-            &serve(
-                r#"{"outbounds": [
-                {"type": "shadowsocks", "tag": "SS", "server": "127.0.0.1", "server_port": 9,
-                 "method": "aes-128-gcm", "password": "test-password"},
-                {"type": "hysteria2", "tag": "HY", "server": "127.0.0.1", "server_port": 10,
-                 "password": "test-password"}
-            ]}"#,
-            )
-            .await,
-        )
+        .add_subscription(&serve(format!("{SS_A}\n{VMESS}\n")).await)
         .await;
     assert_eq!(engine.snapshot().error, None);
     engine.connect().await;
@@ -206,15 +166,7 @@ async fn engine_only_build_never_falls_back() {
     let id = engine.snapshot().active_profile_id.clone().unwrap();
     engine.remove_profile(&id).await;
     engine
-        .add_subscription(
-            &serve(
-                r#"{"outbounds": [
-                {"type": "shadowsocks", "tag": "SS", "server": "127.0.0.1", "server_port": 9,
-                 "method": "aes-128-gcm", "password": "test-password"}
-            ]}"#,
-            )
-            .await,
-        )
+        .add_subscription(&serve(format!("{SS_A}\n")).await)
         .await;
     engine.connect().await;
     let snapshot = engine.snapshot();

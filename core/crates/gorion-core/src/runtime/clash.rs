@@ -1,4 +1,4 @@
-//! Клиент Clash API работающего sing-box.
+//! Клиент Clash API работающего движка.
 //! Эталон: `lib/features/runtime/data/clash_api_client.dart`.
 
 use std::collections::HashMap;

@@ -1,6 +1,5 @@
-//! Управление движком — подмножество Clash API sing-box, которым пользуется
-//! ядро Gorion: `/version`, `/proxies`, выбор сервера, URL-тест, `/traffic`.
-//! Благодаря этому ядро управляет движком и sing-box одним и тем же кодом.
+//! Управление движком — подмножество Clash API, которым пользуется ядро
+//! Gorion: `/version`, `/proxies`, выбор сервера, URL-тест, `/traffic`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

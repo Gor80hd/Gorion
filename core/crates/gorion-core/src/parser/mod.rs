@@ -1,5 +1,8 @@
-//! Разбор подписок: JSON sing-box, JSON Xray, списки ссылок, base64.
-//! Эталон: `lib/features/profiles/data/profile_parser.dart`.
+//! Разбор подписок: JSON Xray, списки ссылок, base64. Итог — конфигурация
+//! Gorion: `{"outbounds": [...]}` с серверами в формате движка.
+//!
+//! Δ к эталону: подписки в виде готового JSON sing-box больше не
+//! принимаются (решение владельца 2026-11-16, sing-box убран из проекта).
 
 mod base64_text;
 pub mod links;
@@ -103,9 +106,6 @@ fn decode_subscription_config(raw: &str) -> CoreResult<Option<Config>> {
     if let Some(config) = decode_xray(trimmed)? {
         return Ok(Some(config));
     }
-    if let Some(config) = decode_config(trimmed) {
-        return Ok(Some(config));
-    }
     let direct = parse_remote_outbounds(trimmed)?;
     if !direct.is_empty() {
         return Ok(Some(outbounds_config(direct)));
@@ -114,9 +114,6 @@ fn decode_subscription_config(raw: &str) -> CoreResult<Option<Config>> {
         return Ok(None);
     };
     if let Some(config) = decode_xray(&decoded)? {
-        return Ok(Some(config));
-    }
-    if let Some(config) = decode_config(&decoded) {
         return Ok(Some(config));
     }
     let decoded_outbounds = parse_remote_outbounds(&decoded)?;
@@ -133,21 +130,6 @@ fn outbounds_config(outbounds: Vec<Config>) -> Config {
         Value::Array(outbounds.into_iter().map(Value::Object).collect()),
     );
     config
-}
-
-fn decode_config(content: &str) -> Option<Config> {
-    if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(content) {
-        return Some(map);
-    }
-    let first = content.find('{')?;
-    let last = content.rfind('}')?;
-    if last <= first {
-        return None;
-    }
-    match serde_json::from_str::<Value>(&content[first..=last]) {
-        Ok(Value::Object(map)) => Some(map),
-        _ => None,
-    }
 }
 
 /// Подписка Xray JSON (массив конфигураций или одна конфигурация).

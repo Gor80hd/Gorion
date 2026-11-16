@@ -1,6 +1,6 @@
 //! Транспорт XHTTP из Xray в настройках движка Gorion.
 //!
-//! У sing-box такого транспорта нет, поэтому формат свой, в духе остальных:
+//! Формат в духе остальных транспортов конфигурации Gorion:
 //! `{"type": "xhttp", "path", "host", "mode", "headers", "x_padding_bytes",
 //! "no_grpc_header", "sc_max_each_post_bytes", "sc_min_posts_interval_ms",
 //! "x_padding_obfs_mode", "x_padding_key", "x_padding_header",

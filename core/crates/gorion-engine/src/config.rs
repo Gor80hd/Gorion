@@ -1,8 +1,8 @@
-//! Настройки движка — та же конфигурация sing-box, что строит ядро Gorion,
-//! но только понятное движку подмножество: вход `mixed` (и `tun` с
-//! системным стеком на macOS), селектор серверов без своих правил
-//! маршрутизации, протоколы, которые движок умеет. Всё остальное — ошибка
-//! `Unsupported`, и ядро запускает sing-box.
+//! Настройки движка — конфигурация Gorion, которую строит ядро: вход
+//! `mixed` (и `tun` с системным стеком на macOS), селектор серверов без
+//! своих правил маршрутизации, протоколы, которые движок умеет. Всё
+//! остальное — ошибка `Unsupported`: такой профиль не запускается, а
+//! причина уходит в ошибку `EngineUnsupported` ядра.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -94,7 +94,8 @@ fn non_empty(value: Option<&Value>) -> bool {
     }
 }
 
-pub fn from_singbox(config: &Value) -> Result<Plan> {
+/// План движка из конфигурации Gorion (JSON, который пишет ядро).
+pub fn from_config(config: &Value) -> Result<Plan> {
     let config = config
         .as_object()
         .ok_or_else(|| unsupported("config is not an object"))?;
@@ -362,7 +363,7 @@ fn doh_server(server: &Map<String, Value>, selector_tag: &str) -> Result<DohServ
         return Err(unsupported("dns detour"));
     }
     let host = str_field(server, "server").ok_or_else(|| unsupported("dns server address"))?;
-    // Имя вместо IP пришлось бы разрешать до туннеля: такое — в sing-box.
+    // Имя вместо IP пришлось бы разрешать до туннеля: такое движок не умеет.
     let ip: IpAddr = host
         .parse()
         .map_err(|_| unsupported("dns server is not an ip"))?;
@@ -1135,7 +1136,7 @@ mod tests {
 
     #[test]
     fn reads_the_config_gorion_builds() {
-        let plan = from_singbox(&built(servers(), json!([]))).unwrap();
+        let plan = from_config(&built(servers(), json!([]))).unwrap();
         assert_eq!(plan.listen, "127.0.0.1:2080".parse().unwrap());
         assert_eq!(plan.selector_tag, "gorion-manual");
         assert_eq!(plan.members, ["R", "S"]);
@@ -1164,7 +1165,7 @@ mod tests {
              "tls": {"enabled": true, "server_name": "v.example.com", "insecure": true}},
             {"type": "selector", "tag": "gorion-manual", "outbounds": ["T", "S", "V"]}
         ]);
-        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let plan = from_config(&built(list, json!([]))).unwrap();
         let Outbound::Trojan(trojan) = &**plan.outbound("T").unwrap() else {
             panic!("trojan")
         };
@@ -1188,13 +1189,13 @@ mod tests {
         assert_eq!(tls.server_name, "v.example.com");
         assert!(tls.insecure);
 
-        // Ключ 2022 не той длины — профиль идёт через sing-box.
+        // Ключ 2022 не той длины — отказ.
         let list = json!([
             {"type": "shadowsocks", "tag": "S", "server": "10.0.0.1", "server_port": 8388,
              "method": "2022-blake3-aes-256-gcm", "password": key},
             {"type": "selector", "tag": "gorion-manual", "outbounds": ["S"]}
         ]);
-        assert!(from_singbox(&built(list, json!([]))).is_err());
+        assert!(from_config(&built(list, json!([]))).is_err());
     }
 
     #[test]
@@ -1213,7 +1214,7 @@ mod tests {
              "transport": {"type": "httpupgrade", "host": "u.example.com", "path": "/up"}},
             {"type": "selector", "tag": "gorion-manual", "outbounds": ["W", "G", "U"]}
         ]);
-        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let plan = from_config(&built(list, json!([]))).unwrap();
         let Outbound::Vless(ws) = &**plan.outbound("W").unwrap() else {
             panic!("vless")
         };
@@ -1245,7 +1246,7 @@ mod tests {
                  "transport": transport},
                 {"type": "selector", "tag": "gorion-manual", "outbounds": ["T"]}
             ]);
-            assert!(from_singbox(&built(list, json!([]))).is_err());
+            assert!(from_config(&built(list, json!([]))).is_err());
         }
     }
 
@@ -1262,7 +1263,7 @@ mod tests {
              "password": "p", "tls": {"enabled": true}},
             {"type": "selector", "tag": "gorion-manual", "outbounds": ["H", "P"]}
         ]);
-        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let plan = from_config(&built(list, json!([]))).unwrap();
         let Outbound::Hysteria2(hy) = &**plan.outbound("H").unwrap() else {
             panic!("hysteria2")
         };
@@ -1297,7 +1298,7 @@ mod tests {
              "hop_interval": "1s", "network": "udp", "password": "p", "tls": {"enabled": true}},
             {"type": "selector", "tag": "gorion-manual", "outbounds": ["H"]}
         ]);
-        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let plan = from_config(&built(list, json!([]))).unwrap();
         let Outbound::Hysteria2(hy) = &**plan.outbound("H").unwrap() else {
             panic!("hysteria2")
         };
@@ -1320,7 +1321,7 @@ mod tests {
             }
             let list =
                 json!([server, {"type": "selector", "tag": "gorion-manual", "outbounds": ["H"]}]);
-            assert!(from_singbox(&built(list, json!([]))).is_err(), "{bad}");
+            assert!(from_config(&built(list, json!([]))).is_err(), "{bad}");
         }
     }
 
@@ -1343,7 +1344,7 @@ mod tests {
                                              "host": "dl-front.example.com"}}}},
             {"type": "selector", "tag": "gorion-manual", "outbounds": ["X"]}
         ]);
-        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let plan = from_config(&built(list, json!([]))).unwrap();
         let Outbound::Vless(vless) = &**plan.outbound("X").unwrap() else {
             panic!("vless")
         };
@@ -1397,7 +1398,7 @@ mod tests {
              "password": "p", "transport": {"type": "xhttp", "path": "/d"}},
             {"type": "selector", "tag": "gorion-manual", "outbounds": ["X", "D"]}
         ]);
-        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let plan = from_config(&built(list, json!([]))).unwrap();
         let Outbound::Vless(vless) = &**plan.outbound("X").unwrap() else {
             panic!("vless")
         };
@@ -1441,7 +1442,7 @@ mod tests {
                  "tls": tls, "transport": transport},
                 {"type": "selector", "tag": "gorion-manual", "outbounds": ["T"]}
             ]);
-            assert!(from_singbox(&built(list, json!([]))).is_ok(), "{transport}");
+            assert!(from_config(&built(list, json!([]))).is_ok(), "{transport}");
         }
 
         // Чего нет: незнакомые поля и то, что Xray сам отвергает.
@@ -1502,10 +1503,7 @@ mod tests {
                  "tls": tls, "transport": transport},
                 {"type": "selector", "tag": "gorion-manual", "outbounds": ["T"]}
             ]);
-            assert!(
-                from_singbox(&built(list, json!([]))).is_err(),
-                "{transport}"
-            );
+            assert!(from_config(&built(list, json!([]))).is_err(), "{transport}");
         }
         let list = json!([
             {"type": "vless", "tag": "V", "server": "h", "server_port": 443,
@@ -1513,40 +1511,40 @@ mod tests {
              "tls": {"enabled": true}, "transport": {"type": "xhttp"}},
             {"type": "selector", "tag": "gorion-manual", "outbounds": ["V"]}
         ]);
-        assert!(from_singbox(&built(list, json!([]))).is_err());
+        assert!(from_config(&built(list, json!([]))).is_err());
     }
 
     #[test]
     fn refuses_what_the_engine_cannot_do() {
         let rules = json!([{"domain_suffix": [".ru"], "outbound": "direct"}]);
-        assert!(from_singbox(&built(servers(), rules)).is_err());
+        assert!(from_config(&built(servers(), rules)).is_err());
 
         let mut list = servers();
         list[0]["transport"] = json!({"type": "ws", "path": "/"});
-        assert!(from_singbox(&built(list, json!([]))).is_err());
+        assert!(from_config(&built(list, json!([]))).is_err());
 
         let mut list = servers();
         list[1] = json!({"type": "hysteria2", "tag": "S", "server": "h", "server_port": 1});
-        let error = from_singbox(&built(list, json!([]))).unwrap_err();
+        let error = from_config(&built(list, json!([]))).unwrap_err();
         assert!(error.to_string().contains("server #2"), "{error}");
 
         // Настройки TLS, которых движок не умеет: ECH, только TLS 1.2.
         let mut list = servers();
         list[0]["tls"]["reality"] = json!({"enabled": false});
         list[0]["tls"]["ech"] = json!({"enabled": true});
-        assert!(from_singbox(&built(list, json!([]))).is_err());
+        assert!(from_config(&built(list, json!([]))).is_err());
         let mut list = servers();
         list[0]["tls"]["max_version"] = json!("1.2");
-        assert!(from_singbox(&built(list, json!([]))).is_err());
+        assert!(from_config(&built(list, json!([]))).is_err());
 
         // Vision без TLS sing-box не примет — и движок тоже.
         let mut list = servers();
         list[0]["tls"] = json!({"enabled": false});
-        assert!(from_singbox(&built(list, json!([]))).is_err());
+        assert!(from_config(&built(list, json!([]))).is_err());
 
         let mut config = built(servers(), json!([]));
         config["inbounds"] = json!([{"type": "tun", "tag": "gorion-tun"}]);
-        assert!(from_singbox(&config).is_err());
+        assert!(from_config(&config).is_err());
     }
 
     /// Конфигурация режима TUN, как её строит ядро Gorion.
@@ -1580,7 +1578,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn reads_the_tun_config_gorion_builds() {
-        let plan = from_singbox(&built_tun()).unwrap();
+        let plan = from_config(&built_tun()).unwrap();
         let tun = plan.tun.as_ref().unwrap();
         assert_eq!(tun.inet4, Some(("172.19.0.1".parse().unwrap(), 30)));
         assert_eq!(tun.inet6, Some(("fdfe:dcba:9876::1".parse().unwrap(), 126)));
@@ -1600,38 +1598,38 @@ mod tests {
     }
 
     #[test]
-    fn tun_with_anything_else_goes_to_sing_box() {
+    fn tun_with_anything_else_is_refused() {
         // Правило раздельного туннелирования поверх управляемых.
         let mut config = built_tun();
         config["route"]["rules"]
             .as_array_mut()
             .unwrap()
             .push(json!({"domain_suffix": [".ru"], "outbound": "direct"}));
-        assert!(from_singbox(&config).is_err());
+        assert!(from_config(&config).is_err());
         // DNS из шаблона подписки.
         let mut config = built_tun();
         config["dns"] = json!({"servers": [{"type": "udp", "tag": "x", "server": "8.8.8.8"}]});
-        assert!(from_singbox(&config).is_err());
+        assert!(from_config(&config).is_err());
         // DNS-сервер по имени, мимо селектора, другой стек.
         let mut config = built_tun();
         config["dns"]["servers"][1]["server"] = json!("dns.example");
-        assert!(from_singbox(&config).is_err());
+        assert!(from_config(&config).is_err());
         let mut config = built_tun();
         config["dns"]["servers"][1]["detour"] = json!("direct");
-        assert!(from_singbox(&config).is_err());
+        assert!(from_config(&config).is_err());
         let mut config = built_tun();
         config["inbounds"][1]["stack"] = json!("gvisor");
-        assert!(from_singbox(&config).is_err());
+        assert!(from_config(&config).is_err());
         let mut config = built_tun();
         config["inbounds"][1]["include_package"] = json!(["x"]);
-        assert!(from_singbox(&config).is_err());
+        assert!(from_config(&config).is_err());
         // TUN без DNS-раздела.
         let mut config = built_tun();
         config.as_object_mut().unwrap().remove("dns");
-        assert!(from_singbox(&config).is_err());
+        assert!(from_config(&config).is_err());
         // Управляемые правила без TUN — это уже чужие правила.
         let mut config = built_tun();
         config["inbounds"] = json!([config["inbounds"][0].clone()]);
-        assert!(from_singbox(&config).is_err());
+        assert!(from_config(&config).is_err());
     }
 }

@@ -1,6 +1,5 @@
-//! Процесс движка: `gorion-engine run -c config.json` — как `sing-box run`.
-//! Ядро Gorion запускает его вместо sing-box, когда профиль ему по силам
-//! (`gorion-engine check -c …` завершился успешно).
+//! Процесс движка: `gorion-engine run -c config.json`. Ядро Gorion
+//! запускает его, если `gorion-engine check -c …` принял профиль.
 
 use std::process::ExitCode;
 
@@ -15,7 +14,7 @@ fn load(path: &str) -> Result<config::Plan, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("read config: {e}"))?;
     let value: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("parse config: {e}"))?;
-    config::from_singbox(&value).map_err(|e| e.to_string())
+    config::from_config(&value).map_err(|e| e.to_string())
 }
 
 fn main() -> ExitCode {

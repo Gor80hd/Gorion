@@ -186,7 +186,7 @@ enum Copy {
         case .subscriptionFetchFailed:
             Problem(message: "Не удалось загрузить подписку. Проверьте интернет и попробуйте ещё раз.")
         case .unsupportedSubscriptionFormat:
-            Problem(message: "Gorion не узнал формат подписки. Попросите у провайдера ссылку для sing-box или v2ray.")
+            Problem(message: "Gorion не узнал формат подписки. Попросите у провайдера ссылку для v2ray или Xray.")
         case .noSelectableServers:
             Problem(message: "В подписке нет серверов, к которым можно подключиться.")
         case .unsupportedTransport, .invalidShareLink:
@@ -197,8 +197,6 @@ enum Copy {
             Problem(message: "Эта подписка уже удалена.")
         case .coreBinaryMissing:
             Problem(message: "В приложении не хватает компонента подключения. Переустановите Gorion.")
-        case .invalidRuntimeConfig:
-            Problem(message: "Настройки подписки не подошли для подключения. Обновите подписку или выберите другой сервер.", action: .refreshProfile)
         case .coreStartFailed, .controllerUnavailable, .internal:
             Problem(message: "Не получилось запустить подключение. Попробуйте ещё раз.", action: .retryConnect)
         case .systemProxyFailed:

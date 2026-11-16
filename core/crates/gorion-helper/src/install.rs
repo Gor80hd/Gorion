@@ -20,19 +20,12 @@ fn require_root() -> Result<(), String> {
     }
 }
 
-/// Ставит помощника и ядро: свой движок обязательно, sing-box — только если
-/// он есть в сборке (переходный период ADR-0005). Нет sing-box — старая
-/// копия убирается, чтобы помощник не откатился на неё.
-pub fn install(engine: &Path, singbox: Option<&Path>) -> Result<(), String> {
+/// Ставит помощника и свой движок.
+pub fn install(engine: &Path) -> Result<(), String> {
     require_root()?;
     let helper = std::env::current_exe().map_err(|e| e.to_string())?;
     if !engine.is_file() {
         return Err(format!("нет движка: {}", engine.display()));
-    }
-    if let Some(singbox) = singbox
-        && !singbox.is_file()
-    {
-        return Err(format!("нет sing-box: {}", singbox.display()));
     }
     // Старая служба (в том числе Flutter-версии) останавливается первой:
     // при остановке она гасит своё ядро и возвращает маршруты.
@@ -45,13 +38,6 @@ pub fn install(engine: &Path, singbox: Option<&Path>) -> Result<(), String> {
     }
     copy_secure(&helper, &bin.join("gorion-helper"))?;
     copy_secure(engine, &bin.join(ENGINE_BINARY))?;
-    let installed_singbox = bin.join("sing-box");
-    match singbox {
-        Some(singbox) => copy_secure(singbox, &installed_singbox)?,
-        None => {
-            let _ = std::fs::remove_file(&installed_singbox);
-        }
-    }
     remove_legacy(support);
 
     let plist = Path::new(PLIST_PATH);
@@ -117,6 +103,8 @@ fn copy_secure(from: &Path, to: &Path) -> Result<(), String> {
 fn remove_legacy(support: &Path) {
     let _ = std::fs::remove_dir_all(support.join("Helper.app"));
     let _ = std::fs::remove_file(support.join("privileged-helper.json"));
+    // Ядро прежних версий помощника.
+    let _ = std::fs::remove_file(support.join("bin/sing-box"));
 }
 
 fn plist_contents(program: &Path) -> String {

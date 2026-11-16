@@ -1,4 +1,5 @@
-//! Сверка с золотыми фикстурами Flutter-эталона (`dart run tool/export_golden.dart`).
+//! Сверка с золотыми фикстурами, выгруженными из Flutter-версии (её код —
+//! в истории git, ветка `main`).
 
 #![allow(clippy::unwrap_used)]
 
@@ -56,6 +57,12 @@ fn now_supported(case: &str) -> Option<Value> {
     }
 }
 
+/// Эталон принимал, а ядро отказывает (Δ в parity.md): подписки в виде
+/// JSON sing-box больше не читаются.
+fn now_refused(case: &str) -> bool {
+    matches!(case, "sub_singbox_json" | "sub_json_with_bom_and_noise")
+}
+
 #[test]
 fn parser_matches_reference() {
     let mut failures = Vec::new();
@@ -79,6 +86,12 @@ fn parser_matches_reference() {
             .unwrap_or_default();
         let mut expected = case.clone();
         apply_known_deltas(name, &mut expected);
+        if now_refused(name) {
+            if parse_subscription(input, &url, &headers).is_ok() {
+                failures.push(format!("{name}: expected refusal"));
+            }
+            continue;
+        }
         match (
             parse_subscription(input, &url, &headers),
             expected.get("ok"),

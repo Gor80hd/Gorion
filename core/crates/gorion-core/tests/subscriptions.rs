@@ -1,11 +1,8 @@
 //! Подписки сверх эталона Flutter (Δ в parity.md): Xray JSON и списки, где
 //! часть серверов не переводится. Итоговую конфигурацию принимает свой
-//! движок и — если в ней нет XHTTP, которого sing-box не знает, — настоящий
-//! `sing-box check`, если бинарник есть.
+//! движок в каждом режиме.
 
 #![allow(clippy::unwrap_used)]
-
-use std::path::PathBuf;
 
 use gorion_core::config_builder::{BuildRequest, build};
 use gorion_core::parser::{Headers, parse_subscription};
@@ -22,17 +19,6 @@ fn parse(body: &str) -> gorion_core::model::ParsedSubscription {
         &Headers::new(),
     )
     .unwrap()
-}
-
-fn singbox() -> Option<PathBuf> {
-    let arch = if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else {
-        "x64"
-    };
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../../assets/singbox/macos/{arch}/sing-box"));
-    path.is_file().then_some(path)
 }
 
 fn built(normalized: &str, mode: RuntimeMode) -> String {
@@ -52,7 +38,7 @@ fn built(normalized: &str, mode: RuntimeMode) -> String {
 }
 
 /// Конфигурацию для каждого режима принимает свой движок (TUN — только
-/// там, где он у движка есть) и `sing-box check`, если XHTTP в ней нет.
+/// там, где он у движка есть).
 fn assert_accepted(normalized: &str) {
     let mut modes = vec![RuntimeMode::Mixed];
     if cfg!(target_os = "macos") {
@@ -60,47 +46,9 @@ fn assert_accepted(normalized: &str) {
     }
     for mode in modes {
         let config: Value = serde_json::from_str(&built(normalized, mode)).unwrap();
-        if let Err(error) = gorion_engine::config::from_singbox(&config) {
+        if let Err(error) = gorion_engine::config::from_config(&config) {
             panic!("{mode:?}: engine refused: {error}");
         }
-    }
-    if !normalized.contains("\"xhttp\"") {
-        assert_singbox_accepts(normalized);
-    }
-}
-
-/// Собирает конфигурацию для каждого режима и даёт её `sing-box check`.
-fn assert_singbox_accepts(normalized: &str) {
-    let Some(binary) = singbox() else {
-        eprintln!("sing-box не найден — check пропущен");
-        return;
-    };
-    let dir = tempfile::tempdir().unwrap();
-    for mode in [RuntimeMode::Mixed, RuntimeMode::Tun] {
-        let built = build(&BuildRequest {
-            template_config: normalized,
-            mode,
-            mixed_port: 20808,
-            controller_port: 29090,
-            controller_secret: "s",
-            url_test_url: "https://www.gstatic.com/generate_204",
-            selected_server_tag: None,
-            selectable_tags_override: None,
-            split_tunnel: None,
-        })
-        .unwrap();
-        let path = dir.path().join("config.json");
-        std::fs::write(&path, built.config_json).unwrap();
-        let output = std::process::Command::new(&binary)
-            .args(["check", "-c"])
-            .arg(&path)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{mode:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
     }
 }
 
@@ -118,7 +66,7 @@ fn link_list_keeps_servers_around_unsupported_ones() {
     // Сервер скачивания без порта Xray не примет — пропущен только он.
     assert_eq!(tags, ["NL", "XHTTP", "SPLIT", "HY2"]);
     let config: Value = serde_json::from_str(&parsed.normalized_config_json).unwrap();
-    // REALITY без `fp` получает отпечаток Chrome, иначе sing-box не стартует.
+    // REALITY без `fp` получает отпечаток Chrome, как в Xray.
     assert_eq!(
         config["outbounds"][0]["tls"]["utls"],
         json!({"enabled": true, "fingerprint": "chrome"})

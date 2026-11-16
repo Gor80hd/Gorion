@@ -1,5 +1,5 @@
 //! Ссылки `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`,
-//! `hy2://`, `tuic://`, `anytls://` → outbound sing-box.
+//! `hy2://`, `tuic://`, `anytls://` → сервер в конфигурации Gorion.
 //! Эталон: `lib/features/profiles/data/profile_parser.dart`.
 
 use serde_json::{Map, Value, json};
@@ -452,8 +452,8 @@ fn build_tls(params: &Query, force_enabled: bool) -> Option<Map<String, Value>> 
             reality.insert("short_id".into(), json!(short_id));
         }
         tls.insert("reality".into(), Value::Object(reality));
-        // Δ к эталону: sing-box запускает REALITY только с uTLS, а ссылки
-        // без `fp` встречаются. Xray в этом случае берёт Chrome — так же.
+        // Δ к эталону: ссылки REALITY без `fp` встречаются; Xray в этом
+        // случае берёт отпечаток Chrome — так же.
         tls.entry("utls")
             .or_insert_with(|| json!({"enabled": true, "fingerprint": "chrome"}));
     }
@@ -559,7 +559,7 @@ fn build_transport(values: TransportValues) -> CoreResult<Option<Outbound>> {
         "quic" => {
             transport.insert("type".into(), json!("quic"));
         }
-        // Δ к эталону: XHTTP есть в своём движке (sing-box его не умеет).
+        // Δ к эталону: XHTTP есть в своём движке.
         "xhttp" | "splithttp" => {
             let mut settings = Map::new();
             for (key, value) in [
