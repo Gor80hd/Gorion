@@ -5,12 +5,15 @@
 
 ## Что это
 
-Gorion — десктопный VPN/прокси-клиент на базе `sing-box` для сетей с цензурой.
-Проект **переезжает с Flutter на нативные приложения**:
+Gorion — десктопный VPN/прокси-клиент для сетей с цензурой со своим движком
+подключения на Rust (`gorion-engine`, ADR-0005). Приложения нативные:
 
 - macOS — SwiftUI + Liquid Glass (приоритет 1);
 - Windows — Rust + акрил, дизайн почти как на macOS (приоритет 2);
 - логика — общее ядро на Rust (ADR-0001), интерфейсы нативные.
+
+Прежняя Flutter-версия на sing-box удалена из рабочего дерева (ADR-0006). Она
+остаётся **эталоном поведения** в истории git — коммит `166ab89`.
 
 Где мы сейчас: [docs/migration/PLAN.md](docs/migration/PLAN.md).
 Своё ядро — что готово и что доделать: [docs/migration/engine-next.md](docs/migration/engine-next.md).
@@ -25,28 +28,25 @@ Gorion — десктопный VPN/прокси-клиент на базе `sin
 | `core/` | Cargo workspace: `gorion-core` (логика + runtime macOS), `gorion-engine` (свой движок подключения, ADR-0005), `gorion-ffi` (UniFFI), `gorion-helper` (помощник root для TUN, launchd) | этап 1, в работе |
 | `apps/macos/` | SwiftUI-приложение (`project.yml` для XcodeGen), пакеты `GorionDesign`, `GorionKit` | этапы 2–3, в работе |
 | `apps/windows/` | Rust-приложение для Windows | этап 5 |
+| `core/fixtures/` | золотые фикстуры, выгруженные из Flutter-версии | действует |
 | `design/tokens.json` | единственный источник токенов дизайна | действует |
+| `assets/` | карта для планеты, исходник значка, запасной шрифт | действует |
 | `docs/` | план, паритет, ADR, аудит runtime | действует |
-| `lib/`, `test/`, `macos/`, `windows/`, `linux/`, `pubspec.yaml` | Flutter-версия — **источник поведения**, заморожена | только критичные исправления |
-| `tool/` | загрузка sing-box с проверкой SHA-256, сборка установщика | действует |
+| `tool/` | генераторы: токены дизайна, карта планеты | действует |
 
 Flutter-код — эталон: прежде чем переносить функцию, прочитайте её реализацию
-и тесты в `lib/` и `test/`. Там учтены реальные сбои (`docs/runtime-audit.md`).
+и тесты в коммите `166ab89` — `git show 166ab89:lib/…`,
+`git grep -n … 166ab89 -- lib test` или целиком через
+`git worktree add ../gorion-flutter 166ab89`. Там учтены реальные сбои
+(`docs/runtime-audit.md`).
 
 ## Команды
 
 ```bash
-# Flutter (эталон)
-flutter analyze
-flutter test
-dart run tool/vendor_singbox.dart          # бинарники sing-box для этой ОС
-
 # Ядро (Rust; на этой машине: export PATH="/opt/homebrew/opt/rustup/bin:$PATH")
 cargo test --workspace --manifest-path core/Cargo.toml
 cargo clippy --workspace --all-targets --manifest-path core/Cargo.toml -- -D warnings
 cargo fmt --all --manifest-path core/Cargo.toml
-# Совместимость своего движка с сервером sing-box (ADR-0005)
-GORION_SINGBOX=/путь/к/sing-box cargo test -p gorion-engine --manifest-path core/Cargo.toml
 # XHTTP — против сервера Xray (бинарник Xray-core 26.x)
 GORION_XRAY=/путь/к/xray cargo test -p gorion-engine --test engine xray_xhttp --manifest-path core/Cargo.toml
 # Свой клиент TLS и DNS-over-HTTPS режима TUN на настоящих серверах (нужна сеть)
@@ -56,9 +56,8 @@ GORION_NET_TLS=1 cargo test -p gorion-engine --test engine doh --manifest-path c
 #   read -rs GORION_VLESS && export GORION_VLESS      # вставить vless://…
 #   cargo run -p gorion-engine --example mixed_proxy --manifest-path core/Cargo.toml
 #   curl -x socks5h://127.0.0.1:2080 https://cloudflare.com/cdn-cgi/trace
-# Процесс движка так, как его запускает приложение: конфиг sing-box + Clash API
+# Процесс движка так, как его запускает приложение: конфигурация Gorion + Clash API
 #   gorion-engine check -c config.json   # подходит ли профиль движку
-#   GORION_CORE=sing-box …/Gorion        # приложение: sing-box вместо движка (только если sing-box положен в сборку; сейчас его там нет)
 # Помощник TUN (ADR-0005): тесты без root — ядро в режиме «Вручную»
 cargo test -p gorion-helper --manifest-path core/Cargo.toml
 # Ставит его только владелец (пароль): кнопка «Установить» в приложении или
@@ -67,7 +66,9 @@ cargo test -p gorion-helper --manifest-path core/Cargo.toml
 # GORION_HELPER_SOCKET=/путь/к/сокету — приложение говорит с тестовым помощником
 
 # Токены дизайна: правка design/tokens.json → генерация Tokens.swift
-dart run tool/gen_design_tokens.dart
+python3 tool/gen_design_tokens.py
+# Карта планеты и коды стран (скачивает Natural Earth, нужен Pillow)
+python3 tool/globe/generate_world_map.py
 
 # macOS: ядро → XCFramework и Swift-биндинги, затем проект и сборка
 core/scripts/build-xcframework.sh debug     # или release; заодно собирает gorion-engine
@@ -97,7 +98,8 @@ GORION_SNAPSHOT=/путь/к/снимку.png GORION_DATA_DIR=… \
    TUN (URLTest, HTTP(S) через прокси, проверка выхода). Успешный TCP-коннект —
    **не** признак рабочего сервера.
 2. Шаблоны подписок недоверенные: вырезать файловые цели и лишние inbound.
-3. Бинарники sing-box только через `tool/singbox.lock.json` с проверкой хеша.
+3. Сторонние бинарники в сборку не кладутся: приложение несёт только свой
+   движок `gorion-engine`. Новая зависимость в рантайме — только через ADR.
 4. Системный прокси: снимок исходных настроек → применение → откат при любой
    ошибке. Все правила из `docs/runtime-audit.md` переносятся без упрощений.
 5. Не включайте TUN и не меняйте прокси основной сетевой службы на машине
@@ -108,9 +110,11 @@ GORION_SNAPSHOT=/путь/к/снимку.png GORION_DATA_DIR=… \
 
 7. Паритет раньше улучшений. Меняете поведение — отметьте `Δ` в parity.md с причиной.
 8. Поведение ядра фиксируется золотыми фикстурами из Flutter-версии
-   (`core/fixtures/`), Rust обязан их воспроизвести.
+   (`core/fixtures/`), Rust обязан их воспроизвести. Новые фикстуры —
+   `tool/export_golden.dart` в рабочей копии коммита `166ab89`.
 9. Ядро не содержит текстов для пользователя — только коды и данные.
-10. В `lib/` не добавлять новых функций.
+10. Flutter и sing-box не возвращать в дерево (ADR-0006): эталон читается из
+    истории git.
 
 **Интерфейс**
 
@@ -136,7 +140,7 @@ GORION_SNAPSHOT=/путь/к/снимку.png GORION_DATA_DIR=… \
 ## Как работать над задачей
 
 1. Найдите шаг в PLAN.md и строку в parity.md. Если их нет — добавьте.
-2. Прочитайте эталон во Flutter (`lib/…` + `test/…`).
+2. Прочитайте эталон во Flutter (`lib/…` + `test/…` в коммите `166ab89`).
 3. Логика → ядро с тестами и фикстурами. Интерфейс → по DESIGN.md.
 4. Проверьте: тесты, линтеры, **запустите приложение** и посмотрите на результат
    (скриншот). Для интерфейса пройдите чек-лист DESIGN.md → «Проверка экрана».

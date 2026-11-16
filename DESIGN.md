@@ -196,7 +196,7 @@
 `stiffness = (2π/response)²`, `damping = 4π(1 − bounce)/response`, `mass = 1`.
 Смена цели сохраняет `x` и `v`. Тик — от vsync композитора. Модуль покрыт
 тестами, сверяющими траектории с эталоном (тот же расчёт, что в
-`lib/core/motion/spring_motion.dart`).
+`lib/core/motion/spring_motion.dart` в коммите `166ab89`).
 
 ### 6.6 Типовые движения
 
