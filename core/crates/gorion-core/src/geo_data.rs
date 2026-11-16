@@ -1,5 +1,6 @@
-//! Сгенерировано tool/globe/export_geo_tables.py из Flutter-эталона.
-//! Не редактируйте вручную, пока жива Flutter-версия.
+//! Географические таблицы карты планеты. Правятся здесь; список
+//! `GLOBE_COUNTRY_CODES` переписывает `tool/globe/generate_world_map.py`
+//! вместе с `world_map_countries.png`.
 
 /// Коды стран карты планеты: значение пикселя `world_map_countries.png` − 1.
 pub const GLOBE_COUNTRY_CODES: &[&str] = &[

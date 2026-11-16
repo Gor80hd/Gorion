@@ -1,4 +1,4 @@
-// Сгенерировано tool/gen_design_tokens.dart из design/tokens.json.
+// Сгенерировано tool/gen_design_tokens.py из design/tokens.json.
 // Не редактируйте вручную.
 
 import SwiftUI
