@@ -150,6 +150,8 @@ fn transport_from_query(query: &Query) -> CoreResult<Option<Outbound>> {
         service_name: query.first(&["servicename", "service-name"]),
         max_early_data: query.first(&["ed", "maxearlydata"]),
         early_data_header_name: query.first(&["eh", "earlydataheadername"]),
+        mode: query.first(&["mode"]),
+        extra: query.first(&["extra"]),
     })
 }
 
@@ -307,6 +309,8 @@ fn parse_vmess_json(json: &Map<String, Value>) -> CoreResult<Option<Outbound>> {
         service_name: trim_to_none(json.get("serviceName")),
         max_early_data: trim_to_none(json.get("ed")),
         early_data_header_name: trim_to_none(json.get("eh")),
+        mode: trim_to_none(json.get("mode")),
+        extra: None,
     })?;
     if let Some(transport) = transport {
         outbound.insert("transport".into(), Value::Object(transport));
@@ -464,6 +468,9 @@ struct TransportValues {
     service_name: Option<String>,
     max_early_data: Option<String>,
     early_data_header_name: Option<String>,
+    /// XHTTP: режим и `extra` (JSON с остальными настройками Xray).
+    mode: Option<String>,
+    extra: Option<String>,
 }
 
 fn build_transport(values: TransportValues) -> CoreResult<Option<Outbound>> {
@@ -551,6 +558,21 @@ fn build_transport(values: TransportValues) -> CoreResult<Option<Outbound>> {
         }
         "quic" => {
             transport.insert("type".into(), json!("quic"));
+        }
+        // Δ к эталону: XHTTP есть в своём движке (sing-box его не умеет).
+        "xhttp" | "splithttp" => {
+            let mut settings = Map::new();
+            for (key, value) in [
+                ("host", host.map(str::to_owned)),
+                ("path", path.map(str::to_owned)),
+                ("mode", values.mode.clone()),
+                ("extra", values.extra.clone()),
+            ] {
+                if let Some(value) = value {
+                    settings.insert(key.into(), json!(value));
+                }
+            }
+            return super::xhttp::from_xray(&settings).map(Some);
         }
         _ => return Err(CoreError::UnsupportedTransport(values.transport_type)),
     }

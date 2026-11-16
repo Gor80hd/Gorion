@@ -257,7 +257,7 @@ fn first_server(settings: &Value) -> Option<Map<String, Value>> {
     flat.contains_key("address").then_some(flat)
 }
 
-fn tls_settings(stream: &Value) -> CoreResult<Option<Map<String, Value>>> {
+pub(super) fn tls_settings(stream: &Value) -> CoreResult<Option<Map<String, Value>>> {
     let security = stream
         .get("security")
         .and_then(Value::as_str)
@@ -405,6 +405,14 @@ fn transport(stream: &Value) -> CoreResult<Option<Map<String, Value>>> {
                 transport.insert("path".into(), json!(path));
             }
         }
+        "xhttp" | "splithttp" => {
+            let settings = if stream.get("xhttpSettings").is_some() {
+                section("xhttpSettings")
+            } else {
+                section("splithttpSettings")
+            };
+            return super::xhttp::from_xray(&settings).map(Some);
+        }
         other => return Err(CoreError::UnsupportedTransport(other.to_owned())),
     }
     Ok(Some(transport))
@@ -500,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn converts_transports_and_skips_xhttp() {
+    fn converts_transports_and_xhttp() {
         let sub = json!([
             config(
                 "WS",
@@ -521,11 +529,30 @@ mod tests {
                 "XHTTP",
                 json!({"protocol": "vless",
                 "settings": {"vnext": [{"address": "c.example.com", "port": 443, "users": [{"id": UUID}]}]},
-                "streamSettings": {"network": "xhttp", "security": "tls"}})
+                "streamSettings": {"network": "xhttp", "security": "tls",
+                    "xhttpSettings": {"path": "/xh", "host": "cdn.example.com", "mode": "auto",
+                        "extra": {"xmux": {"maxConcurrency": "16-32"}}}}})
+            ),
+            config(
+                "XHTTP split",
+                json!({"protocol": "vless",
+                "settings": {"vnext": [{"address": "d.example.com", "port": 443, "users": [{"id": UUID}]}]},
+                "streamSettings": {"network": "xhttp", "security": "tls",
+                    "xhttpSettings": {"path": "/xh",
+                        "extra": {"downloadSettings": {"address": "dl.example.com"}}}}})
             ),
         ]);
         let out = convert(&sub).unwrap();
-        assert_eq!(out.len(), 2, "XHTTP пропущен");
+        assert_eq!(
+            out.len(),
+            3,
+            "XHTTP с отдельным сервером скачивания пропущен"
+        );
+        assert_eq!(
+            out[2]["transport"],
+            json!({"type": "xhttp", "path": "/xh", "host": "cdn.example.com", "mode": "auto",
+                   "xmux": {"max_concurrency": "16-32"}})
+        );
         assert_eq!(
             out[0]["transport"],
             json!({"type": "ws", "path": "/ws", "headers": {"Host": "cdn.example.com"}})
@@ -572,7 +599,8 @@ mod tests {
             "XHTTP",
             json!({"protocol": "vless",
             "settings": {"vnext": [{"address": "c.example.com", "port": 443, "users": [{"id": UUID}]}]},
-            "streamSettings": {"network": "xhttp"}})
+            "streamSettings": {"network": "xhttp",
+                "xhttpSettings": {"extra": {"uplinkHTTPMethod": "GET"}}}})
         )]);
         assert!(convert(&sub).is_err());
         // Конфигурация sing-box — не Xray.

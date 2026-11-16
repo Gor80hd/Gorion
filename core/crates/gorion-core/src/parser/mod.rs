@@ -4,6 +4,7 @@
 mod base64_text;
 pub mod links;
 pub mod uri;
+mod xhttp;
 pub mod xray;
 
 use std::collections::HashMap;

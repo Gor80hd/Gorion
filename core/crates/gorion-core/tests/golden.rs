@@ -47,6 +47,15 @@ fn apply_known_deltas(case: &str, expected: &mut Value) {
     ok["name"] = Value::from(*display);
 }
 
+/// Эталон отказывает, а ядро переводит (Δ в parity.md): XHTTP есть в своём
+/// движке. Ожидаемый транспорт вместо ошибки.
+fn now_supported(case: &str) -> Option<Value> {
+    match case {
+        "link_vless_xhttp_rejected" => Some(serde_json::json!({"type": "xhttp", "path": "/x"})),
+        _ => None,
+    }
+}
+
 #[test]
 fn parser_matches_reference() {
     let mut failures = Vec::new();
@@ -118,6 +127,12 @@ fn parser_matches_reference() {
             }
             (Err(error), None) => {
                 let _ = error; // Оба отказали — достаточно; тексты различаются намеренно.
+            }
+            (Ok(parsed), None) if now_supported(name).is_some() => {
+                let config: Value = serde_json::from_str(&parsed.normalized_config_json).unwrap();
+                if Some(&config["outbounds"][0]["transport"]) != now_supported(name).as_ref() {
+                    failures.push(format!("{name}: transport {config}"));
+                }
             }
             (Ok(parsed), None) => failures.push(format!(
                 "{name}: expected error {}, got {parsed:?}",

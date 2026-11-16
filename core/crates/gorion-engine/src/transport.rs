@@ -1,4 +1,5 @@
-//! Транспорты V2Ray поверх TCP или TLS: WebSocket, HTTPUpgrade, gRPC.
+//! Транспорты V2Ray поверх TCP или TLS: WebSocket, HTTPUpgrade, gRPC и
+//! XHTTP из Xray (свой модуль `xhttp`).
 //! Эталон: sing-box `transport/v2raywebsocket`, `v2rayhttpupgrade`,
 //! `v2raygrpclite`.
 //!
@@ -20,6 +21,7 @@ use crate::stream::{Down, Up};
 use crate::tls::hello::random_bytes;
 
 pub use crate::grpc::GrpcConfig;
+pub use crate::xhttp::XhttpConfig;
 
 /// Предел заголовков ответа на Upgrade.
 const MAX_RESPONSE_HEAD: usize = 16 * 1024;
@@ -41,6 +43,7 @@ pub enum Transport {
     WebSocket(WsConfig),
     HttpUpgrade(UpgradeConfig),
     Grpc(GrpcConfig),
+    Xhttp(Box<XhttpConfig>),
 }
 
 impl Transport {
@@ -66,6 +69,8 @@ impl Transport {
                     without_h2
                 }
             }
+            // Версию HTTP у XHTTP решает защита: см. `xhttp::alpn`.
+            Self::Xhttp(_) => configured.to_vec(),
             Self::Grpc(_) => {
                 if configured.iter().any(|p| p == "h2") {
                     configured.to_vec()

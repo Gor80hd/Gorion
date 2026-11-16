@@ -12,6 +12,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::address::TargetAddr;
 use crate::error::Result;
+use crate::hysteria2::{self, Hysteria2Config, Hysteria2Reader, Hysteria2Writer};
 use crate::relay::{ChunkRead, PayloadWrite, relay};
 use crate::selector::Traffic;
 use crate::shadowsocks::{self, MAX_PAYLOAD, ShadowsocksConfig, SsReader, SsWriter};
@@ -26,6 +27,7 @@ pub enum Outbound {
     Shadowsocks2022(Box<Ss2022Config>),
     Trojan(Box<TrojanConfig>),
     Vless(Box<VlessConfig>),
+    Hysteria2(Box<Hysteria2Config>),
 }
 
 /// Установленное подключение, готовое к пересылке данных.
@@ -35,6 +37,7 @@ pub enum Connection {
     Shadowsocks2022(Box<(Ss2022Reader<OwnedReadHalf>, Ss2022Writer<OwnedWriteHalf>)>),
     Trojan(Box<(TrojanReader, TrojanWriter)>),
     Vless(Box<(VlessReader, VlessWriter, Arc<DirectCopy>)>),
+    Hysteria2(Box<(Hysteria2Reader, Hysteria2Writer)>),
 }
 
 /// Счётчики переданного за подключение, байт.
@@ -55,6 +58,7 @@ impl Outbound {
             Self::Shadowsocks2022(config) => Some(&config.server),
             Self::Trojan(config) => Some(&config.server),
             Self::Vless(config) => Some(&config.server),
+            Self::Hysteria2(config) => Some(&config.server),
         }
     }
 
@@ -83,6 +87,10 @@ impl Outbound {
             Self::Vless(config) => {
                 let parts = vless::connect(config, target, initial).await?;
                 Ok(Connection::Vless(Box::new(parts)))
+            }
+            Self::Hysteria2(config) => {
+                let parts = hysteria2::connect(config, target, initial).await?;
+                Ok(Connection::Hysteria2(Box::new(parts)))
             }
         }
     }
@@ -122,6 +130,10 @@ impl Connection {
                     relay(client, reader, writer, VLESS_READ_SIZE, traffic).await?;
                 transferred.direct = direct.both();
                 Ok(transferred)
+            }
+            Self::Hysteria2(parts) => {
+                let (reader, writer) = *parts;
+                relay(client, reader, writer, STREAM_READ_SIZE, traffic).await
             }
         }
     }

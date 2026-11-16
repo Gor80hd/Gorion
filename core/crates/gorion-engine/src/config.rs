@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 
 use crate::address::TargetAddr;
 use crate::error::{EngineError, Result};
+use crate::hysteria2::Hysteria2Config;
 use crate::outbound::Outbound;
 use crate::reality::RealityConfig;
 use crate::shadowsocks::{Method, ShadowsocksConfig};
@@ -22,6 +23,10 @@ use crate::transport::{GrpcConfig, Transport, UpgradeConfig, WsConfig};
 use crate::trojan::TrojanConfig;
 use crate::tun::{DEFAULT_MTU, DohServer, TunConfig};
 use crate::vless::{Flow, VlessConfig};
+use crate::xhttp::{
+    self, DataPlacement, DownloadSettings, PaddingMethod, PaddingObfs, PaddingPlacement, Placement,
+    Range, XhttpConfig, Xmux,
+};
 
 /// Разобранные настройки.
 #[derive(Debug)]
@@ -394,13 +399,28 @@ fn doh_server(server: &Map<String, Value>, selector_tag: &str) -> Result<DohServ
 pub fn server_hosts(plan: &Plan) -> Vec<String> {
     let mut hosts: Vec<String> = Vec::new();
     for (_, outbound) in &plan.outbounds {
-        if let Some(TargetAddr::Domain(host, _)) = outbound.server()
-            && !hosts.contains(host)
-        {
-            hosts.push(host.clone());
+        // Сервер скачивания XHTTP тоже нужен до туннеля.
+        let download = match &**outbound {
+            Outbound::Vless(config) => xhttp_download(&config.transport),
+            Outbound::Trojan(config) => xhttp_download(&config.transport),
+            _ => None,
+        };
+        for server in outbound.server().into_iter().chain(download) {
+            if let TargetAddr::Domain(host, _) = server
+                && !hosts.contains(host)
+            {
+                hosts.push(host.clone());
+            }
         }
     }
     hosts
+}
+
+fn xhttp_download(transport: &Transport) -> Option<&TargetAddr> {
+    match transport {
+        Transport::Xhttp(config) => config.download.as_ref().map(|d| &d.server),
+        _ => None,
+    }
 }
 
 fn server(outbound: &Map<String, Value>) -> Result<TargetAddr> {
@@ -469,6 +489,33 @@ fn transport(outbound: &Map<String, Value>) -> Result<Transport> {
             "early_data_header_name",
         ],
         "httpupgrade" => &["type", "host", "path", "headers"],
+        // XHTTP из Xray: поля — как в Xray, только snake_case (см. `xhttp`).
+        "xhttp" => &[
+            "type",
+            "path",
+            "host",
+            "mode",
+            "headers",
+            "x_padding_bytes",
+            "no_grpc_header",
+            "sc_max_each_post_bytes",
+            "sc_min_posts_interval_ms",
+            "xmux",
+            "x_padding_obfs_mode",
+            "x_padding_key",
+            "x_padding_header",
+            "x_padding_placement",
+            "x_padding_method",
+            "uplink_http_method",
+            "session_placement",
+            "session_key",
+            "seq_placement",
+            "seq_key",
+            "uplink_data_placement",
+            "uplink_data_key",
+            "uplink_chunk_size",
+            "download_settings",
+        ],
         // Таймауты пингов HTTP/2 движок не использует: это не меняет поток.
         "grpc" => &[
             "type",
@@ -504,10 +551,246 @@ fn transport(outbound: &Map<String, Value>) -> Result<Transport> {
             host: str_field(transport, "host").unwrap_or_default().to_owned(),
             headers: headers(transport.get("headers"))?,
         }),
+        "xhttp" => Transport::Xhttp(Box::new(xhttp_config(transport, path, true)?)),
         _ => Transport::Grpc(GrpcConfig::new(
             str_field(transport, "service_name").unwrap_or_default(),
         )),
     })
+}
+
+/// Диапазон Xray: число или строка `"от-до"`; отрицательные — ноль.
+fn range(value: Option<&Value>, what: &str) -> Result<Option<Range>> {
+    let bad = || unsupported(format!("xhttp {what}"));
+    let (from, to) = match value {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::Number(n)) => {
+            let n = n.as_i64().ok_or_else(bad)?;
+            (n, n)
+        }
+        Some(Value::String(text)) => {
+            let text = text.trim();
+            if text.is_empty() {
+                return Ok(None);
+            }
+            match text.parse::<i64>() {
+                Ok(n) => (n, n),
+                Err(_) => {
+                    let (from, to) = text.split_once('-').ok_or_else(bad)?;
+                    (
+                        from.trim().parse().map_err(|_| bad())?,
+                        to.trim().parse().map_err(|_| bad())?,
+                    )
+                }
+            }
+        }
+        Some(_) => return Err(bad()),
+    };
+    let (from, to) = (from.max(0) as u64, to.max(0) as u64);
+    Ok(Some(Range::new(from.min(to), from.max(to))))
+}
+
+/// Текстовое поле XHTTP: пусто — `default`.
+fn xhttp_text(transport: &Map<String, Value>, key: &str, default: &str) -> String {
+    str_field(transport, key)
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or(default)
+        .to_owned()
+}
+
+fn xhttp_config(
+    transport: &Map<String, Value>,
+    path: String,
+    allow_download: bool,
+) -> Result<XhttpConfig> {
+    let mode = xhttp::Mode::parse(str_field(transport, "mode").unwrap_or_default())
+        .ok_or_else(|| unsupported("xhttp mode"))?;
+    let mut config = XhttpConfig::new(path, str_field(transport, "host").unwrap_or_default(), mode);
+    config.headers = headers(transport.get("headers"))?;
+    xhttp_placements(transport, &mut config)?;
+    if let Some(download) = transport
+        .get("download_settings")
+        .and_then(Value::as_object)
+        .filter(|d| !d.is_empty())
+    {
+        // Как в Xray: со stream-one отдельного скачивания нет.
+        if !allow_download || mode == xhttp::Mode::StreamOne {
+            return Err(unsupported("xhttp download_settings"));
+        }
+        config.download = Some(std::sync::Arc::new(download_settings(download)?));
+    } else if non_empty(transport.get("download_settings")) {
+        return Err(unsupported("xhttp download_settings"));
+    }
+    if let Some(padding) = range(transport.get("x_padding_bytes"), "x_padding_bytes")? {
+        if padding.from == 0 {
+            return Err(unsupported("xhttp x_padding_bytes"));
+        }
+        config.x_padding_bytes = padding;
+    }
+    if let Some(Value::Bool(flag)) = transport.get("no_grpc_header") {
+        config.no_grpc_header = *flag;
+    }
+    if let Some(max) = range(
+        transport.get("sc_max_each_post_bytes"),
+        "sc_max_each_post_bytes",
+    )?
+    .filter(|r| !r.is_zero())
+    {
+        if max.from == 0 {
+            return Err(unsupported("xhttp sc_max_each_post_bytes"));
+        }
+        config.sc_max_each_post_bytes = max;
+    }
+    if let Some(interval) = range(
+        transport.get("sc_min_posts_interval_ms"),
+        "sc_min_posts_interval_ms",
+    )?
+    .filter(|r| !r.is_zero())
+    {
+        config.sc_min_posts_interval_ms = interval;
+    }
+    if let Some(xmux) = transport.get("xmux").and_then(Value::as_object) {
+        const KNOWN: [&str; 6] = [
+            "max_concurrency",
+            "max_connections",
+            "c_max_reuse_times",
+            "h_max_request_times",
+            "h_max_reusable_secs",
+            "h_keep_alive_period",
+        ];
+        if let Some(key) = xmux.keys().find(|k| !KNOWN.contains(&k.as_str())) {
+            return Err(unsupported(format!("xhttp xmux {key}")));
+        }
+        let field =
+            |key: &str| Ok::<_, EngineError>(range(xmux.get(key), key)?.unwrap_or_default());
+        let parsed = Xmux {
+            max_concurrency: field("max_concurrency")?,
+            max_connections: field("max_connections")?,
+            c_max_reuse_times: field("c_max_reuse_times")?,
+            h_max_request_times: field("h_max_request_times")?,
+            h_max_reusable_secs: field("h_max_reusable_secs")?,
+        };
+        // Пустой xmux Xray заменяет своим по умолчанию; пинги HTTP/2
+        // (`h_keep_alive_period`) движок не шлёт.
+        if parsed != Xmux::default() {
+            if !parsed.max_connections.is_zero() && !parsed.max_concurrency.is_zero() {
+                return Err(unsupported(
+                    "xhttp xmux max_connections with max_concurrency",
+                ));
+            }
+            config.xmux = parsed;
+        }
+    }
+    Ok(config)
+}
+
+/// Метод, размещения сессии, номера и данных, обфускация паддинга — с
+/// проверками и умолчаниями Xray (`SplitHTTPConfig.Build`).
+fn xhttp_placements(transport: &Map<String, Value>, config: &mut XhttpConfig) -> Result<()> {
+    let bad = |what: &str| unsupported(format!("xhttp {what}"));
+    config.uplink_method = xhttp_text(transport, "uplink_http_method", "POST").to_ascii_uppercase();
+    if http::Method::from_bytes(config.uplink_method.as_bytes()).is_err() {
+        return Err(bad("uplink_http_method"));
+    }
+    // GET с потоковым телом не бывает (у Xray — только packet-up).
+    if config.uplink_method == "GET" && config.mode != xhttp::Mode::PacketUp {
+        return Err(bad("uplink_http_method"));
+    }
+    config.session_placement = Placement::parse(&xhttp_text(transport, "session_placement", ""))
+        .ok_or_else(|| bad("session_placement"))?;
+    config.seq_placement = Placement::parse(&xhttp_text(transport, "seq_placement", ""))
+        .ok_or_else(|| bad("seq_placement"))?;
+    let key_for = |placement: Placement, cookie: &str, header: &str| match placement {
+        Placement::Path => String::new(),
+        Placement::Query | Placement::Cookie => cookie.to_owned(),
+        Placement::Header => header.to_owned(),
+    };
+    config.session_key = xhttp_text(
+        transport,
+        "session_key",
+        &key_for(config.session_placement, "x_session", "X-Session"),
+    );
+    config.seq_key = xhttp_text(
+        transport,
+        "seq_key",
+        &key_for(config.seq_placement, "x_seq", "X-Seq"),
+    );
+    config.data_placement =
+        DataPlacement::parse(&xhttp_text(transport, "uplink_data_placement", ""))
+            .ok_or_else(|| bad("uplink_data_placement"))?;
+    // Данные в заголовках или cookie — как в Xray, только при явном packet-up.
+    if config.data_placement != DataPlacement::Body && config.mode != xhttp::Mode::PacketUp {
+        return Err(bad("uplink_data_placement"));
+    }
+    let data_default = if config.data_placement == DataPlacement::Cookie {
+        "x_data"
+    } else {
+        "X-Data"
+    };
+    config.data_key = xhttp_text(transport, "uplink_data_key", data_default);
+    if let Some(size) = range(transport.get("uplink_chunk_size"), "uplink_chunk_size")? {
+        config.uplink_chunk_size = size;
+    }
+    match transport.get("x_padding_obfs_mode") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => {}
+        Some(Value::Bool(true)) => {
+            config.padding_obfs = Some(PaddingObfs {
+                placement: PaddingPlacement::parse(&xhttp_text(
+                    transport,
+                    "x_padding_placement",
+                    "",
+                ))
+                .ok_or_else(|| bad("x_padding_placement"))?,
+                key: xhttp_text(transport, "x_padding_key", "x_padding"),
+                header: xhttp_text(transport, "x_padding_header", "X-Padding"),
+                method: PaddingMethod::parse(&xhttp_text(transport, "x_padding_method", ""))
+                    .ok_or_else(|| bad("x_padding_method"))?,
+            });
+        }
+        Some(_) => return Err(bad("x_padding_obfs_mode")),
+    }
+    Ok(())
+}
+
+/// Отдельный сервер скачивания: `server`, `server_port`, `tls` и
+/// `transport` (XHTTP) — как у самого исходящего.
+fn download_settings(download: &Map<String, Value>) -> Result<DownloadSettings> {
+    const KNOWN: [&str; 4] = ["server", "server_port", "tls", "transport"];
+    if let Some((key, _)) = download
+        .iter()
+        .find(|(key, value)| !KNOWN.contains(&key.as_str()) && non_empty(Some(value)))
+    {
+        return Err(unsupported(format!("xhttp download_settings {key}")));
+    }
+    let server = server(download)?;
+    let (security, alpn) = security(download, &server)?;
+    let transport = download
+        .get("transport")
+        .and_then(Value::as_object)
+        .filter(|t| str_field(t, "type") == Some("xhttp"))
+        .ok_or_else(|| unsupported("xhttp download_settings transport"))?;
+    if non_empty(transport.get("download_settings")) {
+        return Err(unsupported("xhttp download_settings"));
+    }
+    let path = str_field(transport, "path").unwrap_or_default().to_owned();
+    Ok(DownloadSettings {
+        server,
+        security,
+        alpn: alpn.unwrap_or_default(),
+        xhttp: xhttp_config(transport, path, false)?,
+    })
+}
+
+/// XHTTP поверх этой защиты. Всё, что умеет Xray-клиент, движок умеет;
+/// проверка осталась для будущих ограничений.
+fn check_xhttp(transport: &Transport, security: &Security, _alpn: Option<&[String]>) -> Result<()> {
+    let Transport::Xhttp(config) = transport else {
+        return Ok(());
+    };
+    if config.download.is_some() && config.resolved_mode(security) == xhttp::Mode::StreamOne {
+        return Err(unsupported("xhttp download_settings with stream-one"));
+    }
+    Ok(())
 }
 
 /// Поля `tls`, которые движок понимает. `utls` принимается с любым
@@ -600,6 +883,139 @@ fn security(
     Ok((Security::Tls(config), alpn))
 }
 
+/// Hysteria2. Скорости (`up_mbps`, `down_mbps`) не используются: движок
+/// всегда управляет перегрузкой через BBR. С `server_ports` порт меняется
+/// раз в `hop_interval` (по умолчанию 30 с, не чаще раза в 5 с).
+fn hysteria2(outbound: &Map<String, Value>) -> Result<Outbound> {
+    const KNOWN: [&str; 13] = [
+        "type",
+        "tag",
+        "server",
+        "server_port",
+        "server_ports",
+        "hop_interval",
+        "up_mbps",
+        "down_mbps",
+        "obfs",
+        "password",
+        "network",
+        "tls",
+        "domain_strategy",
+    ];
+    check_common(outbound)?;
+    if let Some((key, _)) = outbound
+        .iter()
+        .find(|(key, value)| !KNOWN.contains(&key.as_str()) && non_empty(Some(value)))
+    {
+        return Err(unsupported(format!("hysteria2 {key}")));
+    }
+    if non_empty(outbound.get("domain_strategy")) {
+        return Err(unsupported("hysteria2 domain_strategy"));
+    }
+    let (tcp, udp) = match str_field(outbound, "network") {
+        None | Some("") => (true, true),
+        Some("tcp") => (true, false),
+        Some("udp") => (false, true),
+        Some(_) => return Err(unsupported("hysteria2 network")),
+    };
+    let hop_interval = match outbound.get("hop_interval") {
+        None | Some(Value::Null) => crate::udphop::DEFAULT_INTERVAL,
+        Some(Value::String(text)) if text.trim().is_empty() => crate::udphop::DEFAULT_INTERVAL,
+        Some(Value::String(text)) => go_duration(text)
+            .ok_or_else(|| unsupported("hysteria2 hop_interval"))?
+            .max(crate::udphop::MIN_INTERVAL),
+        Some(_) => return Err(unsupported("hysteria2 hop_interval")),
+    };
+    let ports = match outbound.get("server_ports") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| item.as_str().and_then(port_range))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| unsupported("hysteria2 server_ports"))?,
+        Some(Value::String(text)) => {
+            vec![port_range(text).ok_or_else(|| unsupported("hysteria2 server_ports"))?]
+        }
+        Some(_) => return Err(unsupported("hysteria2 server_ports")),
+    };
+    let host = str_field(outbound, "server").ok_or_else(|| unsupported("missing server"))?;
+    let port = match outbound.get("server_port").and_then(Value::as_u64) {
+        Some(port) => u16::try_from(port).map_err(|_| unsupported("server_port"))?,
+        None => ports
+            .first()
+            .map(|(from, _)| *from)
+            .ok_or_else(|| unsupported("missing server_port"))?,
+    };
+    let server = TargetAddr::from_host(host, port)?;
+    let obfs = match outbound.get("obfs").and_then(Value::as_object) {
+        None => None,
+        Some(obfs) if obfs.is_empty() => None,
+        Some(obfs) => {
+            if str_field(obfs, "type").unwrap_or("salamander") != "salamander" {
+                return Err(unsupported("hysteria2 obfs type"));
+            }
+            let password = str_field(obfs, "password").unwrap_or_default();
+            if password.len() < crate::salamander::MIN_PASSWORD_LEN {
+                return Err(unsupported("hysteria2 obfs password"));
+            }
+            Some(password)
+        }
+    };
+    let (security, _alpn) = security(outbound, &server)?;
+    let tls = match security {
+        Security::Tls(tls) => tls,
+        // Без TLS QUIC не бывает; REALITY у Hysteria2 нет.
+        Security::None => return Err(unsupported("hysteria2 without tls")),
+        Security::Reality(_) => return Err(unsupported("hysteria2 with reality")),
+    };
+    let password = str_field(outbound, "password").unwrap_or_default();
+    let mut config = Hysteria2Config::new(server, password, tls, obfs);
+    config.ports = ports;
+    config.hop_interval = hop_interval;
+    config.tcp = tcp;
+    config.udp = udp;
+    Ok(Outbound::Hysteria2(Box::new(config)))
+}
+
+/// Длительность в записи Go: `30s`, `1m30s`, `500ms`, `1h`.
+fn go_duration(text: &str) -> Option<std::time::Duration> {
+    let mut rest = text.trim();
+    if rest.is_empty() {
+        return None;
+    }
+    let mut total = 0f64;
+    while !rest.is_empty() {
+        let digits = rest
+            .find(|c: char| !c.is_ascii_digit() && c != '.')
+            .unwrap_or(rest.len());
+        let value: f64 = rest[..digits].parse().ok()?;
+        rest = &rest[digits..];
+        let unit = rest
+            .find(|c: char| c.is_ascii_digit() || c == '.')
+            .unwrap_or(rest.len());
+        let scale = match &rest[..unit] {
+            "ns" => 1e-9,
+            "us" | "µs" => 1e-6,
+            "ms" => 1e-3,
+            "s" => 1.0,
+            "m" => 60.0,
+            "h" => 3600.0,
+            _ => return None,
+        };
+        rest = &rest[unit..];
+        total += value * scale;
+    }
+    std::time::Duration::try_from_secs_f64(total).ok()
+}
+
+/// Диапазон портов sing-box: `"20000:30000"` или один порт.
+fn port_range(text: &str) -> Option<(u16, u16)> {
+    let (from, to) = text.split_once(':').unwrap_or((text, text));
+    let from: u16 = from.trim().parse().ok()?;
+    let to: u16 = to.trim().parse().ok()?;
+    (from > 0 && from <= to).then_some((from, to))
+}
+
 fn translate(outbound: &Map<String, Value>) -> Result<Outbound> {
     match str_field(outbound, "type") {
         Some("direct") => {
@@ -640,11 +1056,13 @@ fn translate(outbound: &Map<String, Value>) -> Result<Outbound> {
             if matches!(security, Security::Reality(_)) {
                 return Err(unsupported("trojan with reality"));
             }
+            let transport = transport(outbound)?;
+            check_xhttp(&transport, &security, alpn.as_deref())?;
             let mut config = TrojanConfig::new(server, password, security);
             if let Some(alpn) = alpn {
                 config.alpn = alpn;
             }
-            config.transport = transport(outbound)?;
+            config.transport = transport;
             Ok(Outbound::Trojan(Box::new(config)))
         }
         Some("vless") => {
@@ -666,6 +1084,7 @@ fn translate(outbound: &Map<String, Value>) -> Result<Outbound> {
             if flow == Flow::Vision && !transport.is_none() {
                 return Err(unsupported("vision with transport"));
             }
+            check_xhttp(&transport, &security, alpn.as_deref())?;
             let mut config = VlessConfig::new(server, uuid, flow, security);
             if let Some(alpn) = alpn {
                 config.alpn = alpn;
@@ -673,6 +1092,7 @@ fn translate(outbound: &Map<String, Value>) -> Result<Outbound> {
             config.transport = transport;
             Ok(Outbound::Vless(Box::new(config)))
         }
+        Some("hysteria2") => hysteria2(outbound),
         Some(other) => Err(unsupported(format!("protocol {other}"))),
         None => Err(unsupported("outbound without type")),
     }
@@ -827,6 +1247,273 @@ mod tests {
             ]);
             assert!(from_singbox(&built(list, json!([]))).is_err());
         }
+    }
+
+    #[test]
+    fn reads_hysteria2() {
+        let list = json!([
+            {"type": "hysteria2", "tag": "H", "server": "hy.example.com",
+             "server_ports": ["20000:20010", "443"], "hop_interval": "30s",
+             "up_mbps": 50, "down_mbps": 100, "password": "p",
+             "obfs": {"type": "salamander", "password": "obfs-pass"},
+             "tls": {"enabled": true, "server_name": "sni.example.com", "insecure": true,
+                     "alpn": ["h3"]}},
+            {"type": "hysteria2", "tag": "P", "server": "10.0.0.9", "server_port": 8443,
+             "password": "p", "tls": {"enabled": true}},
+            {"type": "selector", "tag": "gorion-manual", "outbounds": ["H", "P"]}
+        ]);
+        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let Outbound::Hysteria2(hy) = &**plan.outbound("H").unwrap() else {
+            panic!("hysteria2")
+        };
+        assert_eq!(hy.ports, [(20000, 20010), (443, 443)]);
+        // Без server_port — первый порт диапазона.
+        assert_eq!(
+            hy.server,
+            TargetAddr::Domain("hy.example.com".into(), 20000)
+        );
+        assert_eq!(hy.tls.server_name, "sni.example.com");
+        assert!(hy.tls.insecure);
+        let Outbound::Hysteria2(plain) = &**plan.outbound("P").unwrap() else {
+            panic!("hysteria2")
+        };
+        assert_eq!(plain.tls.server_name, "10.0.0.9");
+        assert!(plain.ports.is_empty());
+        assert_eq!(server_hosts(&plan), ["hy.example.com"]);
+        assert_eq!(hy.hop_interval, std::time::Duration::from_secs(30));
+        assert!(hy.tcp && hy.udp);
+        assert_eq!(
+            go_duration("1m30s"),
+            Some(std::time::Duration::from_secs(90))
+        );
+        assert_eq!(
+            go_duration("500ms"),
+            Some(std::time::Duration::from_millis(500))
+        );
+        assert_eq!(go_duration("30"), None);
+        // Чаще раза в 5 с порт не меняется; network ограничивает подключения.
+        let list = json!([
+            {"type": "hysteria2", "tag": "H", "server": "h", "server_ports": "1000:1010",
+             "hop_interval": "1s", "network": "udp", "password": "p", "tls": {"enabled": true}},
+            {"type": "selector", "tag": "gorion-manual", "outbounds": ["H"]}
+        ]);
+        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let Outbound::Hysteria2(hy) = &**plan.outbound("H").unwrap() else {
+            panic!("hysteria2")
+        };
+        assert_eq!(hy.hop_interval, std::time::Duration::from_secs(5));
+        assert!(!hy.tcp && hy.udp);
+
+        for bad in [
+            json!({"tls": {"enabled": false}}),
+            json!({"obfs": {"type": "other", "password": "obfs-pass"}}),
+            json!({"obfs": {"type": "salamander", "password": "x"}}),
+            json!({"network": "icmp"}),
+            json!({"hop_interval": "soon"}),
+            json!({"server_ports": ["30:20"]}),
+            json!({"brutal_debug": true}),
+        ] {
+            let mut server = json!({"type": "hysteria2", "tag": "H", "server": "h",
+                "server_port": 443, "password": "p", "tls": {"enabled": true}});
+            for (key, value) in bad.as_object().unwrap() {
+                server[key] = value.clone();
+            }
+            let list =
+                json!([server, {"type": "selector", "tag": "gorion-manual", "outbounds": ["H"]}]);
+            assert!(from_singbox(&built(list, json!([]))).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn reads_xhttp_placements_and_download() {
+        let list = json!([
+            {"type": "vless", "tag": "X", "server": "up.example.com", "server_port": 443,
+             "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+             "tls": {"enabled": true, "server_name": "cdn.example.com", "alpn": ["h3"]},
+             "transport": {"type": "xhttp", "path": "/up", "mode": "packet-up",
+                           "uplink_http_method": "put", "session_placement": "header",
+                           "seq_placement": "query", "seq_key": "n",
+                           "uplink_data_placement": "cookie", "uplink_chunk_size": "100-200",
+                           "x_padding_obfs_mode": true, "x_padding_placement": "header",
+                           "x_padding_method": "tokenish",
+                           "download_settings": {
+                               "server": "dl.example.com", "server_port": 8443,
+                               "tls": {"enabled": true, "server_name": "dl.example.com"},
+                               "transport": {"type": "xhttp", "path": "/down",
+                                             "host": "dl-front.example.com"}}}},
+            {"type": "selector", "tag": "gorion-manual", "outbounds": ["X"]}
+        ]);
+        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let Outbound::Vless(vless) = &**plan.outbound("X").unwrap() else {
+            panic!("vless")
+        };
+        let Transport::Xhttp(config) = &vless.transport else {
+            panic!("xhttp")
+        };
+        assert_eq!(config.uplink_method, "PUT");
+        assert_eq!(config.session_placement, Placement::Header);
+        assert_eq!(config.session_key, "X-Session");
+        assert_eq!(
+            (config.seq_placement, config.seq_key.as_str()),
+            (Placement::Query, "n")
+        );
+        assert_eq!(config.data_placement, DataPlacement::Cookie);
+        assert_eq!(config.data_key, "x_data");
+        assert_eq!(config.uplink_chunk_size, Range::new(100, 200));
+        assert_eq!(
+            config.padding_obfs,
+            Some(PaddingObfs {
+                placement: PaddingPlacement::Header,
+                key: "x_padding".into(),
+                header: "X-Padding".into(),
+                method: PaddingMethod::Tokenish,
+            })
+        );
+        let download = config.download.as_ref().unwrap();
+        assert_eq!(
+            download.server,
+            TargetAddr::Domain("dl.example.com".into(), 8443)
+        );
+        assert_eq!(download.xhttp.path, "/down");
+        assert_eq!(download.xhttp.host, "dl-front.example.com");
+        assert!(matches!(download.security, Security::Tls(_)));
+        // Оба имени закрепляются до туннеля.
+        assert_eq!(server_hosts(&plan), ["up.example.com", "dl.example.com"]);
+    }
+
+    #[test]
+    fn reads_xhttp() {
+        let list = json!([
+            {"type": "vless", "tag": "X", "server": "10.0.0.2", "server_port": 443,
+             "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+             "tls": {"enabled": true, "server_name": "cdn.example.com"},
+             "transport": {"type": "xhttp", "path": "/xh?ed=1", "host": "front.example.com",
+                           "mode": "packet-up", "headers": {"X-Test": "1"},
+                           "x_padding_bytes": "200-400", "no_grpc_header": true,
+                           "sc_max_each_post_bytes": 500000, "sc_min_posts_interval_ms": "10-20",
+                           "xmux": {"max_concurrency": "16-32", "h_max_request_times": "100-200",
+                                    "h_keep_alive_period": 30}}},
+            {"type": "trojan", "tag": "D", "server": "10.0.0.3", "server_port": 80,
+             "password": "p", "transport": {"type": "xhttp", "path": "/d"}},
+            {"type": "selector", "tag": "gorion-manual", "outbounds": ["X", "D"]}
+        ]);
+        let plan = from_singbox(&built(list, json!([]))).unwrap();
+        let Outbound::Vless(vless) = &**plan.outbound("X").unwrap() else {
+            panic!("vless")
+        };
+        let Transport::Xhttp(config) = &vless.transport else {
+            panic!("xhttp")
+        };
+        assert_eq!(config.path, "/xh?ed=1");
+        assert_eq!(config.host, "front.example.com");
+        assert_eq!(config.mode, xhttp::Mode::PacketUp);
+        assert_eq!(config.x_padding_bytes, Range::new(200, 400));
+        assert!(config.no_grpc_header);
+        assert_eq!(config.sc_max_each_post_bytes, Range::new(500_000, 500_000));
+        assert_eq!(config.sc_min_posts_interval_ms, Range::new(10, 20));
+        assert_eq!(config.xmux.max_concurrency, Range::new(16, 32));
+        assert_eq!(config.xmux.h_max_request_times, Range::new(100, 200));
+        assert!(config.xmux.h_max_reusable_secs.is_zero());
+        // Без настроек — значения Xray по умолчанию.
+        let Outbound::Trojan(trojan) = &**plan.outbound("D").unwrap() else {
+            panic!("trojan")
+        };
+        let Transport::Xhttp(config) = &trojan.transport else {
+            panic!("xhttp")
+        };
+        assert_eq!(config.mode, xhttp::Mode::Auto);
+        assert_eq!(config.xmux, Xmux::XRAY_DEFAULT);
+        assert_eq!(config.x_padding_bytes, Range::new(100, 1000));
+
+        // HTTP/3 и потоковые режимы поверх HTTP/1.1 — принимаются.
+        for (transport, tls) in [
+            (
+                json!({"type": "xhttp", "path": "/"}),
+                json!({"enabled": true, "alpn": ["h3"]}),
+            ),
+            (
+                json!({"type": "xhttp", "mode": "stream-one"}),
+                json!({"enabled": false}),
+            ),
+        ] {
+            let list = json!([
+                {"type": "trojan", "tag": "T", "server": "h", "server_port": 443, "password": "p",
+                 "tls": tls, "transport": transport},
+                {"type": "selector", "tag": "gorion-manual", "outbounds": ["T"]}
+            ]);
+            assert!(from_singbox(&built(list, json!([]))).is_ok(), "{transport}");
+        }
+
+        // Чего нет: незнакомые поля и то, что Xray сам отвергает.
+        for (transport, tls) in [
+            (
+                json!({"type": "xhttp", "mode": "fast"}),
+                json!({"enabled": true}),
+            ),
+            (
+                json!({"type": "xhttp", "mode": "stream-one", "download_settings": {
+                    "server": "d", "server_port": 443, "transport": {"type": "xhttp"}}}),
+                json!({"enabled": true}),
+            ),
+            (
+                json!({"type": "xhttp", "download_settings": {"server": "d", "server_port": 443}}),
+                json!({"enabled": true}),
+            ),
+            (
+                json!({"type": "xhttp", "download_settings": {"server": "d", "server_port": 443,
+                    "transport": {"type": "xhttp", "download_settings": {"server": "e"}}}}),
+                json!({"enabled": true}),
+            ),
+            (
+                json!({"type": "xhttp", "mode": "stream-up", "uplink_data_placement": "header"}),
+                json!({"enabled": true}),
+            ),
+            (
+                json!({"type": "xhttp", "uplink_data_placement": "cookie"}),
+                json!({"enabled": true}),
+            ),
+            (
+                json!({"type": "xhttp", "mode": "stream-one", "uplink_http_method": "get"}),
+                json!({"enabled": true}),
+            ),
+            (
+                json!({"type": "xhttp", "session_placement": "body"}),
+                json!({"enabled": true}),
+            ),
+            (
+                json!({"type": "xhttp", "x_padding_obfs_mode": true, "x_padding_method": "zeros"}),
+                json!({"enabled": true}),
+            ),
+            (
+                json!({"type": "xhttp", "x_padding_bytes": "0-10"}),
+                json!({"enabled": true}),
+            ),
+            (
+                json!({"type": "xhttp", "xmux": {"max_connections": 2, "max_concurrency": 4}}),
+                json!({"enabled": true}),
+            ),
+            (
+                json!({"type": "xhttp", "xmux": {"other": 1}}),
+                json!({"enabled": true}),
+            ),
+        ] {
+            let list = json!([
+                {"type": "trojan", "tag": "T", "server": "h", "server_port": 443, "password": "p",
+                 "tls": tls, "transport": transport},
+                {"type": "selector", "tag": "gorion-manual", "outbounds": ["T"]}
+            ]);
+            assert!(
+                from_singbox(&built(list, json!([]))).is_err(),
+                "{transport}"
+            );
+        }
+        let list = json!([
+            {"type": "vless", "tag": "V", "server": "h", "server_port": 443,
+             "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811", "flow": "xtls-rprx-vision",
+             "tls": {"enabled": true}, "transport": {"type": "xhttp"}},
+            {"type": "selector", "tag": "gorion-manual", "outbounds": ["V"]}
+        ]);
+        assert!(from_singbox(&built(list, json!([]))).is_err());
     }
 
     #[test]

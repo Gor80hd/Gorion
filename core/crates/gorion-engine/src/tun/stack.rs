@@ -5,8 +5,8 @@
 //! само держит TCP с обеих сторон, движку остаётся принятый сокет и
 //! настоящая цель из таблицы NAT.
 //!
-//! UDP: запросы на порт 53 уходят в DNS движка, остальное получает «порт
-//! недоступен» — UDP через сервер пока не передаётся.
+//! UDP: запросы на порт 53 уходят в DNS движка, остальное — пересылке
+//! UDP (`udp.rs`), а если маршрут UDP не передаёт, — «порт недоступен».
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
@@ -43,6 +43,12 @@ pub enum Verdict {
         client: SocketAddr,
         server: SocketAddr,
         query: Vec<u8>,
+    },
+    /// Датаграмма UDP от `client` к `server`.
+    Udp {
+        client: SocketAddr,
+        server: SocketAddr,
+        payload: Vec<u8>,
     },
     Drop,
 }
@@ -141,11 +147,22 @@ impl Stack {
                         query: payload.to_vec(),
                     };
                 }
-                packet::port_unreachable(packet, &header).map_or(Verdict::Drop, Verdict::Reply)
+                Verdict::Udp {
+                    client: source,
+                    server: destination,
+                    payload: payload.to_vec(),
+                }
             }
             _ => Verdict::Drop,
         }
     }
+}
+
+/// «Порт недоступен» в ответ на датаграмму UDP, которую некуда передать.
+pub fn refuse_udp(packet: &[u8]) -> Verdict {
+    packet::parse(packet)
+        .and_then(|header| packet::port_unreachable(packet, &header))
+        .map_or(Verdict::Drop, Verdict::Reply)
 }
 
 #[cfg(test)]
@@ -246,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn dns_is_hijacked_other_udp_refused_and_noise_dropped() {
+    fn dns_is_hijacked_other_udp_relayed_and_noise_dropped() {
         let stack = stack(42000);
         let now = Instant::now();
         let query = crate::tun::dns::tests::query("example.com", None);
@@ -262,7 +279,19 @@ mod tests {
             }
         );
         let mut quic = packet::udp(client, addr("142.250.1.1:443"), b"quic").unwrap();
-        assert!(matches!(stack.process(&mut quic, now), Verdict::Reply(_)));
+        assert_eq!(
+            stack.process(&mut quic, now),
+            Verdict::Udp {
+                client,
+                server: addr("142.250.1.1:443"),
+                payload: b"quic".to_vec()
+            }
+        );
+        // Маршрут без UDP — «порт недоступен».
+        let Verdict::Reply(refused) = refuse_udp(&quic) else {
+            panic!("expected ICMP");
+        };
+        assert!(checksums_valid(&refused));
         let mut mdns = packet::udp(client, addr("224.0.0.251:5353"), b"x").unwrap();
         assert_eq!(stack.process(&mut mdns, now), Verdict::Drop);
         let mut broadcast = packet::udp(client, addr("172.19.0.3:9"), b"x").unwrap();

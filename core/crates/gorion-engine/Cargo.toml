@@ -43,6 +43,13 @@ brotli-decompressor = "5"
 h2 = "0.4"
 http = "1"
 bytes = "1"
+# Hysteria2: QUIC — quinn, рукопожатие авторизации — HTTP/3 (h3). Это общие
+# транспорты, как h2 у gRPC; формат Hysteria2 и salamander — свои (ADR-0005).
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
+h3 = "0.0.8"
+h3-quinn = "0.0.10"
+# Ключ salamander — BLAKE2b-256 от пароля и соли пакета.
+blake2 = "0.10"
 # Исходящие сокеты в режиме TUN привязаны к физическому интерфейсу
 # (IP_BOUND_IF), иначе они ушли бы обратно в туннель.
 socket2 = { version = "0.6", features = ["all"] }

@@ -27,6 +27,8 @@ nix = { version = "0.31", features = ["signal", "process"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+# Подписки проверяются тем, кто их запустит: своим движком.
+gorion-engine = { path = "../gorion-engine" }
 
 [lints]
 workspace = true

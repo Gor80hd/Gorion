@@ -89,6 +89,7 @@ impl Control {
                 Some(Outbound::Shadowsocks(_) | Outbound::Shadowsocks2022(_)) => "Shadowsocks",
                 Some(Outbound::Trojan(_)) => "Trojan",
                 Some(Outbound::Vless(_)) => "VLESS",
+                Some(Outbound::Hysteria2(_)) => "Hysteria2",
                 None => "Unknown",
             };
             let history = history

@@ -47,6 +47,8 @@ cargo clippy --workspace --all-targets --manifest-path core/Cargo.toml -- -D war
 cargo fmt --all --manifest-path core/Cargo.toml
 # Совместимость своего движка с сервером sing-box (ADR-0005)
 GORION_SINGBOX=/путь/к/sing-box cargo test -p gorion-engine --manifest-path core/Cargo.toml
+# XHTTP — против сервера Xray (бинарник Xray-core 26.x)
+GORION_XRAY=/путь/к/xray cargo test -p gorion-engine --test engine xray_xhttp --manifest-path core/Cargo.toml
 # Свой клиент TLS и DNS-over-HTTPS режима TUN на настоящих серверах (нужна сеть)
 GORION_NET_TLS=1 cargo test -p gorion-engine --test engine own_tls --manifest-path core/Cargo.toml
 GORION_NET_TLS=1 cargo test -p gorion-engine --test engine doh --manifest-path core/Cargo.toml

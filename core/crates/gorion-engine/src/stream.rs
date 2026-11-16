@@ -1,5 +1,5 @@
 //! Поток до сервера: голый TCP, обычный TLS или REALITY, по желанию с
-//! транспортом поверх (WebSocket, HTTPUpgrade, gRPC). Общий для
+//! транспортом поверх (WebSocket, HTTPUpgrade, gRPC, XHTTP). Общий для
 //! протоколов, которые идут поверх него (VLESS, Trojan).
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -12,6 +12,7 @@ use crate::grpc::{self, GrpcReader, GrpcWriter};
 use crate::reality::RealityConfig;
 use crate::tls::{self, Auth, TlsConfig, TlsReader, TlsWriter};
 use crate::transport::{self, Transport, UpgradeReader, UpgradeWriter};
+use crate::xhttp::{self, XhttpReader, XhttpWriter};
 
 /// Кусок чтения без TLS.
 pub const READ_SIZE: usize = 16 * 1024;
@@ -42,6 +43,7 @@ pub enum Down {
     Tls(Box<TlsReader<OwnedReadHalf>>),
     Upgrade(Box<UpgradeReader>),
     Grpc(Box<GrpcReader>),
+    Xhttp(Box<XhttpReader>),
     /// Переход TLS → сырой TCP (Vision) в процессе.
     Switching,
 }
@@ -51,6 +53,7 @@ pub enum Up {
     Tls(Box<TlsWriter<OwnedWriteHalf>>),
     Upgrade(Box<UpgradeWriter>),
     Grpc(Box<GrpcWriter>),
+    Xhttp(Box<XhttpWriter>),
     Switching,
 }
 
@@ -75,6 +78,10 @@ pub async fn open(
     transport: &Transport,
     alpn: &[String],
 ) -> Result<(Down, Up)> {
+    if let Transport::Xhttp(config) = transport {
+        let (reader, writer) = xhttp::open(config, server, security, alpn).await?;
+        return Ok((Down::Xhttp(Box::new(reader)), Up::Xhttp(Box::new(writer))));
+    }
     let alpn = transport.alpn(alpn);
     if let Transport::Grpc(config) = transport {
         let (reader, writer) = grpc::open(config, server, security, &alpn).await?;
@@ -83,7 +90,7 @@ pub async fn open(
     let tcp = crate::outbound::dial(server).await?;
     let (down, up) = secure(tcp, security, &alpn).await?;
     let (reader, writer) = match transport {
-        Transport::None | Transport::Grpc(_) => return Ok((down, up)),
+        Transport::None | Transport::Grpc(_) | Transport::Xhttp(_) => return Ok((down, up)),
         Transport::WebSocket(config) => transport::websocket(down, up, config, server.to_string()),
         Transport::HttpUpgrade(config) => {
             transport::http_upgrade(down, up, config, server.to_string(), security.server_name())
@@ -108,6 +115,8 @@ impl Down {
             }
             Self::Upgrade(reader) => reader.read_chunk().await,
             Self::Grpc(reader) => reader.read_chunk().await,
+            // Box: сессия HTTP/1.1 читает свой `Down` — рекурсия типов.
+            Self::Xhttp(reader) => Box::pin(reader.read_chunk()).await,
             Self::Switching => Err(EngineError::Protocol("stream: reader is gone")),
         }
     }
@@ -120,6 +129,7 @@ impl Up {
             Self::Tls(w) => w.write_all(data).await,
             Self::Upgrade(w) => w.write_all(data).await,
             Self::Grpc(w) => w.write_all(data).await,
+            Self::Xhttp(w) => Box::pin(w.write_all(data)).await,
             Self::Switching => Err(EngineError::Protocol("stream: writer is gone")),
         }
     }

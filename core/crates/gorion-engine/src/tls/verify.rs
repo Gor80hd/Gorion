@@ -115,6 +115,71 @@ impl TlsConfig {
     }
 }
 
+impl TlsConfig {
+    /// Клиент rustls для QUIC (Hysteria2): только TLS 1.3, проверка та же,
+    /// что у своего клиента TLS — свои или общие корни, имя сервера, а при
+    /// `insecure` только подпись рукопожатия.
+    pub(crate) fn rustls_client(&self, alpn: &[&[u8]]) -> Result<rustls::ClientConfig> {
+        let builder = rustls::ClientConfig::builder_with_provider(provider())
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .map_err(|e| EngineError::Transport(format!("tls: {e}")))?;
+        let mut config = if self.insecure {
+            builder
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(SignatureOnly))
+                .with_no_client_auth()
+        } else {
+            let roots = self.pinned.clone().unwrap_or_else(|| {
+                Arc::new(RootCertStore {
+                    roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+                })
+            });
+            builder.with_root_certificates(roots).with_no_client_auth()
+        };
+        config.alpn_protocols = alpn.iter().map(|p| p.to_vec()).collect();
+        Ok(config)
+    }
+}
+
+/// `insecure`: цепочка и имя не проверяются, подпись рукопожатия — да.
+#[derive(Debug)]
+struct SignatureOnly;
+
+impl ServerCertVerifier for SignatureOnly {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(message, cert, dss, &algorithms())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(message, cert, dss, &algorithms())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        algorithms().supported_schemes()
+    }
+}
+
 /// Подпись CertificateVerify ключом сертификата сервера.
 pub(crate) fn verify_signature(
     leaf: &[u8],

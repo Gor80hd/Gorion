@@ -1,12 +1,13 @@
 //! Локальный вход: один порт для SOCKS5 и HTTP-прокси (как `mixed` в sing-box).
 //! Протокол определяется по первому байту: 0x05 — SOCKS5, иначе HTTP.
+//! SOCKS5 умеет и UDP ASSOCIATE, если маршрут передаёт UDP (`udp.rs`).
 
 use std::io::ErrorKind;
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::task::JoinSet;
 
 use crate::address::TargetAddr;
@@ -18,6 +19,7 @@ const SOCKS_VERSION: u8 = 5;
 const SOCKS_NO_AUTH: u8 = 0;
 const SOCKS_NO_ACCEPTABLE: u8 = 0xFF;
 const SOCKS_CMD_CONNECT: u8 = 1;
+const SOCKS_CMD_UDP_ASSOCIATE: u8 = 3;
 const REPLY_SUCCEEDED: u8 = 0;
 const REPLY_GENERAL_FAILURE: u8 = 1;
 const REPLY_HOST_UNREACHABLE: u8 = 4;
@@ -91,9 +93,15 @@ async fn socks5(mut client: TcpStream, outbound: &Outbound, traffic: &Traffic) -
     if request[0] != SOCKS_VERSION {
         return Err(EngineError::Protocol("socks: bad version"));
     }
+    if request[1] == SOCKS_CMD_UDP_ASSOCIATE && outbound.supports_udp() {
+        // Адрес, с которого клиент собирается слать, не важен: принимаем
+        // пакеты с его IP.
+        TargetAddr::read_socks(&mut client).await?;
+        return socks5_udp(client, outbound, traffic).await;
+    }
     if request[1] != SOCKS_CMD_CONNECT {
         socks_reply(&mut client, REPLY_COMMAND_NOT_SUPPORTED).await?;
-        return Err(EngineError::Protocol("socks: only CONNECT is supported"));
+        return Err(EngineError::Protocol("socks: command not supported"));
     }
     let target = TargetAddr::read_socks(&mut client).await?;
     match outbound.connect(&target, &[]).await {
@@ -106,6 +114,71 @@ async fn socks5(mut client: TcpStream, outbound: &Outbound, traffic: &Traffic) -
         Err(error) => {
             socks_reply(&mut client, socks_failure_code(&error)).await?;
             Err(error)
+        }
+    }
+}
+
+/// UDP ASSOCIATE: пакеты клиента `[0 0][фрагмент][адрес][данные]` на
+/// выделенный порт, ответы — в том же виде. Сессия живёт, пока открыто
+/// управляющее TCP-подключение.
+async fn socks5_udp(mut client: TcpStream, outbound: &Outbound, traffic: &Traffic) -> Result<()> {
+    let peer = client.peer_addr()?;
+    let relay = UdpSocket::bind((client.local_addr()?.ip(), 0)).await?;
+    let mut session = match outbound.udp().await {
+        Ok(session) => session,
+        Err(error) => {
+            socks_reply(&mut client, socks_failure_code(&error)).await?;
+            return Err(error);
+        }
+    };
+    let mut reply = vec![SOCKS_VERSION, REPLY_SUCCEEDED, 0];
+    TargetAddr::Ip(relay.local_addr()?).write_socks(&mut reply)?;
+    client.write_all(&reply).await?;
+
+    let mut control = [0u8; 64];
+    let mut buf = vec![0u8; 65_535];
+    let mut sender: Option<std::net::SocketAddr> = None;
+    loop {
+        tokio::select! {
+            read = client.read(&mut control) => {
+                if matches!(read, Ok(0) | Err(_)) {
+                    return Ok(());
+                }
+            }
+            received = relay.recv_from(&mut buf) => {
+                let (n, from) = received?;
+                if from.ip() != peer.ip() {
+                    continue;
+                }
+                sender = Some(from);
+                // Фрагменты SOCKS5 никто не шлёт; как sing-box, отбрасываем.
+                let Some(packet) = buf.get(..n).filter(|p| p.len() > 3 && p[2] == 0) else {
+                    continue;
+                };
+                let mut rest = &packet[3..];
+                let Ok(target) = TargetAddr::read_socks(&mut rest).await else {
+                    continue;
+                };
+                traffic.add_up(rest.len());
+                if let Err(error) = session.send(&target, rest).await {
+                    tracing::debug!(%error, "socks udp: send failed");
+                }
+            }
+            answer = session.recv() => {
+                let Some((data, from)) = answer else {
+                    return Ok(());
+                };
+                let Some(sender) = sender else {
+                    continue;
+                };
+                let mut packet = vec![0, 0, 0];
+                if from.write_socks(&mut packet).is_err() {
+                    continue;
+                }
+                packet.extend_from_slice(&data);
+                traffic.add_down(data.len());
+                relay.send_to(&packet, sender).await?;
+            }
         }
     }
 }

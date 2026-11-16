@@ -3,6 +3,7 @@
 //!
 //! `singbox_interop` проверяет совместимость с настоящим сервером sing-box и
 //! запускается, только если задан `GORION_SINGBOX` — путь к бинарнику.
+//! Проверки XHTTP идут против Xray — `GORION_XRAY`.
 
 #![allow(clippy::unwrap_used)]
 
@@ -13,10 +14,14 @@ use std::time::Duration;
 
 use std::sync::Arc;
 
+use gorion_engine::xhttp::{
+    DataPlacement, DownloadSettings, Mode as XhttpMode, PaddingMethod, PaddingObfs,
+    PaddingPlacement, Placement, Range as XhttpRange,
+};
 use gorion_engine::{
-    EngineConfig, EngineError, Flow, GrpcConfig, Method, Outbound, RealityConfig, Security,
-    ShadowsocksConfig, Ss2022Config, Ss2022Method, TargetAddr, TlsConfig, Transport, TrojanConfig,
-    UpgradeConfig, VlessConfig, WsConfig,
+    EngineConfig, EngineError, Flow, GrpcConfig, Hysteria2Config, Method, Outbound, RealityConfig,
+    Security, ShadowsocksConfig, Ss2022Config, Ss2022Method, TargetAddr, TlsConfig, Transport,
+    TrojanConfig, UpgradeConfig, VlessConfig, WsConfig, XhttpConfig,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -1127,4 +1132,627 @@ async fn doh_through_outbound_on_real_server() {
     selector.set(Arc::new(Outbound::Direct));
     let answer = client.exchange(&query(3, "github.com")).await.unwrap();
     assert_eq!(&answer[..2], &[0xAB, 3]);
+}
+
+// --- Hysteria2 ----------------------------------------------------------------
+
+async fn free_udp_port() -> u16 {
+    tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+const HY2_PASSWORD: &str = "gorion-hy2";
+const HY2_OBFS: &str = "gorion-salamander";
+
+#[tokio::test]
+async fn singbox_hysteria2_interop() {
+    let Some(binary) = singbox_path() else {
+        eprintln!("GORION_SINGBOX не задан — проверка Hysteria2 с sing-box пропущена");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let pair = generate(&binary, &["tls-keypair", TLS_NAME]).await;
+    let cert_start = pair.find("-----BEGIN CERTIFICATE-----").unwrap();
+    let certificate = pair[cert_start..].to_owned();
+    let (cert_path, key_path) = (dir.path().join("s.crt"), dir.path().join("s.key"));
+    std::fs::write(&key_path, &pair[..cert_start]).unwrap();
+    std::fs::write(&cert_path, &certificate).unwrap();
+    let tls = serde_json::json!({
+        "enabled": true, "server_name": TLS_NAME, "alpn": ["h3"],
+        "certificate_path": cert_path, "key_path": key_path
+    });
+    let [plain, obfs] = [free_udp_port().await, free_udp_port().await];
+    // TCP-вход только для того, чтобы дождаться запуска sing-box.
+    let ready = free_port().await;
+    let config = serde_json::json!({
+        "log": { "level": "error" },
+        "inbounds": [
+            {
+                "type": "hysteria2", "listen": "127.0.0.1", "listen_port": plain,
+                "users": [{ "password": HY2_PASSWORD }], "tls": tls
+            },
+            {
+                "type": "hysteria2", "listen": "127.0.0.1", "listen_port": obfs,
+                "obfs": { "type": "salamander", "password": HY2_OBFS },
+                "users": [{ "password": HY2_PASSWORD }], "tls": tls
+            },
+            { "type": "mixed", "listen": "127.0.0.1", "listen_port": ready }
+        ],
+        "outbounds": [{ "type": "direct", "tag": "direct" }]
+    });
+    let _singbox = run_singbox(&binary, &dir.path().join("hy2.json"), &config, ready).await;
+    let local = |port: u16| TargetAddr::Ip(SocketAddr::from(([127, 0, 0, 1], port)));
+    let echo = echo_server().await;
+    let greeting = greeting_server().await;
+    let pinned = || TlsConfig::new(TLS_NAME, false, Some(&certificate)).unwrap();
+    let hy2 = |port: u16, password: &str, tls: TlsConfig, obfs: Option<&str>| {
+        Outbound::Hysteria2(Box::new(Hysteria2Config::new(
+            local(port),
+            password,
+            tls,
+            obfs,
+        )))
+    };
+
+    for (what, outbound) in [
+        ("pinned", hy2(plain, HY2_PASSWORD, pinned(), None)),
+        (
+            "insecure",
+            hy2(
+                plain,
+                HY2_PASSWORD,
+                TlsConfig::new("other.test", true, None).unwrap(),
+                None,
+            ),
+        ),
+        (
+            "salamander",
+            hy2(obfs, HY2_PASSWORD, pinned(), Some(HY2_OBFS)),
+        ),
+    ] {
+        let engine = start(outbound).await;
+        // Несколько подключений одновременно — одно соединение QUIC.
+        echo_three(engine.local_addr(), echo).await;
+        assert_server_speaks_first(&engine, greeting).await;
+        eprintln!("hysteria2 {what}: ok");
+    }
+
+    // Порт из диапазона `server_ports`.
+    let mut ranged = Hysteria2Config::new(local(1), HY2_PASSWORD, pinned(), None);
+    ranged.ports = vec![(plain, plain)];
+    let engine = start(Outbound::Hysteria2(Box::new(ranged))).await;
+    assert_echo(socks_connect(engine.local_addr(), echo).await).await;
+
+    // UDP через SOCKS5 UDP ASSOCIATE: короткий пакет и такой, что режется
+    // на куски датаграмм QUIC.
+    let udp_echo = udp_echo_server().await;
+    for (what, outbound) in [
+        ("udp", hy2(plain, HY2_PASSWORD, pinned(), None)),
+        (
+            "udp salamander",
+            hy2(obfs, HY2_PASSWORD, pinned(), Some(HY2_OBFS)),
+        ),
+    ] {
+        let engine = start(outbound).await;
+        let (_control, socket, relay) = socks_udp_associate(engine.local_addr()).await;
+        for size in [5usize, 3000] {
+            let data: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+            assert_eq!(
+                socks_udp_round_trip(&socket, relay, udp_echo, &data).await,
+                data
+            );
+        }
+        eprintln!("hysteria2 {what}: ok");
+    }
+
+    // Смена портов: перед сервером — пересылка с трёх портов, как DNAT
+    // диапазона на сервере. После смены и TCP, и UDP продолжают работать.
+    let (ports, seen) = udp_forwarder(plain, 3).await;
+    let mut hopping = Hysteria2Config::new(local(ports[0]), HY2_PASSWORD, pinned(), None);
+    hopping.ports = ports.iter().map(|p| (*p, *p)).collect();
+    hopping.hop_interval = Duration::from_millis(700);
+    let engine = start(Outbound::Hysteria2(Box::new(hopping))).await;
+    let (_control, socket, relay) = socks_udp_associate(engine.local_addr()).await;
+    for _ in 0..6 {
+        assert_echo(socks_connect(engine.local_addr(), echo).await).await;
+        assert_eq!(
+            socks_udp_round_trip(&socket, relay, udp_echo, b"hop").await,
+            b"hop"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let used = seen.lock().unwrap().len();
+    assert!(used >= 2, "ports used: {used}");
+    eprintln!("hysteria2 port hopping: ok ({used} ports)");
+
+    // Отказы: чужой пароль, чужой пароль обфускации, сертификат на другое
+    // имя. Соединение QUIC не устанавливается — подключение отклоняется.
+    assert_refused(hy2(plain, "wrong", pinned(), None), echo, "wrong password").await;
+    assert_refused(
+        hy2(obfs, HY2_PASSWORD, pinned(), Some("wrong-obfs")),
+        echo,
+        "wrong obfs",
+    )
+    .await;
+    assert_refused(
+        hy2(
+            plain,
+            HY2_PASSWORD,
+            TlsConfig::new("other.test", false, Some(&certificate)).unwrap(),
+            None,
+        ),
+        echo,
+        "wrong server name",
+    )
+    .await;
+}
+
+async fn udp_echo_server() -> SocketAddr {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let addr = socket.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 65_535];
+        while let Ok((n, from)) = socket.recv_from(&mut buf).await {
+            let _ = socket.send_to(&buf[..n], from).await;
+        }
+    });
+    addr
+}
+
+/// SOCKS5 UDP ASSOCIATE: управляющее подключение, свой сокет и адрес входа.
+async fn socks_udp_associate(proxy: SocketAddr) -> (TcpStream, tokio::net::UdpSocket, SocketAddr) {
+    let mut control = TcpStream::connect(proxy).await.unwrap();
+    control.write_all(&[5, 1, 0]).await.unwrap();
+    let mut reply = [0u8; 2];
+    control.read_exact(&mut reply).await.unwrap();
+    control
+        .write_all(&[5, 3, 0, 1, 0, 0, 0, 0, 0, 0])
+        .await
+        .unwrap();
+    let mut head = [0u8; 4];
+    control.read_exact(&mut head).await.unwrap();
+    assert_eq!(head[1], 0, "udp associate refused");
+    assert_eq!(head[3], 1);
+    let mut addr = [0u8; 6];
+    control.read_exact(&mut addr).await.unwrap();
+    let relay = SocketAddr::from((
+        [addr[0], addr[1], addr[2], addr[3]],
+        u16::from_be_bytes([addr[4], addr[5]]),
+    ));
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    (control, socket, relay)
+}
+
+/// Пакет к `target` через вход и ответ на него (с повтором: UDP теряется).
+async fn socks_udp_round_trip(
+    socket: &tokio::net::UdpSocket,
+    relay: SocketAddr,
+    target: SocketAddr,
+    data: &[u8],
+) -> Vec<u8> {
+    let mut packet = vec![0, 0, 0];
+    TargetAddr::Ip(target).write_socks(&mut packet).unwrap();
+    packet.extend_from_slice(data);
+    let mut buf = vec![0u8; 65_535];
+    for _ in 0..5 {
+        socket.send_to(&packet, relay).await.unwrap();
+        if let Ok(Ok(n)) = tokio::time::timeout(Duration::from_secs(2), socket.recv(&mut buf)).await
+        {
+            let header = 3 + 1 + 4 + 2;
+            assert_eq!(&buf[3..header], &packet[3..header], "reply source");
+            return buf[header..n].to_vec();
+        }
+    }
+    panic!("no udp reply");
+}
+
+/// Пересылка UDP с `count` портов на `upstream` (как DNAT диапазона).
+/// Возвращает порты и множество тех, на которые приходили пакеты.
+async fn udp_forwarder(
+    upstream: u16,
+    count: usize,
+) -> (
+    Vec<u16>,
+    Arc<std::sync::Mutex<std::collections::HashSet<u16>>>,
+) {
+    let seen = Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
+    let mut ports = Vec::new();
+    for _ in 0..count {
+        let front = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let port = front.local_addr().unwrap().port();
+        ports.push(port);
+        let seen = Arc::clone(&seen);
+        tokio::spawn(async move {
+            let mut clients: std::collections::HashMap<SocketAddr, Arc<tokio::net::UdpSocket>> =
+                std::collections::HashMap::new();
+            let mut buf = vec![0u8; 65_535];
+            while let Ok((n, from)) = front.recv_from(&mut buf).await {
+                seen.lock().unwrap().insert(port);
+                let back = match clients.get(&from) {
+                    Some(back) => Arc::clone(back),
+                    None => {
+                        let back =
+                            Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
+                        back.connect(("127.0.0.1", upstream)).await.unwrap();
+                        let (reader, front) = (Arc::clone(&back), Arc::clone(&front));
+                        tokio::spawn(async move {
+                            let mut buf = vec![0u8; 65_535];
+                            while let Ok(n) = reader.recv(&mut buf).await {
+                                let _ = front.send_to(&buf[..n], from).await;
+                            }
+                        });
+                        clients.insert(from, Arc::clone(&back));
+                        back
+                    }
+                };
+                let _ = back.send(&buf[..n]).await;
+            }
+        });
+    }
+    (ports, seen)
+}
+
+/// Подключение через движок отклонено: протокол не пустил ещё до данных.
+async fn assert_refused(outbound: Outbound, target: SocketAddr, what: &str) {
+    let error = match outbound.connect(&TargetAddr::Ip(target), b"ping").await {
+        Ok(_) => panic!("{what}: connection must be refused"),
+        Err(error) => error,
+    };
+    eprintln!("{what}: {error}");
+}
+
+/// Три подключения через движок одновременно, каждое — полное эхо.
+async fn echo_three(proxy: SocketAddr, target: SocketAddr) {
+    let one = || async move { assert_echo(socks_connect(proxy, target).await).await };
+    tokio::join!(one(), one(), one());
+}
+
+// --- XHTTP против Xray ----------------------------------------------------------
+
+fn xray_path() -> Option<PathBuf> {
+    std::env::var_os("GORION_XRAY")
+        .map(PathBuf::from)
+        .filter(|p| p.exists())
+}
+
+/// Самоподписанный сертификат Xray: (PEM сертификата, PEM ключа).
+async fn xray_cert(binary: &PathBuf, domain: &str) -> (String, String) {
+    let output = tokio::process::Command::new(binary)
+        .args([
+            "tls",
+            "cert",
+            &format!("--domain={domain}"),
+            "--expire=240h",
+        ])
+        .output()
+        .await
+        .unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let lines = |key: &str| {
+        json[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l.as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    (lines("certificate"), lines("key"))
+}
+
+async fn xray_keys(binary: &PathBuf) -> (String, [u8; 32]) {
+    let output = tokio::process::Command::new(binary)
+        .arg("x25519")
+        .output()
+        .await
+        .unwrap();
+    let text = String::from_utf8(output.stdout).unwrap();
+    let private = field(&text, "PrivateKey").to_owned();
+    (private, base64url(field(&text, "Password (PublicKey)")))
+}
+
+const XHTTP_HOST: &str = "cdn.test";
+
+#[tokio::test]
+async fn xray_xhttp_interop() {
+    let Some(binary) = xray_path() else {
+        eprintln!("GORION_XRAY не задан — проверка XHTTP с Xray пропущена");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let (certificate, key) = xray_cert(&binary, TLS_NAME).await;
+    let (dest_cert, dest_key) = xray_cert(&binary, DEST_NAME).await;
+    let (private_key, public_key) = xray_keys(&binary).await;
+    let [dest, plain, tls, reality, trojan, custom, cookie] = [
+        free_port().await,
+        free_port().await,
+        free_port().await,
+        free_port().await,
+        free_port().await,
+        free_port().await,
+        free_port().await,
+    ];
+    let quic = free_udp_port().await;
+    let tls_alpn = |cert: &str, key: &str, alpn: serde_json::Value| {
+        serde_json::json!({
+            "alpn": alpn,
+            "certificates": [{
+                "certificate": cert.lines().collect::<Vec<_>>(),
+                "key": key.lines().collect::<Vec<_>>()
+            }]
+        })
+    };
+    let tls_settings =
+        |cert: &str, key: &str| tls_alpn(cert, key, serde_json::json!(["h2", "http/1.1"]));
+    let xhttp = |host: &str| serde_json::json!({ "path": "/xh", "host": host, "mode": "auto" });
+    let vless_in = |port: u16, stream: serde_json::Value| {
+        serde_json::json!({
+            "listen": "127.0.0.1", "port": port, "protocol": "vless",
+            "settings": { "clients": [{ "id": USER }], "decryption": "none" },
+            "streamSettings": stream
+        })
+    };
+    let config = serde_json::json!({
+        "log": { "loglevel": "warning" },
+        "inbounds": [
+            // Обычный TLS-сайт, за которым прячется REALITY.
+            vless_in(dest, serde_json::json!({
+                "network": "raw", "security": "tls",
+                "tlsSettings": tls_settings(&dest_cert, &dest_key)
+            })),
+            vless_in(plain, serde_json::json!({
+                "network": "xhttp", "xhttpSettings": xhttp("")
+            })),
+            vless_in(tls, serde_json::json!({
+                "network": "xhttp", "xhttpSettings": xhttp(XHTTP_HOST),
+                "security": "tls", "tlsSettings": tls_settings(&certificate, &key)
+            })),
+            vless_in(reality, serde_json::json!({
+                "network": "xhttp", "xhttpSettings": xhttp(""),
+                "security": "reality",
+                "realitySettings": {
+                    "target": format!("127.0.0.1:{dest}"), "serverNames": [DEST_NAME],
+                    "privateKey": private_key, "shortIds": [SHORT_ID]
+                }
+            })),
+            // HTTP/3: QUIC на UDP-порту.
+            vless_in(quic, serde_json::json!({
+                "network": "xhttp", "xhttpSettings": xhttp(XHTTP_HOST),
+                "security": "tls",
+                "tlsSettings": tls_alpn(&certificate, &key, serde_json::json!(["h3"]))
+            })),
+            // Свой метод, сессия в заголовке, номер в запросе, данные в
+            // заголовках, паддинг tokenish в cookie — поверх HTTP/2.
+            vless_in(custom, serde_json::json!({
+                "network": "xhttp", "security": "tls",
+                "tlsSettings": tls_settings(&certificate, &key),
+                "xhttpSettings": {
+                    "path": "/xh", "mode": "packet-up", "uplinkHTTPMethod": "PUT",
+                    "sessionPlacement": "header", "seqPlacement": "query", "seqKey": "n",
+                    "uplinkDataPlacement": "header", "scMaxEachPostBytes": 2048,
+                    "xPaddingObfsMode": true, "xPaddingPlacement": "cookie",
+                    "xPaddingMethod": "tokenish"
+                }
+            })),
+            // GET с данными в cookie, сессия в cookie, номер в заголовке,
+            // паддинг в запросе — поверх HTTP/1.1.
+            vless_in(cookie, serde_json::json!({
+                "network": "xhttp",
+                "xhttpSettings": {
+                    "path": "/xh", "mode": "packet-up", "uplinkHTTPMethod": "GET",
+                    "sessionPlacement": "cookie", "seqPlacement": "header",
+                    "uplinkDataPlacement": "cookie", "scMaxEachPostBytes": 2048,
+                    "xPaddingObfsMode": true, "xPaddingPlacement": "query",
+                    "xPaddingKey": "pad"
+                }
+            })),
+            {
+                "listen": "127.0.0.1", "port": trojan, "protocol": "trojan",
+                "settings": { "clients": [{ "password": TROJAN_PASSWORD }] },
+                "streamSettings": {
+                    "network": "xhttp", "xhttpSettings": xhttp(XHTTP_HOST),
+                    "security": "tls", "tlsSettings": tls_settings(&certificate, &key)
+                }
+            }
+        ],
+        "outbounds": [{ "protocol": "freedom" }]
+    });
+    let path = dir.path().join("xray.json");
+    std::fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let child = tokio::process::Command::new(&binary)
+        .args(["run", "-c"])
+        .arg(&path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let _xray = SingBox(child);
+    for _ in 0..100 {
+        if TcpStream::connect(("127.0.0.1", trojan)).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let local = |port: u16| TargetAddr::Ip(SocketAddr::from(([127, 0, 0, 1], port)));
+    let echo = echo_server().await;
+    let greeting = greeting_server().await;
+    let pinned = || Security::Tls(TlsConfig::new(TLS_NAME, false, Some(&certificate)).unwrap());
+    let xh = |host: &str, mode: XhttpMode| {
+        // Запрос в пути уходит серверу как есть.
+        Transport::Xhttp(Box::new(XhttpConfig::new("/xh?ed=2048", host, mode)))
+    };
+    let vless_xh = |port: u16, security: Security, transport: Transport| {
+        with_transport(vless(&local(port), USER, Flow::None, security), transport)
+    };
+    let mut h1_over_tls = VlessConfig::new(local(tls), USER, Flow::None, pinned());
+    h1_over_tls.alpn = vec!["http/1.1".into()];
+    h1_over_tls.transport = xh(XHTTP_HOST, XhttpMode::Auto);
+    let mut small_posts = XhttpConfig::new("/xh", "", XhttpMode::PacketUp);
+    // Мелкие куски: отправка 300 КБ — десятки запросов с номерами.
+    small_posts.sc_max_each_post_bytes = XhttpRange::new(8192, 16384);
+    small_posts.sc_min_posts_interval_ms = XhttpRange::new(1, 5);
+
+    let mut h3 = VlessConfig::new(local(quic), USER, Flow::None, pinned());
+    h3.alpn = vec!["h3".into()];
+    h3.transport = xh(XHTTP_HOST, XhttpMode::Auto);
+    let mut h3_stream = VlessConfig::new(local(quic), USER, Flow::None, pinned());
+    h3_stream.alpn = vec!["h3".into()];
+    h3_stream.transport = xh(XHTTP_HOST, XhttpMode::StreamOne);
+
+    let mut placed = XhttpConfig::new("/xh", "", XhttpMode::PacketUp);
+    placed.uplink_method = "PUT".into();
+    placed.session_placement = Placement::Header;
+    placed.session_key = "X-Session".into();
+    placed.seq_placement = Placement::Query;
+    placed.seq_key = "n".into();
+    placed.data_placement = DataPlacement::Header;
+    placed.data_key = "X-Data".into();
+    placed.sc_max_each_post_bytes = XhttpRange::new(2048, 2048);
+    placed.padding_obfs = Some(PaddingObfs {
+        placement: PaddingPlacement::Cookie,
+        key: "x_padding".into(),
+        header: "X-Padding".into(),
+        method: PaddingMethod::Tokenish,
+    });
+    let mut cookies = XhttpConfig::new("/xh", "", XhttpMode::PacketUp);
+    cookies.uplink_method = "GET".into();
+    cookies.session_placement = Placement::Cookie;
+    cookies.session_key = "x_session".into();
+    cookies.seq_placement = Placement::Header;
+    cookies.seq_key = "X-Seq".into();
+    cookies.data_placement = DataPlacement::Cookie;
+    cookies.data_key = "x_data".into();
+    cookies.sc_max_each_post_bytes = XhttpRange::new(2048, 2048);
+    cookies.padding_obfs = Some(PaddingObfs {
+        placement: PaddingPlacement::Query,
+        key: "pad".into(),
+        header: "X-Padding".into(),
+        method: PaddingMethod::RepeatX,
+    });
+
+    // Скачивание отдельно: отправка по HTTP/2, приём — по HTTP/1.1 к тому
+    // же серверу (сессии у Xray — на входе); поверх REALITY auto
+    // становится stream-up.
+    let mut split = XhttpConfig::new("/xh", XHTTP_HOST, XhttpMode::Auto);
+    split.download = Some(Arc::new(DownloadSettings {
+        server: local(tls),
+        security: pinned(),
+        alpn: vec!["http/1.1".into()],
+        xhttp: XhttpConfig::new("/xh", XHTTP_HOST, XhttpMode::Auto),
+    }));
+    let mut split_reality = XhttpConfig::new("/xh", "", XhttpMode::Auto);
+    split_reality.download = Some(Arc::new(DownloadSettings {
+        server: local(reality),
+        security: reality_xray(public_key),
+        alpn: Vec::new(),
+        xhttp: XhttpConfig::new("/xh", "", XhttpMode::Auto),
+    }));
+
+    for (what, outbound) in [
+        ("h3 packet-up", Outbound::Vless(Box::new(h3))),
+        ("h3 stream-one", Outbound::Vless(Box::new(h3_stream))),
+        (
+            "h2 placements and tokenish",
+            vless_xh(custom, pinned(), Transport::Xhttp(Box::new(placed))),
+        ),
+        (
+            "http/1.1 cookies and GET",
+            vless_xh(cookie, Security::None, Transport::Xhttp(Box::new(cookies))),
+        ),
+        (
+            "http/1.1 stream-one",
+            vless_xh(plain, Security::None, xh("", XhttpMode::StreamOne)),
+        ),
+        (
+            "http/1.1 stream-up",
+            vless_xh(plain, Security::None, xh("", XhttpMode::StreamUp)),
+        ),
+        (
+            "download over http/1.1",
+            vless_xh(tls, pinned(), Transport::Xhttp(Box::new(split))),
+        ),
+        (
+            "reality download stream-up",
+            vless_xh(
+                reality,
+                reality_xray(public_key),
+                Transport::Xhttp(Box::new(split_reality)),
+            ),
+        ),
+        (
+            "http/1.1 packet-up",
+            vless_xh(plain, Security::None, xh("", XhttpMode::Auto)),
+        ),
+        (
+            "http/1.1 small posts",
+            vless_xh(
+                plain,
+                Security::None,
+                Transport::Xhttp(Box::new(small_posts)),
+            ),
+        ),
+        (
+            "tls http/1.1 packet-up",
+            Outbound::Vless(Box::new(h1_over_tls)),
+        ),
+        (
+            "tls h2 packet-up",
+            vless_xh(tls, pinned(), xh(XHTTP_HOST, XhttpMode::Auto)),
+        ),
+        (
+            "tls h2 stream-up",
+            vless_xh(tls, pinned(), xh(XHTTP_HOST, XhttpMode::StreamUp)),
+        ),
+        (
+            "tls h2 stream-one",
+            vless_xh(tls, pinned(), xh(XHTTP_HOST, XhttpMode::StreamOne)),
+        ),
+        (
+            "reality stream-one",
+            vless_xh(reality, reality_xray(public_key), xh("", XhttpMode::Auto)),
+        ),
+        (
+            "reality packet-up",
+            vless_xh(
+                reality,
+                reality_xray(public_key),
+                xh("", XhttpMode::PacketUp),
+            ),
+        ),
+        (
+            "trojan tls h2",
+            with_transport(
+                Outbound::Trojan(Box::new(TrojanConfig::new(
+                    local(trojan),
+                    TROJAN_PASSWORD,
+                    pinned(),
+                ))),
+                xh(XHTTP_HOST, XhttpMode::Auto),
+            ),
+        ),
+    ] {
+        let engine = start(outbound).await;
+        echo_three(engine.local_addr(), echo).await;
+        assert_server_speaks_first(&engine, greeting).await;
+        eprintln!("xhttp {what}: ok");
+    }
+
+    // Чужое имя (`host`) сервер не пускает: 404 вместо сессии.
+    assert_no_echo(
+        vless_xh(tls, pinned(), xh("other.test", XhttpMode::Auto)),
+        echo,
+        "wrong host",
+    )
+    .await;
+}
+
+fn reality_xray(public_key: [u8; 32]) -> Security {
+    Security::Reality(RealityConfig::new(DEST_NAME, public_key, SHORT_ID).unwrap())
 }

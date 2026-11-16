@@ -4,7 +4,7 @@
 `gorion-engine` (ADR-0005), как его проверять и что осталось. Обновляйте его
 вместе с [PLAN.md](PLAN.md) и [parity.md](parity.md).
 
-Состояние на 2026-11-12, ветка `native-port`.
+Состояние на 2026-11-16, ветка `native-port`.
 
 ## Главное
 
@@ -30,18 +30,26 @@
 - Вход: локальный SOCKS5/HTTP (`mixed`) и Clash API (то, что нужно ядру:
   `/version`, `/proxies`, выбор сервера, задержка, `/traffic`).
 - Протоколы: Shadowsocks AEAD и 2022, Trojan, VLESS (TLS, REALITY, Vision),
+  Hysteria2 (QUIC, salamander, `server_ports` и смена порта по `hop_interval`;
+  TCP и UDP), direct.
+- Транспорты: TCP, WebSocket, HTTPUpgrade, gRPC (gun), XHTTP из Xray
+  (packet-up, stream-up, stream-one; HTTP/3, HTTP/2 и HTTP/1.1;
+  `downloadSettings`, обфускация паддинга, размещения сессии, номера и
+  данных, свой метод). XHTTP в настройках — `{"type": "xhttp", …}` с полями Xray в snake_case
+  (см. `core/crates/gorion-core/src/parser/xhttp.rs`).
+- UDP: вход SOCKS5 UDP ASSOCIATE и TUN; через сервер — только Hysteria2 и
   direct.
-- Транспорты: TCP, WebSocket, HTTPUpgrade, gRPC (gun).
 - TLS: свой клиент TLS 1.3, ClientHello как у Chrome, проверка цепочки
   (webpki), сжатые сертификаты.
 - TUN (только macOS, первый срез): utun, маршруты как у sing-tun; TCP идёт
   через NAT в ядро macOS (системный стек); DNS на порт 53 уходит через
-  выбранный сервер по DoH на 1.1.1.1; остальной UDP получает «порт
-  недоступен». Код: `core/crates/gorion-engine/src/tun/`.
+  выбранный сервер по DoH на 1.1.1.1; остальной UDP идёт через сервер, если
+  тот умеет UDP, иначе — «порт недоступен». Код: `core/crates/gorion-engine/src/tun/`.
 
 ## Как проверять
 
-Все команды — в разделе «Команды» AGENTS.md.
+Все команды — в разделе «Команды» AGENTS.md. Сквозные тесты: Hysteria2 —
+против sing-box (`GORION_SINGBOX`), XHTTP — против Xray (`GORION_XRAY`).
 
 1. Собрать: `core/scripts/build-xcframework.sh debug`, затем `xcodegen` и
    `xcodebuild`.
@@ -67,8 +75,13 @@
   - что маршруты пропадают после `kill -9` движка — маршруты живут, пока жив
     utun.
 - Настоящие серверы из подписок владельца на движке (проверялись только
-  локальные серверы sing-box).
-- Серверы Xray и CDN-фронтинг вживую.
+  локальные серверы sing-box и Xray).
+- XHTTP через настоящий CDN (Cloudflare и др.) и Hysteria2 на настоящем
+  сервере (в том числе HTTP/3, `downloadSettings` и смена порта); Hysteria2
+  и XHTTP в самом приложении (проверялись тестами и процессом
+  `gorion-engine`).
+- UDP в TUN вживую (QUIC браузера, звонки через Hysteria2): проверен только
+  тестом ретранслятора без устройства.
 
 ## Что доделать — по порядку
 
@@ -77,12 +90,14 @@
      TCP по IPv6 отклоняется;
    - физический интерфейс опрашивается раз в 5 с;
    - имена серверов разрешаются один раз при подъёме туннеля и не обновляются.
-2. **UDP через сервер**: UDP в Shadowsocks, Trojan и VLESS (XUDP/mux у
-   VLESS), затем UDP в TUN вместо «порт недоступен». Без этого не работают
-   QUIC/HTTP3, игры, звонки.
-3. **Протоколы, которых нет**: Hysteria2 и TUIC (QUIC через quinn), AnyTLS,
-   VMess. Сейчас профиль, где есть хоть один такой сервер, целиком получает
-   `EngineUnsupported`.
+2. **UDP через другие протоколы**: Shadowsocks, Trojan и VLESS (XUDP/mux у
+   VLESS). Вход SOCKS5 и TUN уже готовы (`src/udp.rs`, `src/tun/udp.rs`):
+   нужен вариант `UdpSession` для протокола. Без этого через них не
+   работают QUIC/HTTP3, игры, звонки.
+3. **Протоколы, которых нет**: TUIC (QUIC уже есть — quinn, как у
+   Hysteria2), AnyTLS, VMess. Сейчас профиль, где есть хоть один такой
+   сервер, целиком получает `EngineUnsupported`. У Hysteria2 нет Brutal
+   (скорости `up_mbps`/`down_mbps`), перегрузкой управляет BBR.
 4. **Отбор серверов вместо отказа всего профиля**: сейчас один непонятный
    сервер — отказ всему профилю. Лучше пропускать такие серверы при сборке
    конфигурации и показывать, что их нет.

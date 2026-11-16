@@ -5,12 +5,14 @@
 //! по DNS-over-HTTPS (`dns.rs`). Сокеты движка к серверам привязаны к
 //! физическому интерфейсу (`netbind`), чтобы не уйти в собственный туннель.
 //!
-//! Пока не передаются: UDP, кроме DNS, и ICMP (ping).
+//! UDP приложений — через маршрут, если он передаёт UDP (`udp.rs`), иначе
+//! «порт недоступен». Пока не передаётся ICMP (ping).
 
 pub mod dns;
 pub mod nat;
 pub mod packet;
 pub mod stack;
+pub mod udp;
 
 #[cfg(target_os = "macos")]
 mod device;
@@ -120,7 +122,8 @@ mod macos {
     use super::device::{Device, PREFIX};
     use super::dns::{DohClient, fit_response};
     use super::nat::SESSION_TIMEOUT;
-    use super::stack::{Family, Stack, Verdict};
+    use super::stack::{Family, Stack, Verdict, refuse_udp};
+    use super::udp::{IDLE_TIMEOUT, UdpRelay};
     use super::*;
     use crate::address::TargetAddr;
     use crate::error::EngineError;
@@ -133,6 +136,8 @@ mod macos {
     const V6_LISTEN_ATTEMPTS: u32 = 30;
     /// Одновременных запросов DNS, дальше — отбрасываем.
     const MAX_DNS_IN_FLIGHT: usize = 512;
+    /// Очередь ответов UDP в туннель.
+    const UDP_REPLIES: usize = 4096;
 
     pub async fn start(
         config: &TunConfig,
@@ -204,9 +209,20 @@ mod macos {
             )));
         }
         let doh = Arc::new(DohClient::new(config.dns.clone(), Arc::clone(&selector)));
-        handle
-            .tasks
-            .push(tokio::spawn(packet_loop(Arc::clone(&device), stack, doh)));
+        let (replies, udp_replies) = tokio::sync::mpsc::channel(UDP_REPLIES);
+        let udp = UdpRelay::new(
+            Arc::clone(&selector),
+            Arc::clone(&traffic),
+            replies,
+            IDLE_TIMEOUT,
+        );
+        handle.tasks.push(tokio::spawn(packet_loop(
+            Arc::clone(&device),
+            stack,
+            doh,
+            udp,
+            udp_replies,
+        )));
         handle.tasks.push(tokio::spawn(watch_interface(index)));
 
         if config.auto_route {
@@ -253,7 +269,13 @@ mod macos {
         }
     }
 
-    async fn packet_loop(device: Arc<Device>, stack: Arc<Stack>, doh: Arc<DohClient>) {
+    async fn packet_loop(
+        device: Arc<Device>,
+        stack: Arc<Stack>,
+        doh: Arc<DohClient>,
+        mut udp: UdpRelay,
+        mut udp_replies: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    ) {
         let mut buf = vec![0u8; PREFIX + usize::from(u16::MAX)];
         let mut sweep = tokio::time::interval(NAT_SWEEP);
         let mut dns_tasks = JoinSet::new();
@@ -275,7 +297,17 @@ mod macos {
                         continue;
                     }
                     let packet = &mut buf[PREFIX..n];
-                    let sent = match stack.process(packet, Instant::now()) {
+                    let verdict = match stack.process(packet, Instant::now()) {
+                        Verdict::Udp { client, server, payload } => {
+                            if udp.send(client, server, payload) {
+                                Verdict::Drop
+                            } else {
+                                refuse_udp(packet)
+                            }
+                        }
+                        other => other,
+                    };
+                    let sent = match verdict {
                         Verdict::Forward(end) => device.send(&packet[..end]).await,
                         Verdict::Reply(reply) => device.send(&reply).await,
                         Verdict::Dns { client, server, query } => {
@@ -290,13 +322,22 @@ mod macos {
                             }
                             Ok(())
                         }
-                        Verdict::Drop => Ok(()),
+                        Verdict::Udp { .. } | Verdict::Drop => Ok(()),
                     };
                     if let Err(error) = sent {
                         tracing::debug!(%error, "tun: write failed");
                     }
                 }
-                _ = sweep.tick() => stack.expire(Instant::now()),
+                Some(reply) = udp_replies.recv() => {
+                    if let Err(error) = device.send(&reply).await {
+                        tracing::debug!(%error, "tun: udp reply failed");
+                    }
+                }
+                _ = sweep.tick() => {
+                    stack.expire(Instant::now());
+                    udp.sweep();
+                }
+                () = udp.reap() => {}
                 Some(_) = dns_tasks.join_next(), if !dns_tasks.is_empty() => {}
             }
         }

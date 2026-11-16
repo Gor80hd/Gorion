@@ -67,9 +67,9 @@ pub async fn pin_hosts<'a>(hosts: impl IntoIterator<Item = &'a str>) {
     }
 }
 
-/// TCP-подключение: адреса по очереди, пока одно не удастся.
-pub async fn connect(target: &TargetAddr) -> io::Result<TcpStream> {
-    let addresses: Vec<SocketAddr> = match target {
+/// Адреса цели: закреплённые до туннеля или от системного резолвера.
+pub async fn resolve(target: &TargetAddr) -> io::Result<Vec<SocketAddr>> {
+    Ok(match target {
         TargetAddr::Ip(addr) => vec![*addr],
         TargetAddr::Domain(host, port) => match pinned(host) {
             Some(ips) => ips
@@ -80,7 +80,52 @@ pub async fn connect(target: &TargetAddr) -> io::Result<TcpStream> {
                 .await?
                 .collect(),
         },
+    })
+}
+
+/// UDP-сокет для QUIC к `peer`: того же семейства адресов и, в режиме TUN,
+/// привязанный к физическому интерфейсу.
+pub fn udp_socket(peer: SocketAddr) -> io::Result<std::net::UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = Socket::new(Domain::for_address(peer), Type::DGRAM, Some(Protocol::UDP))?;
+    if let Some(interface) = bound_interface().filter(|_| !peer.ip().is_loopback()) {
+        bind_udp_device(&socket, peer, interface)?;
+    }
+    let any: SocketAddr = if peer.is_ipv4() {
+        (std::net::Ipv4Addr::UNSPECIFIED, 0).into()
+    } else {
+        (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
     };
+    socket.bind(&any.into())?;
+    socket.set_nonblocking(true)?;
+    Ok(socket.into())
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn bind_udp_device(
+    socket: &socket2::Socket,
+    peer: SocketAddr,
+    interface: NonZeroU32,
+) -> io::Result<()> {
+    if peer.is_ipv4() {
+        socket.bind_device_by_index_v4(Some(interface))
+    } else {
+        socket.bind_device_by_index_v6(Some(interface))
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn bind_udp_device(
+    _socket: &socket2::Socket,
+    _peer: SocketAddr,
+    _interface: NonZeroU32,
+) -> io::Result<()> {
+    Ok(())
+}
+
+/// TCP-подключение: адреса по очереди, пока одно не удастся.
+pub async fn connect(target: &TargetAddr) -> io::Result<TcpStream> {
+    let addresses = resolve(target).await?;
     let mut last = None;
     for addr in addresses {
         match connect_addr(addr).await {

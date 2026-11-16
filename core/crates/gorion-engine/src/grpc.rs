@@ -81,7 +81,7 @@ fn authority(server: &TargetAddr, security: &Security) -> String {
 }
 
 /// Поток TLS (свои половины) как один `AsyncRead + AsyncWrite` для h2.
-fn bridge(mut down: stream::Down, mut up: stream::Up) -> tokio::io::DuplexStream {
+pub(crate) fn bridge(mut down: stream::Down, mut up: stream::Up) -> tokio::io::DuplexStream {
     let (ours, theirs) = tokio::io::duplex(BRIDGE_BUFFER);
     let (mut read, mut write) = tokio::io::split(theirs);
     tokio::spawn(async move {

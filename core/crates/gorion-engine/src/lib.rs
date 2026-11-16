@@ -1,18 +1,21 @@
 //! Движок подключения Gorion (ADR-0005): локальный вход, маршрутизатор и
 //! исходящие протоколы на своём коде. Входы — локальный SOCKS5/HTTP и TUN
 //! (macOS); протоколы — Shadowsocks (AEAD и 2022), Trojan, VLESS (REALITY,
-//! Vision) поверх TCP, TLS, WebSocket, HTTPUpgrade и gRPC.
+//! Vision) поверх TCP, TLS, WebSocket, HTTPUpgrade, gRPC и XHTTP; Hysteria2
+//! поверх QUIC, с UDP и сменой портов.
 
 pub mod address;
 pub mod config;
 pub mod control;
 pub mod error;
 pub mod grpc;
+pub mod hysteria2;
 pub mod inbound;
 pub mod netbind;
 pub mod outbound;
 pub mod reality;
 pub mod relay;
+pub mod salamander;
 pub mod selector;
 pub mod shadowsocks;
 pub mod shadowsocks2022;
@@ -21,9 +24,12 @@ pub mod tls;
 pub mod transport;
 pub mod trojan;
 pub mod tun;
+pub mod udp;
+pub mod udphop;
 pub mod urltest;
 pub mod vision;
 pub mod vless;
+pub mod xhttp;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -33,13 +39,14 @@ use tokio::task::JoinHandle;
 
 pub use address::TargetAddr;
 pub use error::{EngineError, Result};
+pub use hysteria2::Hysteria2Config;
 pub use outbound::Outbound;
 pub use reality::RealityConfig;
 pub use selector::{Selector, Traffic};
 pub use shadowsocks::{Method, ShadowsocksConfig};
 pub use shadowsocks2022::{Method as Ss2022Method, Ss2022Config};
 pub use tls::TlsConfig;
-pub use transport::{GrpcConfig, Transport, UpgradeConfig, WsConfig};
+pub use transport::{GrpcConfig, Transport, UpgradeConfig, WsConfig, XhttpConfig};
 pub use trojan::TrojanConfig;
 pub use vless::{Flow, Security, VlessConfig};
 
